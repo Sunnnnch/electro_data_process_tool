@@ -423,6 +423,25 @@
                     </div>
                   </div>
                 </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-cv-quality-check" type="checkbox" checked><span data-i18n="enable_quality_check">启用数据质量检测</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-cv-quality-check">
+                    <div class="field-grid two">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-quality-min-points-warning" data-i18n="label_cv_quality_min_points_warning">最少点数（警告）</label>
+                        <input id="pro-cv-quality-min-points-warning" type="text" data-i18n-title="title_cv_quality_min_points_warning" title="低于该点数时给出质量警告。" value="100">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-quality-cycle-tolerance" data-i18n="label_cv_quality_cycle_tolerance">循环闭合容差 (V)</label>
+                        <input id="pro-cv-quality-cycle-tolerance" type="text" data-i18n-title="title_cv_quality_cycle_tolerance" title="起始与终止电位差值大于该容差时判为循环不完整。" value="0.1">
+                        <div class="param-tip" data-i18n="tip_cv_quality_config">默认阈值适合常规 CV；若扫描窗口较大或噪声偏高，可适度放宽。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </section>
 
               <section class="dtype-panel hidden" data-dtype="EIS">

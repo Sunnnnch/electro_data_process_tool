@@ -25,6 +25,10 @@ class DataQualityChecker:
         "jump_ratio_critical": 0.20,
         "local_variation_factor": 8.0,
     }
+    DEFAULT_CV_CONFIG: Dict[str, Any] = {
+        "min_points_warning": 100,
+        "cycle_completion_tolerance": 0.1,
+    }
 
     @classmethod
     def normalize_lsv_config(cls, raw_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -60,6 +64,31 @@ class DataQualityChecker:
             float(config["jump_ratio_warning"]),
         )
         config["local_variation_factor"] = max(float(config["local_variation_factor"]), 1.0)
+        return config
+
+    @classmethod
+    def normalize_cv_config(cls, raw_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Merge user-supplied CV quality thresholds with defaults."""
+        config = dict(cls.DEFAULT_CV_CONFIG)
+        if not isinstance(raw_config, dict):
+            return config
+
+        for key, default_value in cls.DEFAULT_CV_CONFIG.items():
+            raw_value = raw_config.get(key)
+            if raw_value in (None, ""):
+                continue
+            try:
+                parsed = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if parsed < 0:
+                continue
+            if isinstance(default_value, int):
+                parsed = int(parsed)
+            config[key] = parsed
+
+        config["min_points_warning"] = max(int(config["min_points_warning"]), 1)
+        config["cycle_completion_tolerance"] = max(float(config["cycle_completion_tolerance"]), 0.0)
         return config
     
     @staticmethod
@@ -389,7 +418,11 @@ class DataQualityChecker:
             }
     
     @staticmethod
-    def check_cv_data(df: pd.DataFrame, file_name: str = "") -> Dict[str, Any]:
+    def check_cv_data(
+        df: pd.DataFrame,
+        file_name: str = "",
+        config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Check CV (Cyclic Voltammetry) data quality.
         
         Args:
@@ -403,23 +436,27 @@ class DataQualityChecker:
         issues = []
         warnings = []
         suggestions = []
+        quality_config = DataQualityChecker.normalize_cv_config(config)
         
         try:
             # CV specific checks
-            if len(df) < 50:
-                warnings.append(f"CV数据点较少 ({len(df)}点)，建议 ≥100点")
+            min_points_warning = int(quality_config["min_points_warning"])
+            if len(df) < min_points_warning:
+                warnings.append(f"CV数据点较少 ({len(df)}点)，建议 ≥{min_points_warning}点")
             
             # Check for cycle completion (data should return near starting point)
             if len(df) > 10:
                 start_pot = df.iloc[0]['Potential'] if 'Potential' in df.columns else df.iloc[0].iloc[0]
                 end_pot = df.iloc[-1]['Potential'] if 'Potential' in df.columns else df.iloc[-1].iloc[0]
-                if abs(start_pot - end_pot) > 0.1:
+                tolerance = float(quality_config["cycle_completion_tolerance"])
+                if abs(start_pot - end_pot) > tolerance:
                     warnings.append(f"CV循环不完整: 起始({start_pot:.3f}V) vs 终止({end_pot:.3f}V)")
                     suggestions.append("检查扫描参数确保完成完整循环")
             
             stats = {
                 'file_name': file_name,
                 'data_points': len(df),
+                'quality_config': quality_config,
                 'is_valid': len(issues) == 0
             }
             

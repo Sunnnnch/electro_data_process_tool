@@ -82,6 +82,8 @@ const TEMPLATE_VALUE_IDS = [
   "pro-cv-peaks-height",
   "pro-cv-peaks-dist",
   "pro-cv-peaks-max",
+  "pro-cv-quality-min-points-warning",
+  "pro-cv-quality-cycle-tolerance",
   "pro-eis-match",
   "pro-eis-prefix",
   "pro-eis-title",
@@ -115,6 +117,7 @@ const TEMPLATE_CHECK_IDS = [
   "pro-lsv-onset-enabled",
   "pro-lsv-halfwave-enabled",
   "pro-cv-peaks-enabled",
+  "pro-cv-quality-check",
   "pro-eis-plot-nyquist",
   "pro-eis-plot-bode",
   "pro-ecsa-avg-last-n",
@@ -265,6 +268,8 @@ const I18N = {
     label_cv_peaks_height: "最小峰高",
     label_cv_peaks_dist: "最小峰间距",
     label_cv_peaks_max: "最大峰数",
+    label_cv_quality_min_points_warning: "最少点数（警告）",
+    label_cv_quality_cycle_tolerance: "循环闭合容差 (V)",
     tip_lsv_target: "推荐：常用 10,100；多个值用逗号分隔。",
     tip_lsv_tafel: "推荐：先从 1-10 开始；必须按你的线性区调整，不建议机械套用。",
     tip_lsv_ir_manual: "仅在已有可靠 Rs 时填写；常见量级约 0.1-10 Ohm。",
@@ -277,6 +282,7 @@ const I18N = {
     tip_cv_peaks_height: "推荐：先从 0.5-2.0 开始，再按噪声水平微调。",
     tip_cv_peaks_dist: "推荐：5-20 个点；采样越密，通常需要更大的间距。",
     tip_cv_peaks_max: "常用：2-4；设置过大会把噪声也识别成峰。",
+    tip_cv_quality_config: "默认阈值适合常规 CV；若扫描窗口较大或噪声偏高，可适度放宽。",
     tip_ecsa_ev: "常见：0.05-0.10 V；必须与你的测试流程保持一致。",
     tip_ecsa_last_n: "常用：1-3 圈；如果前几圈明显活化，建议只取后几圈。",
     tip_ecsa_cs_value: "常见：20-60 uF/cm2；务必与材料体系和文献口径一致。",
@@ -522,6 +528,8 @@ const I18N = {
     title_halfwave_current: "半波电位对应电流阈值，不填则按算法估计。",
     title_cv_peaks_smooth: "平滑窗口，增大可抑制噪声但会钝化峰形。",
     title_cv_peaks_height: "峰最小高度阈值，过低会引入噪声峰。",
+    title_cv_quality_min_points_warning: "低于该点数时给出质量警告。",
+    title_cv_quality_cycle_tolerance: "起始与终止电位差值大于该容差时判为循环不完整。",
     title_cv_peaks_dist: "相邻峰最小距离，防止单个峰被重复识别。",
     title_ecsa_ev: "电位扫描速率差或步进相关参数（依实验方案定义）。",
     title_ecsa_last_n: "取最后 N 圈用于计算，建议排除前几圈活化段。",
@@ -716,6 +724,8 @@ const I18N = {
     label_cv_peaks_height: "Minimum peak height",
     label_cv_peaks_dist: "Minimum peak distance",
     label_cv_peaks_max: "Maximum peaks",
+    label_cv_quality_min_points_warning: "Min points (warn)",
+    label_cv_quality_cycle_tolerance: "Cycle closure tolerance (V)",
     tip_lsv_target: "Recommended: common values are 10 and 100; separate multiple values with commas.",
     tip_lsv_tafel: "Recommended: start from 1-10, then adjust to your actual linear region.",
     tip_lsv_ir_manual: "Fill this only when you already have a reliable Rs value; common magnitude is about 0.1-10 Ohm.",
@@ -728,6 +738,7 @@ const I18N = {
     tip_cv_peaks_height: "Recommended: start from 0.5-2.0, then tune based on noise level.",
     tip_cv_peaks_dist: "Recommended: 5-20 points; denser sampling often needs larger spacing.",
     tip_cv_peaks_max: "Common: 2-4; setting this too high may classify noise as peaks.",
+    tip_cv_quality_config: "Defaults fit typical CV runs; relax them slightly for wider windows or noisier datasets.",
     tip_ecsa_ev: "Common: 0.05-0.10 V; keep it consistent with your test protocol.",
     tip_ecsa_last_n: "Common: 1-3 cycles; use later cycles if the early ones show activation.",
     tip_ecsa_cs_value: "Common: 20-60 uF/cm2; align it with your material system and literature basis.",
@@ -973,6 +984,8 @@ const I18N = {
     title_halfwave_current: "Current threshold for half-wave potential; blank uses auto estimation.",
     title_cv_peaks_smooth: "Smoothing window; larger values suppress noise but may flatten peaks.",
     title_cv_peaks_height: "Minimum peak height threshold; too low may include noise peaks.",
+    title_cv_quality_min_points_warning: "Warn when point count is below this value.",
+    title_cv_quality_cycle_tolerance: "Warn when start/end potential difference exceeds this tolerance.",
     title_cv_peaks_dist: "Minimum distance between peaks to avoid duplicate detection.",
     title_ecsa_ev: "Potential-step or scan related value (defined by your method).",
     title_ecsa_last_n: "Use the last N cycles; exclude activation cycles when needed.",
@@ -1195,6 +1208,10 @@ function collectProcessValidationErrors(dataTypes) {
       addError(validateNumericField("pro-cv-peaks-height", t("label_cv_peaks_height"), { min: 0 }));
       addError(validateNumericField("pro-cv-peaks-dist", t("label_cv_peaks_dist"), { min: 1, max: 10000, integerOnly: true }));
       addError(validateNumericField("pro-cv-peaks-max", t("label_cv_peaks_max"), { min: 1, max: 1000, integerOnly: true }));
+    }
+    if (boolValue("pro-cv-quality-check")) {
+      addError(validateNumericField("pro-cv-quality-min-points-warning", t("label_cv_quality_min_points_warning"), { min: 1, max: 100000, integerOnly: true }));
+      addError(validateNumericField("pro-cv-quality-cycle-tolerance", t("label_cv_quality_cycle_tolerance"), { min: 0, max: 100 }));
     }
   }
 
@@ -4031,6 +4048,7 @@ function collectProcessPayload() {
     addIfSet(params, "cv_xlabel", textValue("pro-cv-xlabel"));
     addIfSet(params, "cv_ylabel", textValue("pro-cv-ylabel"));
     addIfSet(params, "cv_line_width", numberValue("pro-cv-line-width"));
+    params.cv_quality_check = boolValue("pro-cv-quality-check");
     const cvPeaksEnabled = boolValue("pro-cv-peaks-enabled");
     params.cv_peaks_enabled = cvPeaksEnabled;
     if (cvPeaksEnabled) {
@@ -4038,6 +4056,10 @@ function collectProcessPayload() {
       addIfSet(params, "cv_peaks_min_height", numberValue("pro-cv-peaks-height"));
       addIfSet(params, "cv_peaks_min_dist", numberValue("pro-cv-peaks-dist"));
       addIfSet(params, "cv_peaks_max", numberValue("pro-cv-peaks-max"));
+    }
+    if (params.cv_quality_check) {
+      addIfSet(params, "cv_quality_min_points_warning", numberValue("pro-cv-quality-min-points-warning"));
+      addIfSet(params, "cv_quality_cycle_tolerance", numberValue("pro-cv-quality-cycle-tolerance"));
     }
   }
 
