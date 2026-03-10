@@ -1,0 +1,9 @@
+pyinstaller==6.17.0
+numpy
+pandas
+matplotlib
+scipy
+openpyxl
+requests
+openai
+pywebview
