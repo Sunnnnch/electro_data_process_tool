@@ -1,0 +1,939 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电化学数据处理工作台 ElectroChem v6 Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/static/styles.css">
+</head>
+<body>
+  <div class="bg-layer"></div>
+  <main class="shell">
+    <header class="hero">
+      <div class="hero-top">
+        <p class="badge" data-i18n="badge">电化学数据处理软件V6.0.1</p>
+        <div class="hero-controls">
+          <button id="help-docs-btn" class="hero-ghost-btn" type="button" data-i18n="btn_help_docs">&#20351;&#29992;&#35828;&#26126;</button>
+          <button id="sys-status-btn" class="sys-status pending" type="button">
+            <span class="dot"></span>
+            <span id="sys-status-text" data-i18n="health_checking">检测中...</span>
+          </button>
+          <div class="lang-wrap">
+            <label for="lang-select" data-i18n="lang_label">语言</label>
+            <select id="lang-select" class="lang-select">
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <h1 data-i18n="hero_title">电化学数据处理工作台</h1>
+      <p class="sub" data-i18n="hero_sub">面向电化学实验的专业数据工作台，提供多类型批处理、项目管理与 AI 辅助分析。</p>
+    </header>
+
+    <section class="tabs-shell">
+      <button id="tab-btn-pro" class="tab-btn active" data-tab="pro" data-i18n="tab_pro">专业模式</button>
+      <button id="tab-btn-ai" class="tab-btn" data-tab="ai" data-i18n="tab_ai">AI 对话模式</button>
+      <button id="tab-btn-project" class="tab-btn" data-tab="project" data-i18n="tab_project">项目管理</button>
+    </section>
+
+    <section id="tab-pro" class="tab-panel active">
+      <section class="pro-grid">
+        <article class="card">
+          <div class="section-head">
+            <h2 data-i18n="proc_title">专业数据处理</h2>
+          </div>
+          <details class="mode-help">
+            <summary data-i18n="guide_pro_summary">专业模式使用说明</summary>
+            <div class="mode-help-body">
+              <p data-i18n="guide_pro_intro">用于批量处理 LSV/CV/EIS/ECSA 数据，建议先用默认参数跑通再做细调。</p>
+              <ol>
+                <li data-i18n="guide_pro_step1">先选择数据文件夹和项目名称，再勾选处理类型（支持多选）。</li>
+                <li data-i18n="guide_pro_step2">按需调整高级参数：文件匹配策略、iR 补偿、峰检测、ECSA 常数等。</li>
+                <li data-i18n="guide_pro_step3">运行后到“统计与历史”查看记录，并在“处理结果”中核对输出文件与质量摘要。</li>
+              </ol>
+            </div>
+          </details>
+
+          <div class="process-form">
+            <div class="template-head" data-i18n="template_title_optional">参数模板（可选）</div>
+            <div class="template-row">
+              <select id="tmpl-select" class="template-select">
+                <option value="">-</option>
+              </select>
+              <button id="tmpl-load" class="btn mini" type="button" data-i18n="btn_template_load">加载模板</button>
+              <input id="tmpl-name" type="text" data-i18n-placeholder="ph_template_name" placeholder="模板名称">
+              <button id="tmpl-save" class="btn mini" type="button" data-i18n="btn_template_save">保存模板</button>
+              <button id="tmpl-delete" class="btn mini" type="button" data-i18n="btn_template_delete">删除模板</button>
+            </div>
+            <div id="tmpl-status" class="send-status"></div>
+
+            <div class="folder-row">
+              <input id="proc-folder" type="text" data-i18n-placeholder="ph_proc_folder" placeholder="数据文件夹路径，例如 D:\\data\\demo">
+              <button id="proc-folder-pick" class="btn" type="button" data-i18n="btn_select_folder">选择文件夹</button>
+            </div>
+
+            <div class="field-grid two">
+              <select id="proc-project">
+                <option value="" data-i18n="proc_project_optional">不关联项目（可选）</option>
+              </select>
+              <div class="dtype-selector">
+                <span class="input-label" data-i18n="label_data_types">处理类型（可多选）</span>
+                <div class="dtype-checks">
+                  <label><input type="checkbox" class="proc-type-check" value="LSV" checked> LSV</label>
+                  <label><input type="checkbox" class="proc-type-check" value="CV"> CV</label>
+                  <label><input type="checkbox" class="proc-type-check" value="EIS"> EIS</label>
+                  <label><input type="checkbox" class="proc-type-check" value="ECSA"> ECSA</label>
+                </div>
+              </div>
+            </div>
+
+            <section id="proc-pro-panel" class="proc-subpanel">
+              <h4 data-i18n="pro_params">高级参数</h4>
+              <p class="param-note" data-i18n="pro_hint_intro">建议先使用默认值，只调整你确定含义的参数。</p>
+              <details class="param-help">
+                <summary data-i18n="pro_help_summary">参数说明（简版）</summary>
+                <ul>
+                  <li data-i18n="pro_help_line1">target_current: 目标电流点，支持逗号分隔多个值。</li>
+                  <li data-i18n="pro_help_line2">tafel_range: Tafel 拟合区间，常见格式如 1-10。</li>
+                  <li data-i18n="pro_help_line3">match/prefix: 文件匹配策略与前缀，用于自动识别数据文件。</li>
+                  <li data-i18n="pro_help_line4">iR 补偿参数仅在电阻信息可靠时启用。</li>
+                  <li data-i18n="pro_help_line5">ECSA 参数与测试流程强相关，建议和实验记录一致。</li>
+                </ul>
+              </details>
+
+              <div class="field-grid two">
+                <div class="input-item">
+                  <label class="input-label" for="pro-area" data-i18n="label_area">电极面积 (cm2)</label>
+                  <input id="pro-area" type="text" data-i18n-placeholder="ph_area" data-i18n-title="title_area" title="用于电流密度换算，单位 cm2。" placeholder="电极面积 cm2，默认 1.0">
+                </div>
+                <div class="input-item">
+                  <label class="input-label" for="pro-potential-mode" data-i18n="label_potential_mode">电位换算方式</label>
+                  <select id="pro-potential-mode" data-i18n-title="title_potential_mode" title="可选择手动偏移，或按参比电极与 pH 自动换算到 RHE。">
+                    <option value="manual" data-i18n="opt_potential_manual">手动偏移</option>
+                    <option value="formula_rhe" data-i18n="opt_potential_formula_rhe">按 RHE 公式换算</option>
+                  </select>
+                </div>
+              </div>
+              <div class="feature-block">
+                <div class="feature-head">
+                  <span class="input-label" data-i18n="potential_convert_title">电位换算设置</span>
+                  <span class="feature-tag" data-i18n="potential_convert_formula">E_RHE = E_measured + E_ref + 0.0591 × pH</span>
+                </div>
+                <div class="feature-body no-toggle">
+                  <div id="potential-manual-panel" class="field-grid two potential-panel">
+                    <div class="input-item">
+                      <label class="input-label" for="pro-offset" data-i18n="label_offset">手动电位偏移 (V)</label>
+                      <input id="pro-offset" type="text" data-i18n-placeholder="ph_offset" data-i18n-title="title_offset" title="整体电位平移量（V），正负号请按参考电极方向确认。" placeholder="电位偏移 V，默认 0.0">
+                    </div>
+                  </div>
+                  <div id="potential-rhe-panel" class="field-grid three potential-panel hidden">
+                    <div class="input-item">
+                      <label class="input-label" for="pro-rhe-ph" data-i18n="label_rhe_ph">pH</label>
+                      <input id="pro-rhe-ph" type="text" data-i18n-placeholder="ph_rhe_ph" data-i18n-title="title_rhe_ph" title="用于计算 0.0591 × pH 项。" placeholder="例如 13.6">
+                    </div>
+                    <div class="input-item">
+                      <label class="input-label" for="pro-ref-preset" data-i18n="label_ref_preset">参比电极</label>
+                      <select id="pro-ref-preset" data-i18n-title="title_ref_preset" title="选择常见参比电极，或使用自定义电位。">
+                        <option value="agcl_sat_kcl" data-potential="0.197">Ag/AgCl (sat. KCl, +0.197 V)</option>
+                        <option value="agcl_3m_kcl" data-potential="0.210">Ag/AgCl (3 M KCl, +0.210 V)</option>
+                        <option value="sce" data-potential="0.241">SCE (+0.241 V)</option>
+                        <option value="hg_hgo_1m_koh" data-potential="0.098">Hg/HgO (1 M KOH, +0.098 V)</option>
+                        <option value="custom" data-i18n="opt_ref_custom">自定义</option>
+                      </select>
+                    </div>
+                    <div id="pro-ref-custom-wrap" class="input-item hidden">
+                      <label class="input-label" for="pro-ref-custom" data-i18n="label_ref_custom">自定义参比电位 (V)</label>
+                      <input id="pro-ref-custom" type="text" data-i18n-placeholder="ph_ref_custom" data-i18n-title="title_ref_custom" title="请输入参比电极相对 SHE 的电位。" placeholder="例如 0.197">
+                    </div>
+                  </div>
+                  <div id="potential-offset-preview" class="potential-offset-preview" data-i18n="potential_offset_preview_empty">当前未设置有效的换算偏移</div>
+                </div>
+              </div>
+
+              <div class="check-grid">
+                <label><input id="pro-auto-detect" type="checkbox" checked><span data-i18n="auto_detect">自动识别起点</span></label>
+                <label><input id="pro-plot-grid" type="checkbox" checked><span data-i18n="plot_grid">绘图网格</span></label>
+                <label><input id="pro-use-abs-current" type="checkbox" checked><span data-i18n="abs_current">使用绝对电流</span></label>
+              </div>
+
+              <div class="feature-block">
+                <div class="feature-head">
+                  <span class="input-label" data-i18n="plot_settings">绘图与字体设置</span>
+                </div>
+                <div class="feature-body no-toggle">
+                  <div class="field-grid two">
+                    <div class="input-item">
+                      <label class="input-label" for="plot-font-family" data-i18n="label_font_family">字体</label>
+                      <select id="plot-font-family" data-i18n-title="title_font_family" title="仅对系统已安装字体生效，未安装会自动回退。">
+                        <option value="" data-i18n="font_default">默认（系统）</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Calibri">Calibri</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Cambria">Cambria</option>
+                        <option value="Microsoft YaHei">Microsoft YaHei</option>
+                        <option value="SimHei">SimHei</option>
+                        <option value="Noto Sans SC">Noto Sans SC</option>
+                      </select>
+                    </div>
+                    <div class="input-item">
+                      <label class="input-label" for="plot-font-size" data-i18n="label_font_size">字号</label>
+                      <input id="plot-font-size" type="text" data-i18n-placeholder="ph_font_size" data-i18n-title="title_font_size" title="用于图标题字体大小，建议 10-18。" placeholder="例如 12" value="12">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <section class="dtype-panel" data-dtype="LSV">
+                <h5>LSV</h5>
+                <div class="field-grid two">
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-target" data-i18n="label_target_current">目标电流</label>
+                    <input id="pro-lsv-target" type="text" data-i18n-placeholder="ph_target" data-i18n-title="title_target_current" title="输入一个或多个目标电流值，使用逗号分隔。" placeholder="目标电流，例如 10,100">
+                    <div class="param-tip" data-i18n="tip_lsv_target">推荐：常用 10,100；多个值用逗号分隔。</div>
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-tafel" data-i18n="label_tafel_range">Tafel 区间</label>
+                    <input id="pro-lsv-tafel" type="text" data-i18n-placeholder="ph_tafel" data-i18n-title="title_tafel_range" title="Tafel 拟合区间，建议与实验线性区一致。" placeholder="Tafel 范围，例如 1-10">
+                    <div class="param-tip" data-i18n="tip_lsv_tafel">推荐：先从 1-10 开始；必须按你的线性区调整，不建议机械套用。</div>
+                  </div>
+                  <div class="input-item match-mode-item">
+                    <label class="input-label" for="pro-lsv-match" data-i18n="label_match_mode_short">文件匹配方式</label>
+                    <select id="pro-lsv-match" data-i18n-title="title_match_mode" title="prefix 更稳健；contains 更宽松；regex 适合复杂命名。">
+                      <option value="prefix">prefix（前缀匹配）</option>
+                      <option value="contains">contains（包含匹配）</option>
+                      <option value="regex">regex（正则匹配）</option>
+                    </select>
+                  </div>
+                  <div class="input-item match-value-item">
+                    <label id="pro-lsv-prefix-label" class="input-label" for="pro-lsv-prefix" data-match-label="lsv">匹配值</label>
+                    <input id="pro-lsv-prefix" type="text" data-i18n-title="title_prefix" title="与 match 配合筛选文件，例如 LSV、CV、EIS 等。" placeholder="lsv_prefix，默认 LSV">
+                  </div>
+                </div>
+                <div class="field-grid two">
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-title" data-i18n="label_plot_title">图标题</label>
+                    <input id="pro-lsv-title" type="text" data-i18n-placeholder="ph_lsv_title" placeholder="LSV of {sample}" value="LSV of {sample}">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-line-width" data-i18n="label_line_width">线宽</label>
+                    <input id="pro-lsv-line-width" type="text" data-i18n-placeholder="ph_line_width" data-i18n-title="title_line_width" title="曲线线宽，建议 1.0-3.0。" placeholder="例如 2.0" value="2.0">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-xlabel" data-i18n="label_x_axis">X轴标题</label>
+                    <input id="pro-lsv-xlabel" type="text" data-i18n-placeholder="ph_lsv_xlabel" placeholder="Potential (V)" value="Potential (V)">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-lsv-ylabel" data-i18n="label_y_axis">Y轴标题</label>
+                    <input id="pro-lsv-ylabel" type="text" data-i18n-placeholder="ph_lsv_ylabel" placeholder="Current Density (mA/cm2)" value="Current Density (mA/cm2)">
+                  </div>
+                </div>
+                <div class="check-grid">
+                  <label><input id="pro-lsv-tafel-enabled" type="checkbox"><span data-i18n="enable_tafel">启用 Tafel 拟合</span></label>
+                  <label><input id="pro-lsv-mark-targets" type="checkbox" checked><span data-i18n="mark_targets">标记目标电流点</span></label>
+                  <label><input id="pro-lsv-export-data" type="checkbox"><span data-i18n="export_table">导出 LSV 数据表</span></label>
+                  <label><input id="pro-lsv-combine-all" type="checkbox"><span data-i18n="combine_curves">合并曲线</span></label>
+                  <label><input id="pro-lsv-export-tafel" type="checkbox"><span data-i18n="export_tafel_plot">导出 Tafel 图</span></label>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-lsv-quality-check" type="checkbox" checked><span data-i18n="enable_quality_check">启用数据质量检测</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-lsv-quality-check">
+                    <div class="field-grid two">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-min-points-issue" data-i18n="label_quality_min_points_issue">最少点数（失败）</label>
+                        <input id="pro-lsv-quality-min-points-issue" type="text" data-i18n-title="title_quality_min_points_issue" title="低于该点数时判为质量失败。" value="20">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-min-points-warning" data-i18n="label_quality_min_points_warning">最少点数（警告）</label>
+                        <input id="pro-lsv-quality-min-points-warning" type="text" data-i18n-title="title_quality_min_points_warning" title="低于该点数时给出警告，但仍允许处理。" value="50">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-outlier-warning-pct" data-i18n="label_quality_outlier_warning_pct">异常值比例警告 (%)</label>
+                        <input id="pro-lsv-quality-outlier-warning-pct" type="text" data-i18n-title="title_quality_outlier_warning_pct" title="异常值比例超过该百分比时给出警告。" value="10">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-min-potential-span" data-i18n="label_quality_min_potential_span">最小扫描范围 (V)</label>
+                        <input id="pro-lsv-quality-min-potential-span" type="text" data-i18n-title="title_quality_min_potential_span" title="电位扫描范围低于该值时给出警告。" value="0.1">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-noise-warning" data-i18n="label_quality_noise_warning">噪声警告阈值</label>
+                        <input id="pro-lsv-quality-noise-warning" type="text" data-i18n-title="title_quality_noise_warning" title="噪声水平高于该值时给出警告。" value="3.0">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-noise-critical" data-i18n="label_quality_noise_critical">噪声失败阈值</label>
+                        <input id="pro-lsv-quality-noise-critical" type="text" data-i18n-title="title_quality_noise_critical" title="噪声水平高于该值时判为失败。" value="7.0">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-jump-warning" data-i18n="label_quality_jump_warning">跳变比例警告</label>
+                        <input id="pro-lsv-quality-jump-warning" type="text" data-i18n-title="title_quality_jump_warning" title="突变点比例超过该值时给出警告，使用 0-1 小数。" value="0.10">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-jump-critical" data-i18n="label_quality_jump_critical">跳变比例失败</label>
+                        <input id="pro-lsv-quality-jump-critical" type="text" data-i18n-title="title_quality_jump_critical" title="突变点比例超过该值时判为失败，使用 0-1 小数。" value="0.20">
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-quality-local-factor" data-i18n="label_quality_local_factor">局部波动放大倍数</label>
+                        <input id="pro-lsv-quality-local-factor" type="text" data-i18n-title="title_quality_local_factor" title="局部波动超过平均水平的该倍数时给出警告。" value="8.0">
+                        <div class="param-tip" data-i18n="tip_lsv_quality_config">默认阈值适合常规 LSV；数据更嘈杂时可适度放宽，但建议保守调整。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-lsv-ir-enabled" type="checkbox"><span data-i18n="enable_ir">启用 iR 补偿</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-lsv-ir-enabled">
+                    <div class="field-grid two ir-grid">
+                      <div class="input-item ir-mode-item">
+                        <label class="input-label" for="pro-lsv-ir-method" data-i18n="label_ir_method">iR 模式</label>
+                        <select id="pro-lsv-ir-method" data-i18n-title="title_ir_method" title="auto 自动估计；manual 使用手动输入电阻。">
+                          <option value="auto">auto（自动）</option>
+                          <option value="manual">manual（手动）</option>
+                        </select>
+                      </div>
+                      <div class="input-item ir-value-item">
+                        <label class="input-label" for="pro-lsv-ir-manual" data-i18n="label_ir_manual">手动电阻（Ohm）</label>
+                        <input id="pro-lsv-ir-manual" type="text" data-i18n-title="title_ir_manual" title="手动补偿电阻值（Ohm），仅 manual 模式生效。" placeholder="ir_manual_ohm">
+                        <div class="param-tip" data-i18n="tip_lsv_ir_manual">仅在已有可靠 Rs 时填写；常见量级约 0.1-10 Ohm。</div>
+                      </div>
+                      <div class="input-item ir-value-item">
+                        <label class="input-label" for="pro-lsv-ir-points" data-i18n="label_ir_points">线性拟合点数</label>
+                        <input id="pro-lsv-ir-points" type="text" data-i18n-title="title_ir_points" title="用于线性拟合估计电阻的点数，过小会不稳定。" placeholder="ir_linear_points，默认 10">
+                        <div class="param-tip" data-i18n="tip_lsv_ir_points">推荐：8-20 个点；过小不稳定，过大可能跨出线性区。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-lsv-overpotential-enabled" type="checkbox"><span data-i18n="enable_overpotential">启用过电位</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-lsv-overpotential-enabled">
+                    <div class="field-grid two">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-eq-potential" data-i18n="label_eq_potential">平衡电位 (V)</label>
+                        <input id="pro-lsv-eq-potential" type="text" data-i18n-title="title_eq_potential" title="热力学平衡电位，用于计算目标电流点或 onset 的过电位。" placeholder="eq_potential (V)">
+                        <div class="param-tip" data-i18n="tip_lsv_eq_potential">仅在计算过电位时填写；HER 常用 0.0 vs RHE，OER 常用 1.23 vs RHE。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-lsv-onset-enabled" type="checkbox"><span data-i18n="enable_onset">启用 Onset</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-lsv-onset-enabled">
+                    <div class="field-grid two">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-onset-current" data-i18n="label_onset_current">Onset 电流阈值</label>
+                        <input id="pro-lsv-onset-current" type="text" data-i18n-title="title_onset_current" title="定义 onset 的阈值电流。" placeholder="onset_current，例如 1.0">
+                        <div class="param-tip" data-i18n="tip_lsv_onset_current">推荐：0.5-1.0 mA/cm2；阈值越低越容易受噪声影响。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-lsv-halfwave-enabled" type="checkbox"><span data-i18n="enable_halfwave">启用 Halfwave</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-lsv-halfwave-enabled">
+                    <div class="field-grid two">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-lsv-halfwave-current" data-i18n="label_halfwave_current">Halfwave 电流阈值</label>
+                        <input id="pro-lsv-halfwave-current" type="text" data-i18n-title="title_halfwave_current" title="半波电位对应电流阈值，不填则按算法估计。" placeholder="halfwave_current（可选）">
+                        <div class="param-tip" data-i18n="tip_lsv_halfwave_current">常用于 ORR；通常取扩散极限电流的一半，不确定时可留空自动估计。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="dtype-panel hidden" data-dtype="CV">
+                <h5>CV</h5>
+                <div class="field-grid two">
+                  <div class="input-item match-mode-item">
+                    <label class="input-label" for="pro-cv-match" data-i18n="label_match_mode_short">文件匹配方式</label>
+                    <select id="pro-cv-match">
+                      <option value="prefix">prefix（前缀匹配）</option>
+                      <option value="contains">contains（包含匹配）</option>
+                      <option value="regex">regex（正则匹配）</option>
+                    </select>
+                  </div>
+                  <div class="input-item match-value-item">
+                    <label id="pro-cv-prefix-label" class="input-label" for="pro-cv-prefix" data-match-label="cv">匹配值</label>
+                    <input id="pro-cv-prefix" type="text" placeholder="cv_prefix，默认 CV">
+                  </div>
+                </div>
+                <div class="field-grid two">
+                  <div class="input-item">
+                    <label class="input-label" for="pro-cv-title" data-i18n="label_plot_title">图标题</label>
+                    <input id="pro-cv-title" type="text" data-i18n-placeholder="ph_cv_title" placeholder="CV of {sample}" value="CV of {sample}">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-cv-line-width" data-i18n="label_line_width">线宽</label>
+                    <input id="pro-cv-line-width" type="text" data-i18n-placeholder="ph_line_width" data-i18n-title="title_line_width" title="曲线线宽，建议 1.0-3.0。" placeholder="例如 2.0" value="2.0">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-cv-xlabel" data-i18n="label_x_axis">X轴标题</label>
+                    <input id="pro-cv-xlabel" type="text" data-i18n-placeholder="ph_cv_xlabel" placeholder="Potential (V)" value="Potential (V)">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-cv-ylabel" data-i18n="label_y_axis">Y轴标题</label>
+                    <input id="pro-cv-ylabel" type="text" data-i18n-placeholder="ph_cv_ylabel" placeholder="Current (mA)" value="Current (mA)">
+                  </div>
+                </div>
+                <div class="feature-block">
+                  <div class="feature-head">
+                    <label><input id="pro-cv-peaks-enabled" type="checkbox"><span data-i18n="enable_peak">启用峰检测</span></label>
+                    <span class="feature-tag" data-i18n="enable_to_config">启用后可配置</span>
+                  </div>
+                  <div class="feature-body hidden" data-feature-toggle="pro-cv-peaks-enabled">
+                    <div class="field-grid three">
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-peaks-smooth" data-i18n="label_cv_peaks_smooth">平滑窗口</label>
+                        <input id="pro-cv-peaks-smooth" type="text" data-i18n-title="title_cv_peaks_smooth" title="平滑窗口，增大可抑制噪声但会钝化峰形。" placeholder="cv_peaks_smooth，默认 5">
+                        <div class="param-tip" data-i18n="tip_cv_peaks_smooth">推荐：5-15；噪声大时增大，但会让峰变钝。</div>
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-peaks-height" data-i18n="label_cv_peaks_height">最小峰高</label>
+                        <input id="pro-cv-peaks-height" type="text" data-i18n-title="title_cv_peaks_height" title="峰最小高度阈值，过低会引入噪声峰。" placeholder="cv_peaks_min_height，默认 1.0">
+                        <div class="param-tip" data-i18n="tip_cv_peaks_height">推荐：先从 0.5-2.0 开始，再按噪声水平微调。</div>
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-peaks-dist" data-i18n="label_cv_peaks_dist">最小峰间距</label>
+                        <input id="pro-cv-peaks-dist" type="text" data-i18n-title="title_cv_peaks_dist" title="相邻峰最小距离，防止单个峰被重复识别。" placeholder="cv_peaks_min_dist，默认 5">
+                        <div class="param-tip" data-i18n="tip_cv_peaks_dist">推荐：5-20 个点；采样越密，通常需要更大的间距。</div>
+                      </div>
+                      <div class="input-item">
+                        <label class="input-label" for="pro-cv-peaks-max" data-i18n="label_cv_peaks_max">最大峰数</label>
+                        <input id="pro-cv-peaks-max" type="text" placeholder="cv_peaks_max，默认 2">
+                        <div class="param-tip" data-i18n="tip_cv_peaks_max">常用：2-4；设置过大会把噪声也识别成峰。</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="dtype-panel hidden" data-dtype="EIS">
+                <h5>EIS</h5>
+                <div class="field-grid two">
+                  <div class="input-item match-mode-item">
+                    <label class="input-label" for="pro-eis-match" data-i18n="label_match_mode_short">文件匹配方式</label>
+                    <select id="pro-eis-match" data-i18n-title="title_match_mode" title="prefix 更稳健；contains 更宽松；regex 适合复杂命名。">
+                      <option value="prefix">prefix（前缀匹配）</option>
+                      <option value="contains">contains（包含匹配）</option>
+                      <option value="regex">regex（正则匹配）</option>
+                    </select>
+                  </div>
+                  <div class="input-item match-value-item">
+                    <label id="pro-eis-prefix-label" class="input-label" for="pro-eis-prefix" data-match-label="eis">匹配值</label>
+                    <input id="pro-eis-prefix" type="text" data-i18n-title="title_prefix" title="与 match 配合筛选文件，例如 LSV、CV、EIS 等。" placeholder="eis_prefix，默认 EIS">
+                  </div>
+                </div>
+                <div class="field-grid two">
+                  <div class="input-item">
+                    <label class="input-label" for="pro-eis-title" data-i18n="label_plot_title">图标题</label>
+                    <input id="pro-eis-title" type="text" data-i18n-placeholder="ph_eis_title" placeholder="EIS of {sample}" value="EIS of {sample}">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-eis-line-width" data-i18n="label_line_width">线宽</label>
+                    <input id="pro-eis-line-width" type="text" data-i18n-placeholder="ph_line_width" data-i18n-title="title_line_width" title="曲线线宽，建议 1.0-3.0。" placeholder="例如 2.0" value="2.0">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-eis-xlabel" data-i18n="label_x_axis">X轴标题</label>
+                    <input id="pro-eis-xlabel" type="text" data-i18n-placeholder="ph_eis_xlabel" placeholder="Z' (Ohm)" value="Z' (Ohm)">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-eis-ylabel" data-i18n="label_y_axis">Y轴标题</label>
+                    <input id="pro-eis-ylabel" type="text" data-i18n-placeholder="ph_eis_ylabel" placeholder="-Z'' (Ohm)" value="-Z'' (Ohm)">
+                  </div>
+                </div>
+                <div class="check-grid">
+                  <label><input id="pro-eis-plot-nyquist" type="checkbox" checked><span data-i18n="plot_nyquist">绘制 Nyquist</span></label>
+                  <label><input id="pro-eis-plot-bode" type="checkbox"><span data-i18n="plot_bode">绘制 Bode</span></label>
+                </div>
+              </section>
+
+              <section class="dtype-panel hidden" data-dtype="ECSA">
+                <h5>ECSA</h5>
+                <div class="field-grid three">
+                  <div class="input-item match-mode-item">
+                    <label class="input-label" for="pro-ecsa-match" data-i18n="label_match_mode_short">文件匹配方式</label>
+                    <select id="pro-ecsa-match" data-i18n-title="title_match_mode" title="prefix 更稳健；contains 更宽松；regex 适合复杂命名。">
+                      <option value="prefix">prefix（前缀匹配）</option>
+                      <option value="contains">contains（包含匹配）</option>
+                      <option value="regex">regex（正则匹配）</option>
+                    </select>
+                  </div>
+                  <div class="input-item match-value-item">
+                    <label id="pro-ecsa-prefix-label" class="input-label" for="pro-ecsa-prefix" data-match-label="ecsa">匹配值</label>
+                    <input id="pro-ecsa-prefix" type="text" data-i18n-title="title_prefix" title="与 match 配合筛选文件，例如 LSV、CV、EIS 等。" placeholder="ecsa_prefix，默认 ECSA">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-ev" data-i18n="label_ecsa_ev">Ev 参数</label>
+                    <input id="pro-ecsa-ev" type="text" data-i18n-title="title_ecsa_ev" title="电位扫描速率差或步进相关参数（依实验方案定义）。" placeholder="ecsa_ev，默认 0.10">
+                    <div class="param-tip" data-i18n="tip_ecsa_ev">常见：0.05-0.10 V；必须与你的测试流程保持一致。</div>
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-last-n" data-i18n="label_ecsa_last_n">最后 N 圈</label>
+                    <input id="pro-ecsa-last-n" type="text" data-i18n-title="title_ecsa_last_n" title="取最后 N 圈用于计算，建议排除前几圈活化段。" placeholder="ecsa_last_n，默认 1">
+                    <div class="param-tip" data-i18n="tip_ecsa_last_n">常用：1-3 圈；如果前几圈明显活化，建议只取后几圈。</div>
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-cs-value" data-i18n="label_ecsa_cs_value">比电容 Cs</label>
+                    <input id="pro-ecsa-cs-value" type="text" data-i18n-title="title_ecsa_cs_value" title="比电容常数，取值需与材料和文献口径一致。" placeholder="ecsa_cs_value，默认 40">
+                    <div class="param-tip" data-i18n="tip_ecsa_cs_value">常见：20-60 uF/cm2；务必与材料体系和文献口径一致。</div>
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-cs-unit" data-i18n="label_ecsa_cs_unit">Cs 单位</label>
+                    <input id="pro-ecsa-cs-unit" type="text" placeholder="ecsa_cs_unit，默认 uF/cm2">
+                  </div>
+                </div>
+                <div class="field-grid two">
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-title" data-i18n="label_plot_title">图标题</label>
+                    <input id="pro-ecsa-title" type="text" data-i18n-placeholder="ph_ecsa_title" placeholder="ECSA of {sample}" value="ECSA of {sample}">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-line-width" data-i18n="label_line_width">线宽</label>
+                    <input id="pro-ecsa-line-width" type="text" data-i18n-placeholder="ph_line_width" data-i18n-title="title_line_width" title="曲线线宽，建议 1.0-3.0。" placeholder="例如 2.0" value="2.0">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-xlabel" data-i18n="label_x_axis">X轴标题</label>
+                    <input id="pro-ecsa-xlabel" type="text" data-i18n-placeholder="ph_ecsa_xlabel" placeholder="Scan rate v (V/s)" value="Scan rate v (V/s)">
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-ylabel" data-i18n="label_y_axis">Y轴标题</label>
+                    <input id="pro-ecsa-ylabel" type="text" data-i18n-placeholder="ph_ecsa_ylabel" placeholder="ΔJ (mA/cm2)" value="ΔJ (mA/cm2)">
+                  </div>
+                </div>
+                <div class="check-grid">
+                  <label><input id="pro-ecsa-avg-last-n" type="checkbox"><span data-i18n="avg_last_n">平均最后 N 圈</span></label>
+                  <label><input id="pro-ecsa-use-abs" type="checkbox" checked><span data-i18n="use_abs_delta">使用绝对 DeltaI</span></label>
+                </div>
+              </section>
+            </section>
+
+            <button id="proc-run" class="btn primary" type="button" data-i18n="btn_run">运行处理</button>
+          </div>
+
+          <div id="proc-status" class="send-status"></div>
+        </article>
+
+        <article class="card">
+          <div class="section-head">
+            <h2 data-i18n="stats_history">统计与历史</h2>
+            <button id="history-refresh" class="btn mini" data-i18n="btn_refresh">刷新</button>
+          </div>
+          <section id="proc-result-panel" class="proc-result">
+            <div class="section-head">
+              <h3 data-i18n="result_title">处理结果</h3>
+            </div>
+            <div class="proc-result-grid">
+              <div class="proc-kv">
+                <span data-i18n="result_summary">摘要</span>
+                <strong id="proc-result-summary">暂无结果</strong>
+              </div>
+              <div class="proc-kv">
+                <span data-i18n="result_types">处理类型</span>
+                <strong id="proc-result-types">-</strong>
+              </div>
+            </div>
+            <div class="proc-block">
+              <div class="proc-block-title" data-i18n="result_outputs">输出文件</div>
+              <ul id="proc-result-files" class="proc-list">
+                <li>-</li>
+              </ul>
+            </div>
+            <div class="proc-block">
+              <div class="proc-block-title" data-i18n="result_quality">质量摘要</div>
+              <ul id="proc-result-quality" class="proc-list">
+                <li>-</li>
+              </ul>
+            </div>
+            <div id="proc-result-error-wrap" class="proc-block hidden">
+              <div class="proc-block-title error" data-i18n="result_error">错误详情</div>
+              <div id="proc-result-error" class="proc-error-text">-</div>
+            </div>
+          </section>
+          <div class="stats-grid">
+            <div class="stat-box"><span data-i18n="stat_total">总记录</span><strong id="stat-total">0</strong></div>
+            <div class="stat-box"><span>LSV</span><strong id="stat-lsv">0</strong></div>
+            <div class="stat-box"><span>CV</span><strong id="stat-cv">0</strong></div>
+            <div class="stat-box"><span>EIS</span><strong id="stat-eis">0</strong></div>
+            <div class="stat-box"><span>ECSA</span><strong id="stat-ecsa">0</strong></div>
+          </div>
+          <div id="history-list" class="history-list">
+            <div class="placeholder" data-i18n="no_history">暂无历史记录</div>
+          </div>
+        </article>
+      </section>
+    </section>
+
+    <section id="tab-ai" class="tab-panel">
+      <section class="chat-shell rise-in delay-1">
+        <aside class="chat-sidebar">
+          <div class="chat-sidebar-head">
+            <h3 data-i18n="conv_list">会话列表</h3>
+            <div class="mini-actions">
+              <button id="conv-refresh" class="btn mini" data-i18n="btn_refresh">刷新</button>
+              <button id="conv-new" class="btn mini" data-i18n="btn_new_conv">新会话</button>
+            </div>
+          </div>
+          <div class="conv-search-row">
+            <input id="conv-search" type="text" data-i18n-placeholder="ph_conv_search" placeholder="搜索会话标题/项目">
+            <button id="conv-search-btn" class="btn mini" type="button" data-i18n="btn_search">搜索</button>
+            <button id="conv-search-clear" class="btn mini" type="button" data-i18n="btn_clear">清空</button>
+          </div>
+          <div id="conv-list" class="conv-list"></div>
+        </aside>
+        <section class="chat-main">
+          <div class="chat-main-head">
+            <div>
+              <h3 id="conv-title">未选择会话</h3>
+              <p id="conv-meta">发送消息后自动创建会话</p>
+            </div>
+            <div class="chat-head-actions">
+              <button id="ai-settings-open" class="btn mini ai-open-btn" type="button" data-i18n="btn_ai_settings">AI设置</button>
+            </div>
+          </div>
+          <details class="mode-help ai-help">
+            <summary data-i18n="guide_ai_summary">AI 对话模式使用说明</summary>
+            <div class="mode-help-body">
+              <p data-i18n="guide_ai_intro">用于问题咨询、结果解读和报告撰写，支持附带 ZIP 数据包进行联动分析。</p>
+              <ol>
+                <li data-i18n="guide_ai_step1">先在“AI设置”中配置模型、API Key 与提示词模板。</li>
+                <li data-i18n="guide_ai_step2">发送消息可选填写项目名/数据类型，必要时附加 ZIP 文件。</li>
+                <li data-i18n="guide_ai_step3">AI 回复支持 Markdown；关键结论建议同步到项目管理页统一归档。</li>
+              </ol>
+            </div>
+          </details>
+          <div id="chat-log" class="chat-log">
+            <div class="placeholder" data-i18n="msg_placeholder">消息将显示在这里</div>
+          </div>
+          <div class="chat-tools">
+            <input id="project-name" type="text" data-i18n-placeholder="ph_project_name" placeholder="项目名称（可选）">
+            <select id="data-type">
+              <option value="" data-i18n="data_type">数据类型</option>
+              <option value="LSV">LSV</option>
+              <option value="CV">CV</option>
+              <option value="EIS">EIS</option>
+              <option value="ECSA">ECSA</option>
+            </select>
+            <input id="zip-file" type="file" accept=".zip">
+          </div>
+          <div class="chat-input-row">
+            <textarea id="msg-input" rows="3" data-i18n-placeholder="ph_msg" placeholder="输入消息，或附带 ZIP 数据包给 AI 分析"></textarea>
+            <button id="send-btn" class="btn primary" data-i18n="btn_send">发送</button>
+          </div>
+          <div id="send-status" class="send-status"></div>
+        </section>
+      </section>
+    </section>
+
+    <section id="tab-project" class="tab-panel">
+      <section class="project-shell">
+        <aside class="card project-sidebar">
+          <div class="section-head">
+            <h3 data-i18n="project_manage_title">项目管理</h3>
+            <div class="mini-actions">
+              <label class="compact-check"><input id="project-include-archived" type="checkbox"><span data-i18n="project_include_archived">显示已归档</span></label>
+              <button id="project-refresh" class="btn mini" type="button" data-i18n="btn_refresh">刷新</button>
+            </div>
+          </div>
+          <p class="panel-sub" data-i18n="project_manage_sub">集中管理项目、历史结果与关键指标。</p>
+          <div class="project-create-row">
+            <input id="project-create-name" type="text" data-i18n-placeholder="ph_project_create_name" placeholder="输入新项目名称">
+            <button id="project-create-btn" class="btn mini primary" type="button" data-i18n="btn_project_create">新建项目</button>
+          </div>
+          <div id="project-list" class="project-list">
+            <div class="placeholder" data-i18n="project_empty">暂无项目</div>
+          </div>
+          <div id="project-status" class="send-status"></div>
+        </aside>
+        <section class="card project-main">
+          <div class="section-head">
+            <h2 id="project-detail-title" data-i18n="project_none">未选择项目</h2>
+            <div class="mini-actions">
+              <button id="project-export-report-btn" class="btn mini" type="button" data-i18n="btn_project_export_report">导出项目报告</button>
+              <button id="project-use-btn" class="btn mini" type="button" data-i18n="btn_project_use">填入当前项目</button>
+              <button id="project-delete-btn" class="btn mini" type="button" data-i18n="btn_project_delete">删除项目</button>
+            </div>
+          </div>
+          <p id="project-detail-meta" class="panel-sub" data-i18n="project_pick_hint">请先在左侧选择一个项目。</p>
+          <section class="project-edit-card">
+            <div class="section-head compact">
+              <h3 data-i18n="project_edit_title">项目信息编辑</h3>
+              <button id="project-save-btn" class="btn mini primary" type="button" data-i18n="btn_project_save">保存项目</button>
+            </div>
+            <div class="field-grid two">
+              <div class="input-item">
+                <label class="input-label" for="project-edit-name" data-i18n="project_field_name">项目名称</label>
+                <input id="project-edit-name" type="text" data-i18n-placeholder="ph_project_create_name" placeholder="输入新项目名称">
+              </div>
+              <div class="input-item">
+                <label class="input-label" for="project-edit-color" data-i18n="project_field_color">项目颜色</label>
+                <input id="project-edit-color" type="text" placeholder="#155e45">
+              </div>
+              <div class="input-item">
+                <label class="input-label" for="project-edit-tags" data-i18n="project_field_tags">标签</label>
+                <input id="project-edit-tags" type="text" data-i18n-placeholder="ph_project_tags" placeholder="例如 LSV, HER, 2026">
+              </div>
+              <div class="input-item">
+                <label class="input-label" for="project-edit-desc" data-i18n="project_field_desc">项目说明</label>
+                <input id="project-edit-desc" type="text" data-i18n-placeholder="ph_project_desc" placeholder="项目用途、实验批次、备注说明">
+              </div>
+            </div>
+          </section>
+          <div class="stats-grid project-stats-grid">
+            <div class="stat-box"><span data-i18n="stat_total">总记录</span><strong id="project-stat-total">0</strong></div>
+            <div class="stat-box"><span>LSV</span><strong id="project-stat-lsv">0</strong></div>
+            <div class="stat-box"><span>CV</span><strong id="project-stat-cv">0</strong></div>
+            <div class="stat-box"><span>EIS</span><strong id="project-stat-eis">0</strong></div>
+            <div class="stat-box"><span>ECSA</span><strong id="project-stat-ecsa">0</strong></div>
+          </div>
+          <div class="project-main-grid">
+            <section class="project-block">
+              <h3 data-i18n="project_recent_history">最近历史</h3>
+              <div id="project-history-list" class="history-list project-history-list">
+                <div class="placeholder" data-i18n="project_no_history">暂无该项目历史记录</div>
+              </div>
+            </section>
+            <section class="project-block">
+              <h3 data-i18n="project_lsv_summary">LSV 指标摘要</h3>
+              <div id="project-lsv-table" class="project-lsv-table">
+                <div class="placeholder" data-i18n="project_no_lsv">暂无 LSV 汇总</div>
+              </div>
+            </section>
+            <section class="project-block project-block-wide">
+              <div class="section-head compact">
+                <h3 data-i18n="project_compare_title">结果对比</h3>
+                <div class="mini-actions">
+                  <select id="project-compare-sort" class="project-filter-select">
+                    <option value="eta" data-i18n="project_compare_sort_eta">按 η@10 / E@10</option>
+                    <option value="tafel" data-i18n="project_compare_sort_tafel">按 Tafel</option>
+                    <option value="latest" data-i18n="project_compare_sort_latest">按最新时间</option>
+                    <option value="sample" data-i18n="project_compare_sort_sample">按样品名</option>
+                  </select>
+                  <label class="compact-check"><input id="project-compare-only-eta" type="checkbox"><span data-i18n="project_compare_only_eta">仅看有过电位</span></label>
+                  <label class="compact-check"><input id="project-compare-only-tafel" type="checkbox"><span data-i18n="project_compare_only_tafel">仅看有 Tafel</span></label>
+                </div>
+              </div>
+              <div id="project-compare-summary" class="project-compare-summary">
+                <div class="placeholder" data-i18n="project_compare_empty">暂无可对比的结果</div>
+              </div>
+              <div id="project-compare-table" class="project-compare-table">
+                <div class="placeholder" data-i18n="project_compare_empty">暂无可对比的结果</div>
+              </div>
+              <div class="project-compare-plot-card">
+                <div class="section-head compact">
+                  <h4 data-i18n="project_compare_plot_title">LSV 对比图</h4>
+                  <div class="mini-actions compare-actions">
+                    <label class="compare-control">
+                      <span data-i18n="project_compare_chart_type_label">图表类型</span>
+                      <select id="project-compare-chart-type" class="project-filter-select">
+                        <option value="overlay" data-i18n="project_compare_chart_overlay">叠加曲线图</option>
+                        <option value="bar" data-i18n="project_compare_chart_bar">指标柱状图</option>
+                      </select>
+                    </label>
+                    <label class="compare-control">
+                      <span data-i18n="project_compare_metric_label">指标</span>
+                      <select id="project-compare-metric" class="project-filter-select">
+                        <option value="potential_at_target" data-i18n="project_compare_metric_potential">E@j</option>
+                        <option value="overpotential_at_target" data-i18n="project_compare_metric_eta">η@j</option>
+                        <option value="tafel_slope" data-i18n="project_compare_metric_tafel">Tafel</option>
+                      </select>
+                    </label>
+                    <label class="compare-control" id="project-compare-target-wrap">
+                      <span data-i18n="project_compare_target_current_label">目标电流密度</span>
+                      <select id="project-compare-target-current" class="project-filter-select">
+                        <option value="10">10</option>
+                      </select>
+                    </label>
+                    <span id="project-compare-selected-count" class="compare-selected-count" data-i18n="project_compare_selected_count_empty">未选择样品</span>
+                  </div>
+                </div>
+                <div class="section-head compact compare-actions-secondary">
+                  <div class="mini-actions">
+                    <button id="project-compare-select-all-btn" class="btn mini" type="button" data-i18n="btn_project_compare_select_all">全选</button>
+                    <button id="project-compare-clear-btn" class="btn mini" type="button" data-i18n="btn_project_compare_clear">清空</button>
+                    <button id="project-compare-generate-btn" class="btn mini" type="button" data-i18n="btn_project_compare_generate">生成对比图</button>
+                  </div>
+                </div>
+                <div id="project-compare-plot" class="project-compare-plot">
+                  <div class="placeholder" data-i18n="project_compare_plot_empty">请选择样品后生成对比图</div>
+                </div>
+              </div>
+            </section>
+            <section class="project-block project-block-wide">
+              <div class="section-head compact">
+                <h3 data-i18n="project_history_detail">历史详情</h3>
+                <div class="mini-actions">
+                  <button id="project-open-result-btn" class="btn mini" type="button" data-i18n="btn_project_open_result">打开到处理结果</button>
+                  <button id="project-archive-history-btn" class="btn mini" type="button" data-i18n="btn_project_archive_history">归档记录</button>
+                  <button id="project-delete-history-btn" class="btn mini" type="button" data-i18n="btn_project_delete_history">删除记录</button>
+                </div>
+              </div>
+              <div id="project-history-detail" class="project-history-detail">
+                <div class="placeholder" data-i18n="project_select_history">请选择一条历史记录查看详情</div>
+              </div>
+            </section>
+            <section class="project-block project-block-wide">
+              <div class="section-head compact">
+                <h3 data-i18n="project_output_files">结果文件</h3>
+                <select id="project-output-type-filter" class="project-filter-select">
+                  <option value="" data-i18n="project_filter_all_types">全部类型</option>
+                  <option value="LSV">LSV</option>
+                  <option value="CV">CV</option>
+                  <option value="EIS">EIS</option>
+                  <option value="ECSA">ECSA</option>
+                </select>
+              </div>
+              <div id="project-output-files" class="project-output-files">
+                <div class="placeholder" data-i18n="project_no_output_files">暂无结果文件</div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <div id="help-panel-mask" class="sys-panel-mask hidden"></div>
+  <aside id="help-panel" class="sys-panel help-panel hidden">
+    <div class="sys-panel-head">
+      <div>
+        <h3 data-i18n="help_docs_title">&#20351;&#29992;&#35828;&#26126;</h3>
+        <p class="panel-sub" data-i18n="help_docs_sub">&#26597;&#30475;&#36719;&#20214;&#25163;&#20876;&#12289;&#25991;&#20214;&#32452;&#32455;&#35268;&#21017;&#21644; HTTP &#25509;&#21475;&#31034;&#20363;&#12290;</p>
+      </div>
+      <button id="help-panel-close" class="btn mini" data-i18n="btn_close">&#20851;&#38381;</button>
+    </div>
+    <div class="help-doc-layout">
+      <nav class="help-doc-toc" aria-label="Help table of contents">
+        <div class="help-doc-toc-title" data-i18n="help_docs_toc">目录导航</div>
+        <div id="help-doc-toc-items" class="help-doc-toc-items">
+          <div class="placeholder" data-i18n="help_docs_loading">&#27491;&#22312;&#21152;&#36733;&#20351;&#29992;&#35828;&#26126;...</div>
+        </div>
+      </nav>
+      <section id="help-doc-scroll" class="help-doc-scroll">
+        <article id="help-doc-body" class="help-doc-body">
+          <div class="placeholder" data-i18n="help_docs_loading">&#27491;&#22312;&#21152;&#36733;&#20351;&#29992;&#35828;&#26126;...</div>
+        </article>
+      </section>
+    </div>
+  </aside>
+
+  <div id="sys-panel-mask" class="sys-panel-mask hidden"></div>
+  <aside id="sys-panel" class="sys-panel hidden">
+    <div class="sys-panel-head">
+      <h3 data-i18n="sys_info">系统信息</h3>
+      <button id="sys-panel-close" class="btn mini" data-i18n="btn_close">关闭</button>
+    </div>
+    <div class="sys-kv">
+      <span data-i18n="sys_health_label">服务状态</span>
+      <strong id="sys-panel-health">-</strong>
+    </div>
+    <div class="sys-kv">
+      <span data-i18n="sys_version_label">版本</span>
+      <strong id="sys-panel-version">-</strong>
+    </div>
+    <div class="sys-actions">
+      <button id="sys-panel-refresh" class="btn mini" data-i18n="btn_refresh_status">刷新状态</button>
+    </div>
+    <ul class="api-list compact">
+      <li><code>/api/v1/process</code></li>
+      <li><code>/api/v1/process-zip</code></li>
+      <li><code>/api/v1/system/select-folder</code></li>
+      <li><code>/api/v1/stats</code></li>
+      <li><code>/api/v1/history</code></li>
+      <li><code>/api/v1/agent/messages</code></li>
+    </ul>
+  </aside>
+
+  <div id="ai-settings-mask" class="sys-panel-mask hidden"></div>
+  <aside id="ai-settings-panel" class="sys-panel ai-panel hidden">
+    <div class="sys-panel-head">
+      <h3 data-i18n="llm_settings">模型与 API 设置</h3>
+      <button id="ai-settings-close" class="btn mini" data-i18n="btn_close">关闭</button>
+    </div>
+    <p class="panel-sub" data-i18n="ai_settings_sub">统一配置模型连接、密钥与对话提示策略。</p>
+    <section class="ai-section ai-section-config">
+      <div class="section-head">
+        <div>
+          <h4 data-i18n="llm_settings_block">模型与API</h4>
+          <p class="section-sub" data-i18n="llm_section_sub">设置服务商、模型与连接参数，保存后立即生效。</p>
+        </div>
+        <div class="mini-actions">
+          <button id="llm-reload" class="btn mini" type="button" data-i18n="btn_refresh">刷新</button>
+          <button id="llm-save" class="btn mini primary" type="button" data-i18n="btn_save">保存</button>
+        </div>
+      </div>
+      <div class="llm-grid">
+        <div class="input-item">
+          <label class="input-label" for="llm-provider" data-i18n="llm_provider">Provider</label>
+          <select id="llm-provider"></select>
+        </div>
+        <div class="input-item">
+          <label class="input-label" for="llm-model" data-i18n="llm_model">模型</label>
+          <input id="llm-model" type="text" data-i18n-placeholder="ph_llm_model" placeholder="例如 gpt-4o-mini">
+        </div>
+        <div class="input-item">
+          <label class="input-label" for="llm-base-url" data-i18n="llm_base_url">Base URL</label>
+          <input id="llm-base-url" type="text" data-i18n-placeholder="ph_llm_base_url" placeholder="例如 https://api.openai.com/v1">
+        </div>
+        <div class="input-item">
+          <label class="input-label" for="llm-timeout" data-i18n="llm_timeout">超时(秒)</label>
+          <input id="llm-timeout" type="text" data-i18n-placeholder="ph_llm_timeout" placeholder="例如 60">
+        </div>
+        <div class="input-item llm-api-key-row">
+          <label class="input-label" for="llm-api-key" data-i18n="llm_api_key">API Key</label>
+          <input id="llm-api-key" type="password" data-i18n-placeholder="ph_llm_api_key" placeholder="留空表示不修改已保存 Key">
+          <small id="llm-key-hint" class="hint">-</small>
+        </div>
+      </div>
+    </section>
+    <section class="ai-section ai-section-prompt">
+      <div class="section-head">
+        <div>
+          <h4 data-i18n="prompt_settings_block">提示词设置</h4>
+          <p class="section-sub" data-i18n="prompt_section_sub">可选模板与自定义前缀，用于规范 AI 输出风格。</p>
+        </div>
+        <div class="mini-actions">
+          <button id="prompt-apply-template" class="btn mini" type="button" data-i18n="btn_apply">应用</button>
+          <button id="prompt-save" class="btn mini primary" type="button" data-i18n="btn_save">保存</button>
+        </div>
+      </div>
+      <div class="input-item toggle-row">
+        <label><input id="prompt-enabled" type="checkbox" checked> <span data-i18n="prompt_enabled">发送时附加提示词</span></label>
+      </div>
+      <div class="input-item">
+        <label class="input-label" for="prompt-template" data-i18n="prompt_template">模板</label>
+        <select id="prompt-template">
+          <option value="analyst">电化学分析师</option>
+          <option value="summary">结果总结模式</option>
+          <option value="paper">论文写作模式</option>
+        </select>
+      </div>
+      <div class="input-item">
+        <label class="input-label" for="prompt-prefix" data-i18n="prompt_prefix">附加提示词</label>
+        <textarea id="prompt-prefix" rows="6" data-i18n-placeholder="ph_prompt_prefix" placeholder="每次发送消息时会拼接到用户消息前"></textarea>
+      </div>
+      <small class="hint" data-i18n="prompt_hint">提示：保存后只保存在本地浏览器，不会上传到服务器。</small>
+    </section>
+    <div id="llm-status" class="send-status"></div>
+  </aside>
+
+  <script src="/ui/static/app.js"></script>
+</body>
+</html>
