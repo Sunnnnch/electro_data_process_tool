@@ -21,16 +21,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-        working-directory: github_publish_pure_v6
 
       - name: Run check
         run: python run_v6.py check
-        working-directory: github_publish_pure_v6
 
       - name: Run smoke
         run: python run_v6.py smoke --port 8011
-        working-directory: github_publish_pure_v6
 
       - name: Run server tests
         run: python -m pytest -q tests/test_v6_server.py
-        working-directory: github_publish_pure_v6
