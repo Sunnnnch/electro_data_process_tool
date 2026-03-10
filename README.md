@@ -212,6 +212,10 @@ python -m pytest -q
 - `CHANGELOG.md`
 - `packaging/README.md`
 
+## License
+
+本项目采用 `MIT` 许可证，详见 `LICENSE`。
+
 ## 路线建议
 
 后续较值得继续优化的方向：
@@ -220,4 +224,3 @@ python -m pytest -q
 - 为 README 补使用截图或流程图
 - 实测 `PyInstaller` 打包链路
 - 增加 `LICENSE`
-
