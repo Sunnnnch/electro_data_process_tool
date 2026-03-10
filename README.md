@@ -1,5 +1,7 @@
 # ElectroChem V6
 
+[中文](README.md) | [English](README.en.md)
+
 面向电化学实验数据的本地处理与分析工具，支持 `LSV`、`CV`、`EIS`、`ECSA` 批量处理、本地 Web UI、项目/历史管理，以及可选的 AI 辅助分析。
 
 ## 项目简介
