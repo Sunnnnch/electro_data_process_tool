@@ -358,8 +358,20 @@ def run_pipeline(
                         'peaks_min_height': gui_vars.get('cv_peaks_min_height', 1.0),
                         'peaks_min_dist': gui_vars.get('cv_peaks_min_dist', 5),
                         'peaks_max': gui_vars.get('cv_peaks_max', 2),
+                        'quality_config': {
+                            'min_points_warning': gui_vars.get('cv_quality_min_points_warning'),
+                            'cycle_completion_tolerance': gui_vars.get('cv_quality_cycle_tolerance'),
+                        },
                     }
-                    core.process_cv(sub, file, params)
+                    enable_qc = _as_bool(gui_vars.get('cv_quality_check', True), True)
+                    try:
+                        result = core.process_cv(sub, file, params, enable_quality_check=enable_qc)
+                    except TypeError:
+                        result = core.process_cv(sub, file, params)
+                    if isinstance(result, dict):
+                        quality_report = result.get('quality_report')
+                        if quality_report:
+                            quality_reports.append(quality_report)
 
         if eis_enabled:
             match_mode = (gui_vars.get('eis_match') or 'prefix').lower()

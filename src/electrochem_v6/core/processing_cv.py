@@ -5,8 +5,10 @@ import os
 from datetime import datetime
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from . import processing_core_v6 as core
+from .processing_quality import DataQualityChecker
 
 _resolve_plot_font = core._resolve_plot_font
 HISTORY_MANAGER_AVAILABLE = core.HISTORY_MANAGER_AVAILABLE
@@ -15,7 +17,7 @@ get_history_manager = core.get_history_manager
 get_project_manager = core.get_project_manager
 log = core.log
 
-def process_cv(subfolder, file, params):
+def process_cv(subfolder, file, params, enable_quality_check=True):
     """处理CV数据文件"""
     filepath = os.path.join(subfolder, file)
     subname = os.path.basename(subfolder)
@@ -48,6 +50,22 @@ def process_cv(subfolder, file, params):
 
     if not potential or not current:
         return
+
+    cv_quality_report = None
+    if enable_quality_check:
+        try:
+            df = pd.DataFrame({
+                'Potential': potential,
+                'Current': current,
+            })
+            display_name = f"{subname}/{file}" if subname else file
+            cv_quality_report = DataQualityChecker.check_cv_data(
+                df,
+                display_name,
+                config=params.get('quality_config'),
+            )
+        except Exception as exc:
+            log(f"CV质量检查异常（继续处理）: {exc}")
 
     plt.figure(figsize=(8, 6))
     # 设置当前图形的中文字体支持
@@ -165,3 +183,7 @@ def process_cv(subfolder, file, params):
             
         except Exception as e:
             log(f"保存CV历史记录失败: {e}")
+
+    return {
+        'quality_report': cv_quality_report,
+    }
