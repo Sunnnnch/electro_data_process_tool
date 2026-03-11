@@ -4,11 +4,14 @@ AI Agent控制器 - 管理对话流程和工具调用。
 """
 
 import json
+import logging
 from typing import List, Dict, Any, Optional, Callable
 from electrochem_v6.llm.base_client import BaseLLMClient
 from .tool_executor import execute_tool
 from .tools import ALL_TOOLS
 from .prompts import SYSTEM_PROMPT
+
+_logger = logging.getLogger(__name__)
 
 
 def _debug_log(tag: str, payload):
@@ -20,7 +23,7 @@ def _debug_log(tag: str, payload):
             text = json.dumps(payload, ensure_ascii=False, default=str)
     except Exception:
         text = str(payload)
-    print(f"[DEBUG] {tag}: {text}")
+    _logger.debug("[%s]: %s", tag, text)
 
 
 class AgentController:

@@ -240,7 +240,7 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
     try:
         filepath = os.path.join(subfolder, eis_filename)
         if not os.path.exists(filepath):
-            print(f"EIS文件不存在: {filepath}")
+            log(f"EIS文件不存在: {filepath}")
             return None
 
         # 尝试多种编码读取
@@ -251,13 +251,13 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
             try:
                 with open(filepath, 'r', encoding=encoding) as f:
                     lines = f.readlines()[int(start_line) - 1:]
-                print(f"成功读取 {encoding} 编码读取EIS文件: {eis_filename}")
+                log(f"使用 {encoding} 编码成功读取EIS文件: {eis_filename}")
                 break
             except UnicodeDecodeError:
                 continue
 
         if lines is None:
-            print(f"成功读取 {filepath}高频区选取 ????")
+            log(f"无法读取文件 {filepath}, 所有编码均失败")
             return None
 
         z_real, z_imag, frequencies = [], [], []
@@ -272,30 +272,30 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                     z_real.append(real)
                     z_imag.append(imag)
                 except ValueError as e:
-                    print(f"?{line_num + int(start_line)}???频率范围: {line.strip()}, 错误: {e}")
+                    log(f"第{line_num + int(start_line)}行数据解析失败: {line.strip()}, 错误: {e}")
                     continue
 
         if not z_real or not z_imag:
-            print(f"EIS文件 {eis_filename} 高频区选取 ????")
+            log(f"EIS文件 {eis_filename} 中未提取到有效数据")
             return None
 
-        print(f"成功读取 {len(z_real)} ?EIS???")
-        print(f"Z'范围: {min(z_real):.3f} ~ {max(z_real):.3f} Ω")
-        print(f"Z''??: {min(z_imag):.3f} ~ {max(z_imag):.3f} Ω")
+        log(f"成功读取 {len(z_real)} 个EIS数据点")
+        log(f"Z'范围: {min(z_real):.3f} ~ {max(z_real):.3f} Ω")
+        log(f"Z''范围: {min(z_imag):.3f} ~ {max(z_imag):.3f} Ω")
 
         method_key = (method or 'auto').strip().lower()
         supported_methods = {'auto', 'hf_intercept', 'hf_mean', 'linear_fit'}
         if method_key not in supported_methods:
             method_key = 'auto'
 
-        # 高频区选取 ?X????
+        # 全局最小虚部作为初始IR值
         min_imag_index = min(range(len(z_imag)), key=lambda i: abs(z_imag[i]))
         ir_value = z_real[min_imag_index]
-        print(f"???频率范围: Z'={ir_value:.3f}Ω, Z''={z_imag[min_imag_index]:.3f}?")
+        log(f"全局最小虚部: Z'={ir_value:.3f}Ω, Z''={z_imag[min_imag_index]:.3f}Ω")
 
-        # 尝试多种编码读取高频区选取 
+        # 高频区数据筛选与分析
         if frequencies:
-            print(f"频率范围: {min(frequencies):.2f} ~ {max(frequencies):.2f} Hz")
+            log(f"频率范围: {min(frequencies):.2f} ~ {max(frequencies):.2f} Hz")
             try:
                 hf_n = int(hf_points) if hf_points is not None else 0
             except Exception:
@@ -312,13 +312,17 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                 high_freq_real, high_freq_imag, high_freq_freqs
             )
 
-            print(
-                f"成功读取 {len(high_freq_real)} ?成功读取 {min(high_freq_freqs):.2f} ~ {max(high_freq_freqs):.2f} Hz")
+            if not high_freq_real or not high_freq_freqs:
+                log("高频区数据经异常值过滤后为空, 使用全局初始IR值")
+            else:
+                log(
+                    f"高频区筛选出 {len(high_freq_real)} 个数据点, "
+                    f"频率范围: {min(high_freq_freqs):.2f} ~ {max(high_freq_freqs):.2f} Hz")
 
             if high_freq_imag:
                 min_imag_idx_in_high_freq = min(range(len(high_freq_imag)), key=lambda i: abs(high_freq_imag[i]))
                 high_freq_ir_value = high_freq_real[min_imag_idx_in_high_freq]
-                print(f"?????频率范围: Z'={high_freq_ir_value:.3f}?")
+                log(f"高频区最小虚部: Z'={high_freq_ir_value:.3f}Ω")
 
                 z_imag_range = max(abs(min(z_imag)), abs(max(z_imag)))
                 threshold = 0.01 * z_imag_range if z_imag_range > 0 else 0.01
@@ -326,12 +330,12 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                 if method_key == 'hf_intercept':
                     if abs(high_freq_imag[min_imag_idx_in_high_freq]) < threshold:
                         ir_value = high_freq_ir_value
-                        print(f"??频率范围: Z'={ir_value:.3f}Ω")
+                        log(f"高频截距法: Z'={ir_value:.3f}Ω")
                     else:
-                        print("尝试多种编码读取高频区选取 Ω")
+                        log("高频截距法: 虚部偏大, 不满足截距条件")
                 elif method_key == 'hf_mean':
                     ir_value = sum(high_freq_real) / len(high_freq_real)
-                    print(f"??频率范围: Z'???{ir_value:.3f}?")
+                    log(f"高频均值法: Z'均值={ir_value:.3f}Ω")
                 elif method_key == 'linear_fit':
                     if len(high_freq_real) >= 2:
                         import numpy as _np
@@ -343,28 +347,28 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                             x_min, x_max = min(high_freq_real), max(high_freq_real)
                             if candidate < x_min or candidate > x_max:
                                 ir_value = sum(high_freq_real) / len(high_freq_real)
-                                print(f"尝试多种编码读取?{ir_value:.3f}?")
+                                log(f"线性拟合外推超出范围, 回退均值法: {ir_value:.3f}Ω")
                             else:
                                 ir_value = candidate
-                                print(f"????频率范围: Z'={ir_value:.3f}Ω")
+                                log(f"线性拟合截距法: Z'={ir_value:.3f}Ω")
                         else:
                             ir_value = sum(high_freq_real) / len(high_freq_real)
-                            print(f"尝试多种编码读取?{ir_value:.3f}?")
+                            log(f"线性拟合斜率接近零, 回退均值法: {ir_value:.3f}Ω")
                     else:
-                        print("尝试多种编码读取?????")
+                        log("线性拟合所需数据点不足")
                 else:
                     if abs(high_freq_imag[min_imag_idx_in_high_freq]) < threshold:
                         ir_value = high_freq_ir_value
-                        print(f"高频区选取 ??X高频区选取 Z'={ir_value:.3f}Ω")
+                        log(f"自动法(截距): Z'={ir_value:.3f}Ω")
                     else:
                         ir_value = sum(high_freq_real) / len(high_freq_real)
-                        print(f"???X高频区选取 ????Z'???{ir_value:.3f}?")
+                        log(f"自动法(均值): Z'均值={ir_value:.3f}Ω")
 
-        print(f"最终确定IR值: {ir_value:.3f}?")
+        log(f"最终确定IR值: {ir_value:.3f}Ω")
         return ir_value
 
     except Exception as e:
-        print(f"??EIS文件不存在: {e}")
+        log(f"读取EIS文件失败: {e}")
         return None
 
 def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=True):
@@ -927,12 +931,12 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         
         # Tafel拟合图导出（如果启用）
         if params.get('export_tafel_plot', False):
-            print(f"开始导出Tafel图...")
+            log(f"开始导出Tafel图...")
             import numpy as _np  # 用于log计算
             
             # 优先导出IR补偿Tafel图（推荐使用）
             if tafel_fit_data_ir is not None:
-                print("找到IR补偿Tafel拟合数据，开始生成IR补偿Tafel图...")
+                log("找到IR补偿Tafel拟合数据，开始生成IR补偿Tafel图...")
                 try:
                     plt.figure(figsize=(8, 6))
                     plt.rcParams['font.sans-serif'] = [font_to_use]
@@ -961,11 +965,11 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     tafel_ir_path = os.path.join(subfolder, f"{subname}_{file_stem}_Tafel_fit_IR.png")
                     plt.savefig(tafel_ir_path, dpi=300, bbox_inches='tight')
                     plt.close()
-                    print(f"IR补偿Tafel拟合图已保存: {tafel_ir_path}")
+                    log(f"IR补偿Tafel拟合图已保存: {tafel_ir_path}")
                 except Exception as e:
-                    print(f"导出IR补偿Tafel图失败: {e}")
+                    log(f"导出IR补偿Tafel图失败: {e}")
             elif tafel_fit_data_original is not None:
-                print("未找到IR补偿数据，使用原始数据生成Tafel图（建议启用IR补偿获得更准确结果）...")
+                log("未找到IR补偿数据，使用原始数据生成Tafel图（建议启用IR补偿获得更准确结果）...")
                 try:
                     plt.figure(figsize=(8, 6))
                     plt.rcParams['font.sans-serif'] = [font_to_use]
@@ -993,14 +997,14 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     tafel_path = os.path.join(subfolder, f"{subname}_{file_stem}_Tafel_fit.png")
                     plt.savefig(tafel_path, dpi=300, bbox_inches='tight')
                     plt.close()
-                    print(f"原始数据Tafel拟合图已保存: {tafel_path}")
+                    log(f"原始数据Tafel拟合图已保存: {tafel_path}")
                 except Exception as e:
-                    print(f"导出原始Tafel图失败: {e}")
+                    log(f"导出原始Tafel图失败: {e}")
             else:
-                print("警告：未找到可用的Tafel拟合数据！")
-                print("请确保：1) 勾选了'计算Tafel斜率' 2) 如需准确结果，建议同时启用IR补偿功能")
+                log("警告：未找到可用的Tafel拟合数据！")
+                log("请确保：1) 勾选了'计算Tafel斜率' 2) 如需准确结果，建议同时启用IR补偿功能")
         else:
-            print("未启用Tafel图导出功能")
+            log("未启用Tafel图导出功能")
 
         # 保存处理历史记录
         if HISTORY_MANAGER_AVAILABLE:

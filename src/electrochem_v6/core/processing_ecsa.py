@@ -253,7 +253,7 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
                         proj = proj_mgr.get_project(params['project_id'])
                         if proj:
                             record['project_name'] = proj['name']
-                    except:
+                    except Exception:
                         pass
             
             history_mgr.add_record(record)

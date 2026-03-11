@@ -4,6 +4,7 @@
 """Docstring"""
 
 import json
+import logging
 import os
 import pandas as pd
 from pathlib import Path
@@ -12,6 +13,8 @@ from .tools_analysis import tool_read_quality_report, tool_analyze_processing_re
 from .tools_catalyst import tool_get_catalyst_info
 from electrochem_v6.llm.config import LLMConfig
 from electrochem_v6.llm.vision_client import VisionClient
+
+_logger = logging.getLogger(__name__)
 
 
 def execute_tool(tool_name: str, arguments: str | Dict[str, Any]) -> Dict:
@@ -97,7 +100,7 @@ def tool_query_lsv_summary(project_id: str = None, sort_by: str = "eta", top_n: 
         samples = summary.get('samples', [])
         
         # 调试信息
-        print(f"[DEBUG] tool_query_lsv_summary: project_id={project_id}, 原始samples数量 = {len(samples)}")
+        _logger.debug("tool_query_lsv_summary: project_id=%s, 原始samples数量 = %d", project_id, len(samples))
         
         # 排序
         if sort_by == "tafel":
@@ -125,7 +128,7 @@ def tool_find_best_catalysts(project_id: str = None, count: int = 5) -> Dict:
     result = tool_query_lsv_summary(project_id=project_id, sort_by="eta", top_n=count)
     
     # 调试信息
-    print(f"[DEBUG] tool_find_best_catalysts: result={result}")
+    _logger.debug("tool_find_best_catalysts: result=%s", result)
     
     if result.get('success'):
         samples = result.get('samples', [])
@@ -423,7 +426,7 @@ def tool_preview_data_file(file_path: str, lines: int = 20) -> Dict:
                 with open(file_path, 'r', encoding=encoding) as f:
                     preview_lines = [f.readline().strip() for _ in range(lines)]
                 break
-            except:
+            except Exception:
                 continue
         
         if preview_lines is None:
@@ -467,11 +470,11 @@ def tool_analyze_data_characteristics(file_path: str, data_type: str) -> Dict:
         try:
             # 尝试1:智能分隔符
             df = pd.read_csv(file_path, sep=r'\s+|,', skiprows=start_line-1, engine='python', nrows=1000, on_bad_lines='skip')
-        except:
+        except Exception:
             try:
                 # 尝试2:仅空格
                 df = pd.read_csv(file_path, delim_whitespace=True, skiprows=start_line-1, nrows=1000, on_bad_lines='skip')
-            except:
+            except Exception:
                 # 尝试3:仅逗号
                 df = pd.read_csv(file_path, sep=',', skiprows=start_line-1, nrows=1000, on_bad_lines='skip')
         
