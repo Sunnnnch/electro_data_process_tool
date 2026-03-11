@@ -1253,3 +1253,55 @@ def test_v6_agent_message_multipart_with_zip(monkeypatch):
         assert payload.get("attachments")
     finally:
         manager.stop()
+
+
+# ---------- _parse_params_value dict input ----------
+
+
+def test_v6_parse_params_value_accepts_dict():
+    """_parse_params_value should return dict input as-is without JSON round-trip."""
+    from electrochem_v6.server.routes_post import _parse_params_value
+
+    d = {"font_size": 14, "nested": {"a": 1}}
+    assert _parse_params_value(d) is d  # exact same object, no copy
+
+
+def test_v6_parse_params_value_accepts_json_string():
+    from electrochem_v6.server.routes_post import _parse_params_value
+
+    assert _parse_params_value('{"k": 1}') == {"k": 1}
+
+
+def test_v6_parse_params_value_rejects_non_object():
+    from electrochem_v6.server.routes_post import _parse_params_value
+
+    with pytest.raises(ValueError, match="JSON 对象"):
+        _parse_params_value("[1,2]")
+
+
+def test_v6_parse_params_value_returns_none_for_falsy():
+    from electrochem_v6.server.routes_post import _parse_params_value
+
+    assert _parse_params_value(None) is None
+    assert _parse_params_value("") is None
+
+
+# ---------- HTTP limits env var override ----------
+
+
+def test_v6_http_limits_configurable_via_env(monkeypatch):
+    """Handler class attributes should reflect env var overrides."""
+    monkeypatch.setenv("ELECTROCHEM_V6_MAX_JSON_BYTES", "1024")
+    monkeypatch.setenv("ELECTROCHEM_V6_MAX_ZIP_FILES", "99")
+
+    # Force re-creation of the handler class with new env values
+    port = _get_free_port()
+    mgr = V6ServerManager(port=port)
+    ok, _ = mgr.start()
+    assert ok
+    try:
+        handler_cls = mgr._server.RequestHandlerClass
+        assert handler_cls.MAX_JSON_BODY_BYTES == 1024
+        assert handler_cls.MAX_ZIP_FILES == 99
+    finally:
+        mgr.stop()
