@@ -24,6 +24,14 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib.ft2font import FT2Font
 
+
+def _safe_print(msg: str) -> None:
+    """Print that never crashes on non-UTF-8 terminals (e.g. cp1252 in CI)."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode("utf-8", errors="replace").decode("ascii", errors="replace"))
+
 from .processing_pipeline import (
     NumpyEncoder,
     _as_bool,
@@ -175,7 +183,7 @@ def setup_chinese_font():
             if font_name in available_fonts:
                 plt.rcParams['font.sans-serif'] = [font_name]
                 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-                print(f"成功设置中文字体: {font_name}")
+                _safe_print(f"成功设置中文字体: {font_name}")
                 return font_name
 
         # 如果没有找到预设字体，尝试查找任何支持中文的字体
@@ -184,14 +192,14 @@ def setup_chinese_font():
                     cn in font.name for cn in ['微软', '宋体', '黑体', '楷体']):
                 plt.rcParams['font.sans-serif'] = [font.name]
                 plt.rcParams['axes.unicode_minus'] = False
-                print(f"找到中文字体: {font.name}")
+                _safe_print(f"找到中文字体: {font.name}")
                 return font.name
 
-        print("警告: 未找到合适的中文字体，中文可能显示为方框")
+        _safe_print("警告: 未找到合适的中文字体，中文可能显示为方框")
         return 'Arial'  # 默认字体
 
     except Exception as e:
-        print(f"设置中文字体时出错: {e}")
+        _safe_print(f"设置中文字体时出错: {e}")
         return 'Arial'
 
 

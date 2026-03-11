@@ -31,12 +31,18 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run check
+        env:
+          PYTHONUTF8: "1"
         run: python run_v6.py check
 
       - name: Run smoke
+        env:
+          PYTHONUTF8: "1"
         run: python run_v6.py smoke --port 8011
 
       - name: Run tests
+        env:
+          PYTHONUTF8: "1"
         run: python -m pytest tests/ -q
 
   # ── Auto-release: bump version, tag, push ──────────────────────
