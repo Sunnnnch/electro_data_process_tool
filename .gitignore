@@ -22,6 +22,13 @@ htmlcov/
 reports/*.json
 !reports/.gitkeep
 
+# Software copyright materials (kept locally)
+reports/*.pdf
+reports/*.txt
+reports/*.png
+reports/软件说明书_*.md
+reports/软著申请信息参考.md
+
 # IDE / Editor
 .vscode/
 .idea/
