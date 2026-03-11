@@ -10,27 +10,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from electrochem_v6.core.utils import as_bool as _as_bool
+
 
 def natural_sort_key(s):
     import re
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', str(s))]
-
-def _as_bool(value, default=False):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        val = value.strip().lower()
-        if val in {'', 'none'}:
-            return default
-        if val in {'1', 'true', 'yes', 'y', 'on'}:
-            return True
-        if val in {'0', 'false', 'no', 'off', 'n'}:
-            return False
-    return bool(value)
 
 
 def auto_detect_data_start(file_path: str, encodings: Optional[Sequence[str]] = None) -> int:

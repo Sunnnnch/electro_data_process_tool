@@ -278,7 +278,12 @@ def _sanitize_filename(name: str) -> str:
     """Convert arbitrary filename to filesystem-friendly format."""
     if not name:
         return "unknown"
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
+    # Strip directory components to prevent path traversal
+    base = os.path.basename(name)
+    safe = re.sub(r"[^A-Za-z0-9_.\-]+", "_", base)
+    # Prevent hidden files
+    safe = safe.lstrip(".")
+    return safe or "unknown"
 
 
 def save_waveform_plot(

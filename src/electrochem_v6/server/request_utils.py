@@ -30,7 +30,7 @@ def read_json(handler: Any, max_json_body_bytes: int) -> Dict[str, Any]:
     try:
         payload = json.loads(body.decode("utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError("??????? JSON") from exc
+        raise ValueError("请求体不是合法的 JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("JSON ??????????")
     return payload

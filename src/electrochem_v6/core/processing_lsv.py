@@ -697,8 +697,10 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         plt.legend()
     plt.tight_layout()
     # 避免同一文件夹内多文件相互覆盖：在文件名中加入源文件名
-    plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV.png"), dpi=300, bbox_inches='tight')
-    plt.close()
+    try:
+        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV.png"), dpi=300, bbox_inches='tight')
+    finally:
+        plt.close()
 
     # 如果进行了IR补偿，绘制补偿后的LSV曲线
     if potential_compensated is not None:

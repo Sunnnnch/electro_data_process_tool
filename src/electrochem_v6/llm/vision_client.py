@@ -46,8 +46,13 @@ class VisionClient:
             return {"success": False, "error": str(exc), "type": exc.__class__.__name__}
 
     def _build_payload(self, image_path: str, prompt: str) -> Dict:
-        image_bytes = Path(image_path).read_bytes()
-        suffix = Path(image_path).suffix.lower().lstrip(".") or "png"
+        resolved = Path(image_path).resolve()
+        suffix = resolved.suffix.lower().lstrip(".") or "png"
+        if suffix not in ("png", "jpg", "jpeg", "gif", "bmp", "webp"):
+            raise ValueError(f"不支持的图像格式: {suffix}")
+        if not resolved.is_file():
+            raise FileNotFoundError(f"图像文件不存在: {image_path}")
+        image_bytes = resolved.read_bytes()
         mime = f"image/{'jpeg' if suffix in ['jpg', 'jpeg'] else suffix}"
         data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
