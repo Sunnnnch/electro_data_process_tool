@@ -359,6 +359,11 @@ def tool_get_current_compare_selection(
 def tool_scan_data_folder(folder_path: str) -> Dict:
     """Docstring"""
     try:
+        # Path traversal protection: resolve and validate
+        resolved = os.path.realpath(folder_path)
+        if not os.path.isdir(resolved):
+            return {"success": False, "error": f"文件夹不存在: {folder_path}"}
+        folder_path = resolved
         if not os.path.exists(folder_path):
             return {"success": False, "error": f"文件夹不存在: {folder_path}"}
         
@@ -414,8 +419,14 @@ def tool_scan_data_folder(folder_path: str) -> Dict:
 def tool_preview_data_file(file_path: str, lines: int = 20) -> Dict:
     """预览数据文件"""
     try:
+        # Path traversal protection: only allow data file extensions
+        resolved = os.path.realpath(file_path)
+        ext = os.path.splitext(resolved)[1].lower()
+        if ext not in ('.txt', '.csv', '.xlsx', '.xls', '.json'):
+            return {"success": False, "error": f"不支持的文件类型: {ext}"}
+        file_path = resolved
         if not os.path.exists(file_path):
-            return {"success": False, "error": f"文件不存? {file_path}"}
+            return {"success": False, "error": f"文件不存在: {file_path}"}
         
         # 尝试多种编码
         encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']

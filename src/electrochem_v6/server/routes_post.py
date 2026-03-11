@@ -188,12 +188,17 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
             )
             handler._send_json(400, {"status": "error", "message": str(exc)})
             return True
-        log_event(_LOGGER, "llm.config.update.request", {"path": path, "payload": payload})
+        log_event(_LOGGER, "llm.config.update.request", {
+            "path": path,
+            "provider": payload.get("provider"),
+            "model": payload.get("model"),
+            # NOTE: payload 中可能包含 api_key，不记录完整 payload
+        })
         result = update_provider(payload)
         log_event(
             _LOGGER,
             "llm.config.update.result",
-            {"path": path, "status": result.get("status"), "provider": result.get("provider"), "result": result},
+            {"path": path, "status": result.get("status"), "provider": result.get("provider")},
             level=logging.INFO if result.get("status") == "success" else logging.WARNING,
         )
         handler._send_json(200 if result.get("status") == "success" else 400, result)
@@ -292,6 +297,10 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
         parts = path_parts(path)
         if len(parts) >= 6:
             template_name = unquote(parts[4])
+            # Prevent path traversal in template name
+            if ".." in template_name or "/" in template_name or "\\" in template_name:
+                handler._send_json(400, {"status": "error", "message": "无效的模板名称"})
+                return True
             result = delete_process_template(template_name)
             handler._send_json(200 if result.get("status") == "success" else 400, result)
             return True

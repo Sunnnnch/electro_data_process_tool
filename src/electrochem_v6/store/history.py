@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import shutil
 from typing import Any, Dict, Optional
 
 from .legacy_runtime import get_history_manager_v6
+
+_logger = logging.getLogger(__name__)
 
 
 def _normalize_history_payload(payload: Any) -> Dict[str, Any]:
@@ -21,10 +26,17 @@ def _normalize_history_payload(payload: Any) -> Dict[str, Any]:
 
 def _write_history_payload(hist_mgr: Any, payload: Dict[str, Any]) -> None:
     safe_payload = hist_mgr._to_json_safe(payload) if hasattr(hist_mgr, "_to_json_safe") else payload
+    # Create backup before writing
+    history_file = str(hist_mgr.history_file)
+    if os.path.exists(history_file):
+        try:
+            shutil.copy2(history_file, history_file + ".bak")
+        except Exception:
+            _logger.warning("Failed to create history backup before write")
     if hasattr(hist_mgr, "_atomic_write_payload"):
         hist_mgr._atomic_write_payload(safe_payload)
         return
-    with open(hist_mgr.history_file, "w", encoding="utf-8") as f:
+    with open(history_file, "w", encoding="utf-8") as f:
         json.dump(safe_payload, f, ensure_ascii=False, indent=2)
 
 def _record_key(record: Dict[str, Any]) -> str:

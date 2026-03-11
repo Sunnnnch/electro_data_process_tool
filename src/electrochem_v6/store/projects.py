@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import tempfile
 import threading
 from datetime import datetime
@@ -15,6 +17,7 @@ from electrochem_v6.config import ensure_parent_dir
 from .legacy_runtime import get_history_manager_v6, get_project_manager_v6
 
 _PROJECTS_IO_LOCK = threading.RLock()
+_logger = logging.getLogger(__name__)
 
 
 def _safe_load_projects(projects_file: str) -> dict[str, Any]:
@@ -23,13 +26,19 @@ def _safe_load_projects(projects_file: str) -> dict[str, Any]:
             parsed = json.load(f)
             if isinstance(parsed, dict):
                 return parsed
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.warning("Failed to load projects file %s: %s", projects_file, exc)
     return {"version": "1.0", "projects": [], "default_project": None}
 
 
 def _atomic_write_json(path: str, data: dict[str, Any]) -> None:
     target = ensure_parent_dir(Path(path))
+    # Create backup before writing
+    if target.exists():
+        try:
+            shutil.copy2(str(target), str(target) + ".bak")
+        except Exception:
+            _logger.warning("Failed to create backup for %s", path)
     fd, tmp_path = tempfile.mkstemp(prefix=f"{target.stem}_", suffix=".tmp", dir=str(target.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -63,7 +72,8 @@ def _create_project_fallback(
 
     try:
         project_id = proj_mgr._generate_project_id()
-    except Exception:
+    except Exception as exc:
+        _logger.warning("Failed to generate project id via manager, using fallback: %s", exc)
         project_id = f"proj_fallback_{int(datetime.now().timestamp())}"
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if not color:
@@ -89,7 +99,8 @@ def _create_project_fallback(
     try:
         _atomic_write_json(projects_file, data)
         return project_id
-    except Exception:
+    except Exception as exc:
+        _logger.error("Failed to write project file: %s", exc)
         return None
 
 
@@ -109,8 +120,8 @@ def get_or_create_project_id_by_name(
             for proj in proj_mgr.get_all_projects("active"):
                 if proj.get("name") == clean_name:
                     return proj.get("id")
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to lookup existing projects: %s", exc)
         return _create_project_fallback(
             proj_mgr,
             name=clean_name,
@@ -130,8 +141,8 @@ def list_projects(status: str = "active") -> Dict[str, Any]:
         try:
             stats = proj_mgr.get_project_stats(item.get("id"))
             item["file_count"] = stats.get("total_files", item.get("file_count", 0))
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("Could not get stats for project %s: %s", item.get("id"), exc)
         safe_projects.append(item)
     return {"status": "success", "projects": safe_projects}
 
@@ -209,8 +220,8 @@ def update_project(
         stats = proj_mgr.get_project_stats(pid)
         project = dict(project)
         project["file_count"] = stats.get("total_files", project.get("file_count", 0))
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.debug("Could not get stats for project %s: %s", pid, exc)
     return {"status": "success", "message": "project updated", "project_id": pid, "project": project}
 
 

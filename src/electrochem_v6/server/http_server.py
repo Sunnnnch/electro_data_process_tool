@@ -118,6 +118,7 @@ class V6ServerManager:
 
                 self.send_response(response_status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(response_body)
                 log_event(
@@ -149,6 +150,12 @@ class V6ServerManager:
                     content_type = "application/octet-stream"
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
+                self.send_header("X-Content-Type-Options", "nosniff")
+                if content_type == "text/html":
+                    self.send_header(
+                        "Content-Security-Policy",
+                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;",
+                    )
                 self.end_headers()
                 self.wfile.write(resolved.read_bytes())
                 log_event(

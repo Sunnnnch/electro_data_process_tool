@@ -6,6 +6,15 @@ import os
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+
+def _safe_int(raw: str, default: int, lo: int = 1, hi: int = 10000) -> int:
+    """Parse *raw* as int, clamping to [lo, hi]. Returns *default* on failure."""
+    try:
+        return max(lo, min(int(raw), hi))
+    except (ValueError, TypeError):
+        return default
+
+
 from electrochem_v6.core import (
     build_project_lsv_compare_plot,
     export_project_report,
@@ -59,9 +68,11 @@ def dispatch_get(handler: Any) -> bool:
         parts = path_parts(path)
         if len(parts) >= 5:
             project_id = parts[3]
-            page = int(query.get("page", ["1"])[0])
-            page_size = int(query.get("page_size", ["15"])[0])
+            page = _safe_int(query.get("page", ["1"])[0], 1)
+            page_size = _safe_int(query.get("page_size", ["15"])[0], 15, lo=1, hi=100)
             sort_by = query.get("sort", ["eta"])[0]
+            if sort_by not in ("eta", "tafel"):
+                sort_by = "eta"
             handler._send_json(
                 200,
                 get_lsv_summary(
@@ -98,6 +109,8 @@ def dispatch_get(handler: Any) -> bool:
                     if text:
                         selected_samples.append(text)
             chart_type = query.get("chart_type", ["overlay"])[0]
+            if chart_type not in ("overlay", "bar", "scatter", "radar"):
+                chart_type = "overlay"
             metric_key = query.get("metric", ["overpotential_10"])[0]
             target_current = query.get("target_current", ["10"])[0]
             payload = build_project_lsv_compare_plot(
@@ -116,6 +129,8 @@ def dispatch_get(handler: Any) -> bool:
         if len(parts) >= 6:
             project_id = parts[3]
             chart_type = query.get("chart_type", ["overlay"])[0]
+            if chart_type not in ("overlay", "bar", "scatter", "radar"):
+                chart_type = "overlay"
             metric_key = query.get("metric", ["overpotential_10"])[0]
             target_current = query.get("target_current", ["10"])[0]
             payload = get_latest_project_lsv_compare_plot(
@@ -151,7 +166,7 @@ def dispatch_get(handler: Any) -> bool:
 
     if path == "/api/v1/history":
         project_id = query.get("project", [None])[0]
-        limit = int(query.get("limit", ["100"])[0])
+        limit = _safe_int(query.get("limit", ["100"])[0], 100, lo=1, hi=500)
         include_archived = (query.get("include_archived", ["0"])[0] or "").strip().lower() in {"1", "true", "yes"}
         handler._send_json(200, list_history(project_id=project_id, limit=limit, include_archived=include_archived))
         return True
@@ -177,8 +192,8 @@ def dispatch_get(handler: Any) -> bool:
         return True
 
     if path == "/api/v1/agent/conversations":
-        page = int(query.get("page", ["1"])[0])
-        page_size = int(query.get("page_size", ["20"])[0])
+        page = _safe_int(query.get("page", ["1"])[0], 1)
+        page_size = _safe_int(query.get("page_size", ["20"])[0], 20, lo=1, hi=100)
         filters = {
             "keyword": query.get("keyword", [""])[0],
             "project_name": query.get("project_name", [""])[0],

@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from electrochem_v6.config import APP_NAME, APP_VERSION, get_quality_report_file
 from electrochem_v6.core import processing_core_v6 as processing_core
 from electrochem_v6.core.processing_compat import run_pipeline
+from electrochem_v6.core.utils import as_float as _as_float, as_int as _as_int, as_bool as _as_bool
 from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
 from electrochem_v6.store.history import attach_run_outputs
 import matplotlib.pyplot as plt
@@ -27,36 +28,6 @@ REFERENCE_ELECTRODE_PRESETS = {
     "sce": 0.241,
     "hg_hgo_1m_koh": 0.098,
 }
-
-
-def _as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return default
-
-
-def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-def _as_bool(value: Any, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"1", "true", "yes", "y", "on"}:
-            return True
-        if text in {"0", "false", "no", "n", "off", ""}:
-            return False
-    return default
 
 
 def _payload_get(payload: Dict[str, Any], key: str, default: Any = None) -> Any:
