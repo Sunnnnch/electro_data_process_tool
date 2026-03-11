@@ -41,6 +41,12 @@ Desktop.ini
 *.whl
 artifacts/
 
+# Sensitive / user-specific config (NEVER commit)
+.env
+.env.*
+llm_config.json
+**/llm_config.json
+
 # Internal dev docs (kept locally, not published)
 TODO.md
 WORKLOG.md
