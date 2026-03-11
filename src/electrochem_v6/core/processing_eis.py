@@ -45,7 +45,7 @@ def process_eis(subfolder, file, params):
                 freq.append(float(parts[0]))     # 频率 Hz
                 z_real.append(float(parts[1]))   # Z' 实阻抗
                 z_imag.append(float(parts[2]))   # Z'' 虚阻抗
-            except:
+            except (ValueError, TypeError):
                 continue
 
     if not z_real or not z_imag or not freq:
@@ -159,7 +159,7 @@ def process_eis(subfolder, file, params):
                         proj = proj_mgr.get_project(params['project_id'])
                         if proj:
                             record['project_name'] = proj['name']
-                    except:
+                    except Exception:
                         pass
             
             history_mgr.add_record(record)

@@ -45,7 +45,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
             try:
                 potential.append(float(parts[0]))
                 current.append(float(parts[1]) * 1000)
-            except:
+            except (ValueError, TypeError):
                 continue
 
     if not potential or not current:
@@ -175,7 +175,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
                         proj = proj_mgr.get_project(params['project_id'])
                         if proj:
                             record['project_name'] = proj['name']
-                    except:
+                    except Exception:
                         pass
             
             history_mgr.add_record(record)
