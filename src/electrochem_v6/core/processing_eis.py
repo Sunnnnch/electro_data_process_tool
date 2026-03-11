@@ -7,6 +7,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 from . import processing_core_v6 as core
+from .utils import read_file_with_fallback_encodings
 
 _resolve_plot_font = core._resolve_plot_font
 HISTORY_MANAGER_AVAILABLE = core.HISTORY_MANAGER_AVAILABLE
@@ -22,15 +23,7 @@ def process_eis(subfolder, file, params):
     file_stem = os.path.splitext(os.path.basename(file))[0]
 
     encodings = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1', 'cp1252']
-    lines = None
-
-    for encoding in encodings:
-        try:
-            with open(filepath, 'r', encoding=encoding) as f:
-                lines = f.readlines()[int(params['start_line']) - 1:]
-            break
-        except UnicodeDecodeError:
-            continue
+    lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
     if lines is None:
         print(f"无法读取EIS文件 {filepath}，尝试了所有编码格式")
@@ -76,8 +69,10 @@ def process_eis(subfolder, file, params):
             plt.grid(True, alpha=0.3)
         plt.axis('equal')  # 等比例坐标轴，更好地显示圆弧
         plt.tight_layout()
-        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
-        plt.close()
+        try:
+            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
+        finally:
+            plt.close()
     
     if plot_bode:
         # 绘制波特图（幅值图和相位图）
@@ -115,8 +110,10 @@ def process_eis(subfolder, file, params):
             ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
-        plt.close()
+        try:
+            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
+        finally:
+            plt.close()
     
     # ✅ 添加：保存EIS历史记录
     if HISTORY_MANAGER_AVAILABLE:
