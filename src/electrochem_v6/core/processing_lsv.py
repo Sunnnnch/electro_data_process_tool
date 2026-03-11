@@ -11,6 +11,35 @@ import pandas as pd
 from . import processing_core_v6 as core
 from .processing_pipeline import _as_bool
 from .processing_quality import DataQualityChecker
+from .utils import read_file_with_fallback_encodings
+
+# ── Module-level constants ─────────────────────────────────────────────────
+# Outlier detection (MAD-based)
+MAD_Z_SCORE_CONSTANT = 0.6745
+MAD_OUTLIER_THRESHOLD = 3.5
+
+# Fitting defaults
+MIN_FITTING_POINTS = 3
+TAFEL_RANGE_RATIO_MIN = 3.0
+MAX_EXTRAPOLATION_FACTOR = 2.0
+EXTRAPOLATION_LINE_POINTS = 50
+
+# Current unit conversion
+A_TO_MA = 1000.0
+
+# Half-wave potential defaults
+HALFWAVE_PERCENTILE = 95
+HALFWAVE_FRACTION = 0.5
+
+# EIS high-frequency thresholds for Tafel-region selection
+HF_THRESHOLD_UP = 0.7   # upper extrapolation direction
+HF_THRESHOLD_DOWN = 0.3  # lower extrapolation direction
+
+# Relative threshold for imaginary impedance filtering (1% of range)
+EIS_RELATIVE_IMAG_THRESHOLD = 0.01
+
+# Software version stamp embedded in detail exports
+SOFTWARE_VERSION = "2.3.2"
 
 get_logger = core.get_logger
 _resolve_plot_font = core._resolve_plot_font
@@ -78,7 +107,7 @@ def parse_target_currents(target_current_str):
             except ValueError:
                 continue
         return sorted(list(set(currents)))
-    except Exception:
+    except (ValueError, TypeError):
         return []
 
 def _parse_tafel_range(raw_value):
@@ -96,11 +125,11 @@ def _parse_tafel_range(raw_value):
     try:
         lo = float(lo_text)
         hi = float(hi_text)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     return (lo, hi)
 
-def _filter_outliers(real_vals, imag_vals, freq_vals=None, thresh=3.5):
+def _filter_outliers(real_vals, imag_vals, freq_vals=None, thresh=MAD_OUTLIER_THRESHOLD):
     """Filter outliers in high-frequency region using MAD.
 
     Returns (real_vals, imag_vals, freq_vals) with outliers removed.
@@ -117,7 +146,7 @@ def _filter_outliers(real_vals, imag_vals, freq_vals=None, thresh=3.5):
         mad = _np.nanmedian(_np.abs(v - med))
         if mad <= 0:
             return _np.ones_like(v, dtype=bool)
-        z = 0.6745 * (v - med) / mad
+        z = MAD_Z_SCORE_CONSTANT * (v - med) / mad
         return _np.abs(z) <= thresh
 
     mask = _mask(real_vals) & _mask(imag_vals)
@@ -142,7 +171,7 @@ def interpolate_multiple_potentials(potential, current, target_currents):
     return results
 
 def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
-                         min_pts=3, tafel_ratio=3.0, max_extrap_factor=2.0):
+                         min_pts=MIN_FITTING_POINTS, tafel_ratio=TAFEL_RANGE_RATIO_MIN, max_extrap_factor=MAX_EXTRAPOLATION_FACTOR):
     """计算在电流密度 i=target_i (mA/cm²) 时的电位 E (V)。
     逻辑：
       1) 若曲线覆盖目标电流 -> 线性插值；
@@ -182,12 +211,12 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
     # 外推
     going_up = target_i > I.max()
     if going_up:
-        thr = max(1.0, 0.7 * I.max())
+        thr = max(1.0, HF_THRESHOLD_UP * I.max())
         sel = np.where(I >= thr)[0]
         if sel.size < min_pts:
             sel = np.arange(max(0, len(I) - min_pts), len(I))
     else:
-        thr = 0.3 * I.min()
+        thr = HF_THRESHOLD_DOWN * I.min()
         sel = np.where(I <= thr)[0]
         if sel.size < min_pts:
             sel = np.arange(0, min(min_pts, len(I)))
@@ -206,7 +235,7 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
         E10 = float(a + b * np.log10(max(target_i, 1e-12)))
         i0 = I_sel.max() if going_up else target_i
         i1 = target_i if going_up else I_sel.min()
-        i_ext = np.linspace(i0, i1, 50)
+        i_ext = np.linspace(i0, i1, EXTRAPOLATION_LINE_POINTS)
         E_ext = a + b * np.log10(np.clip(i_ext, 1e-12, None))
         method = f"tafel (b={b:.3f} V/dec)"
     else:
@@ -214,7 +243,7 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
         E10 = float(m * target_i + c)
         i0 = I_sel.max() if going_up else target_i
         i1 = target_i if going_up else I_sel.min()
-        i_ext = np.linspace(i0, i1, 50)
+        i_ext = np.linspace(i0, i1, EXTRAPOLATION_LINE_POINTS)
         E_ext = m * i_ext + c
         method = "linear"
 
@@ -244,17 +273,7 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
             return None
 
         # 尝试多种编码读取
-        encodings = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1', 'cp1252']
-        lines = None
-
-        for encoding in encodings:
-            try:
-                with open(filepath, 'r', encoding=encoding) as f:
-                    lines = f.readlines()[int(start_line) - 1:]
-                log(f"使用 {encoding} 编码成功读取EIS文件: {eis_filename}")
-                break
-            except UnicodeDecodeError:
-                continue
+        lines = read_file_with_fallback_encodings(filepath, start_line=int(start_line))
 
         if lines is None:
             log(f"无法读取文件 {filepath}, 所有编码均失败")
@@ -324,7 +343,7 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                 log(f"高频区最小虚部: Z'={high_freq_ir_value:.3f}Ω")
 
                 z_imag_range = max(abs(min(z_imag)), abs(max(z_imag)))
-                threshold = 0.01 * z_imag_range if z_imag_range > 0 else 0.01
+                threshold = EIS_RELATIVE_IMAG_THRESHOLD * z_imag_range if z_imag_range > 0 else EIS_RELATIVE_IMAG_THRESHOLD
 
                 if method_key == 'hf_intercept':
                     if abs(high_freq_imag[min_imag_idx_in_high_freq]) < threshold:
@@ -394,23 +413,11 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     lsv_quality_report = None  # 初始化质量报告变量，确保始终存在
 
     # 尝试多种编码格式读取文件
-    encodings = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1', 'cp1252']
-    lines = None
-
-    for encoding in encodings:
-        try:
-            with open(filepath, 'r', encoding=encoding) as f:
-                lines = f.readlines()[int(params['start_line']) - 1:]
-            logger.debug(f"成功使用 {encoding} 编码读取文件")
-            break
-        except UnicodeDecodeError:
-            continue
-        except FileNotFoundError:
-            logger.error(f"文件未找到: {filepath}")
-            raise FileFormatError(f"LSV文件不存在: {file}")
-        except Exception as e:
-            logger.error(f"读取文件失败: {filepath} - {str(e)}")
-            raise FileFormatError(f"无法读取LSV文件: {file} - {str(e)}")
+    try:
+        lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
+    except (FileNotFoundError, OSError) as e:
+        logger.error(f"文件读取失败: {filepath} - {e}")
+        raise FileFormatError(f"无法读取LSV文件: {file} - {e}")
 
     if lines is None:
         logger.error(f"所有编码格式均无法读取文件: {filepath}")
@@ -425,7 +432,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             try:
                 pot = float(parts[0]) + float(params['offset'])
                 i_A = float(parts[1])
-                cur_signed = i_A * 1000 / float(params['area'])
+                cur_signed = i_A * A_TO_MA / float(params['area'])
                 cur_used = abs(cur_signed) if params.get('use_abs_current', True) else cur_signed
                 potential.append(pot)
                 current_signed.append(cur_signed)
@@ -682,8 +689,8 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     'r2': float(r2),
                     'range': (lo, hi)
                 }
-    except Exception:
-        pass
+    except (ValueError, TypeError) as exc:
+        logger.debug("Tafel拟合跳过: %s", exc)
     plt.xlabel(params['xlabel'])
     plt.ylabel(params['ylabel'])
     title = params['title'].replace("{sample}", subname)
@@ -774,8 +781,8 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         'range': (lo, hi),
                         'ir_compensation': ir_compensation
                     }
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.debug("IR补偿Tafel拟合跳过: %s", exc)
         plt.xlabel(params['xlabel'])
         plt.ylabel(params['ylabel'])
         title_compensated = params['title'].replace("{sample}", subname) + f" (IR: {ir_compensation:.2f}Ω)"
@@ -788,8 +795,10 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         if params.get('mark_targets', True) and target_potentials_compensated:
             plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV_IR_compensated.png"), dpi=300, bbox_inches='tight')
-        plt.close()
+        try:
+            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV_IR_compensated.png"), dpi=300, bbox_inches='tight')
+        finally:
+            plt.close()
 
         # 准备返回结果：包含所有目标电流密度的数据（不重复写入Rs）
         result_row = [subname, file_stem]
@@ -913,7 +922,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         pd.DataFrame(tgt_records).to_excel(writer, sheet_name='targets', index=False)
                         # info sheet
                         info_rows = [
-                            {'Key':'SoftwareVersion','Value':'2.3.2'},
+                            {'Key':'SoftwareVersion','Value': SOFTWARE_VERSION},
                             {'Key':'GeneratedAt','Value': datetime.now().isoformat(timespec='seconds')},
                             {'Key':'Sample','Value': subname},
                             {'Key':'SourceFile','Value': file},
@@ -1186,7 +1195,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         pd.DataFrame(raw_records).to_excel(writer, sheet_name='raw', index=False)
                         pd.DataFrame(tgt_records).to_excel(writer, sheet_name='targets', index=False)
                         info_rows = [
-                            {'Key':'SoftwareVersion','Value':'2.3.2'},
+                            {'Key':'SoftwareVersion','Value': SOFTWARE_VERSION},
                             {'Key':'GeneratedAt','Value': datetime.now().isoformat(timespec='seconds')},
                             {'Key':'Sample','Value': subname},
                             {'Key':'SourceFile','Value': file},

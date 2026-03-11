@@ -10,7 +10,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from electrochem_v6.store.projects import get_or_create_project_id_by_name  # noqa: E402
+from electrochem_v6.store.projects import get_or_create_project_id_by_name, create_project  # noqa: E402
+from electrochem_v6.store.projects import _validate_project_name, _sanitize_description  # noqa: E402
 
 
 def test_v6_get_or_create_project_concurrent_same_name(tmp_path):
@@ -49,3 +50,55 @@ def test_v6_get_or_create_project_concurrent_same_name(tmp_path):
         else:
             os.environ["ELECTROCHEM_V6_CONVERSATION_FILE"] = old_conv
 
+
+# ── Project input validation tests ─────────────────────────────────────────
+
+class TestValidateProjectName:
+    def test_normal_name(self):
+        name, err = _validate_project_name("My Project")
+        assert name == "My Project"
+        assert err is None
+
+    def test_empty_name(self):
+        name, err = _validate_project_name("")
+        assert name is None
+        assert err is not None
+
+    def test_none_name(self):
+        name, err = _validate_project_name(None)
+        assert name is None
+        assert err is not None
+
+    def test_whitespace_only(self):
+        name, err = _validate_project_name("   ")
+        assert name is None
+        assert err is not None
+
+    def test_control_chars_stripped(self):
+        name, err = _validate_project_name("proj\x00ect\x07\x1fname")
+        assert name == "projectname"
+        assert err is None
+
+    def test_too_long(self):
+        name, err = _validate_project_name("a" * 200)
+        assert name is None
+        assert "128" in err
+
+    def test_unicode_ok(self):
+        name, err = _validate_project_name("电化学项目-1")
+        assert name == "电化学项目-1"
+        assert err is None
+
+
+class TestSanitizeDescription:
+    def test_normal(self):
+        assert _sanitize_description("A description") == "A description"
+
+    def test_control_chars(self):
+        assert _sanitize_description("foo\x00bar\x1f") == "foobar"
+
+    def test_truncated(self):
+        assert len(_sanitize_description("x" * 2000)) == 1024
+
+    def test_none(self):
+        assert _sanitize_description(None) == ""

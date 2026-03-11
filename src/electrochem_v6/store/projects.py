@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -18,6 +19,26 @@ from .legacy_runtime import get_history_manager_v6, get_project_manager_v6
 
 _PROJECTS_IO_LOCK = threading.RLock()
 _logger = logging.getLogger(__name__)
+
+_MAX_PROJECT_NAME_LEN = 128
+_MAX_DESCRIPTION_LEN = 1024
+# Strip control characters (C0/C1) except common whitespace
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _validate_project_name(name: str | None) -> tuple[str | None, str | None]:
+    """Return (clean_name, error_message). error_message is None on success."""
+    clean = _CONTROL_CHARS_RE.sub("", str(name or "")).strip()
+    if not clean:
+        return None, "项目名称不能为空"
+    if len(clean) > _MAX_PROJECT_NAME_LEN:
+        return None, f"项目名称不能超过 {_MAX_PROJECT_NAME_LEN} 个字符"
+    return clean, None
+
+
+def _sanitize_description(desc: str | None) -> str:
+    clean = _CONTROL_CHARS_RE.sub("", str(desc or "")).strip()
+    return clean[:_MAX_DESCRIPTION_LEN]
 
 
 def _safe_load_projects(projects_file: str) -> dict[str, Any]:
@@ -153,12 +174,13 @@ def create_project(
     tags: Optional[List[str]] = None,
     color: Optional[str] = None,
 ) -> Dict[str, Any]:
-    clean_name = str(name or "").strip()
-    if not clean_name:
-        return {"status": "error", "message": "project name is required"}
+    clean_name, err = _validate_project_name(name)
+    if err:
+        return {"status": "error", "message": err}
+    clean_desc = _sanitize_description(description)
     project_id = get_or_create_project_id_by_name(
         clean_name,
-        description=str(description or "").strip(),
+        description=clean_desc,
         tags=tags or [],
         color=color,
     )
@@ -195,12 +217,12 @@ def update_project(
         return {"status": "error", "message": "missing project id"}
     payload: Dict[str, Any] = {}
     if name is not None:
-        clean_name = str(name).strip()
-        if not clean_name:
-            return {"status": "error", "message": "project name is required"}
+        clean_name, err = _validate_project_name(name)
+        if err:
+            return {"status": "error", "message": err}
         payload["name"] = clean_name
     if description is not None:
-        payload["description"] = str(description).strip()
+        payload["description"] = _sanitize_description(description)
     if tags is not None:
         payload["tags"] = [str(tag).strip() for tag in tags if str(tag).strip()]
     if color is not None:
