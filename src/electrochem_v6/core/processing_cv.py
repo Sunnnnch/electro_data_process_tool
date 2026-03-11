@@ -78,6 +78,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     if params.get('plot_grid', True):
         plt.grid(True, alpha=0.3)
     # 峰值检测（可选，基础版）
+    sel: list = []
     if params.get('peaks_enabled'):
         import numpy as _np
         x = _np.asarray(potential, dtype=float)
@@ -123,7 +124,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
                 try:
                     plt.plot([xp],[yp], marker=marker, color=color, markersize=8)
                     plt.annotate(f"{kind}: {yp:.1f} mA\nE={xp:.3f} V",
-                                 xy=(xp, yp), xytext=(10,10), textcoords='offset points',
+                                 xy=(float(xp), float(yp)), xytext=(10,10), textcoords='offset points',
                                  bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
                 except Exception:
                     pass  # annotation cosmetics – non-critical
@@ -155,8 +156,9 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     try:
         pot_arr = np.asarray(potential, dtype=float)
         cur_arr = np.asarray(current, dtype=float)  # mA
-        _trapz = getattr(np, 'trapezoid', np.trapz)
-        charge_mC = float(_trapz(np.abs(cur_arr), pot_arr))  # mA·V = mC (if scan rate = 1 V/s)
+        _trapz = getattr(np, 'trapezoid', None) or getattr(np, 'trapz', None)  # type: ignore[attr-defined]
+        if _trapz is not None:
+            charge_mC = float(_trapz(np.abs(cur_arr), pot_arr))  # mA·V = mC (if scan rate = 1 V/s)
     except Exception:
         pass
 

@@ -17,7 +17,7 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _resolve_v6_project(
-    project_id: str = None, project_name: str = None
+    project_id: Optional[str] = None, project_name: Optional[str] = None
 ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     from electrochem_v6.store.projects import list_projects
 
@@ -50,8 +50,10 @@ def _resolve_v6_project(
 
 
 def _simplify_v6_history_record(record: Dict[str, Any]) -> Dict[str, Any]:
-    results = record.get("results") if isinstance(record.get("results"), dict) else {}
-    output_files = record.get("output_files") if isinstance(record.get("output_files"), list) else []
+    _raw_results = record.get("results")
+    results = _raw_results if isinstance(_raw_results, dict) else {}
+    _raw_output = record.get("output_files")
+    output_files = _raw_output if isinstance(_raw_output, list) else []
     return {
         "timestamp": record.get("timestamp"),
         "type": record.get("type"),
@@ -87,7 +89,7 @@ def _simplify_v6_compare_row(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def tool_get_current_project_summary(
-    project_id: str = None, project_name: str = None
+    project_id: Optional[str] = None, project_name: Optional[str] = None
 ) -> Dict:
     try:
         from electrochem_v6.store.history import get_stats, list_history
@@ -118,9 +120,9 @@ def tool_get_current_project_summary(
 
 
 def tool_get_current_project_history(
-    project_id: str = None,
-    project_name: str = None,
-    record_type: str = None,
+    project_id: Optional[str] = None,
+    project_name: Optional[str] = None,
+    record_type: Optional[str] = None,
     limit: int = 10,
 ) -> Dict:
     try:
@@ -151,8 +153,8 @@ def tool_get_current_project_history(
 
 
 def tool_get_current_compare_selection(
-    project_id: str = None,
-    project_name: str = None,
+    project_id: Optional[str] = None,
+    project_name: Optional[str] = None,
     sample_names: Optional[List[str]] = None,
     limit: int = 5,
 ) -> Dict:
@@ -214,7 +216,7 @@ def tool_create_project(name: str, description: str = "") -> Dict:
 
 
 def tool_get_processing_history(
-    project_id: str = None, record_type: str = None, limit: int = 20
+    project_id: Optional[str] = None, record_type: Optional[str] = None, limit: int = 20
 ) -> Dict:
     """获取处理历史。"""
     try:
@@ -222,10 +224,11 @@ def tool_get_processing_history(
 
         hist_mgr = get_history_manager_v6()
 
+        all_records = hist_mgr.get_all_records()
         if project_id:
-            records = hist_mgr.get_records_by_project(project_id)
+            records = [r for r in all_records if r.get("project_id") == project_id]
         else:
-            records = hist_mgr.get_all_records()
+            records = all_records
 
         if record_type:
             records = [r for r in records if r.get("type", "").upper() == record_type.upper()]
@@ -240,11 +243,11 @@ def tool_get_processing_history(
 def tool_auto_process_with_smart_params(
     folder_path: str,
     data_type: str,
-    project_name: str = None,
-    potential_offset: float = None,
-    electrode_area: float = None,
-    target_current: str = None,
-    tafel_range: str = None,
+    project_name: Optional[str] = None,
+    potential_offset: Optional[float] = None,
+    electrode_area: Optional[float] = None,
+    target_current: Optional[str] = None,
+    tafel_range: Optional[str] = None,
     extra_gui_params: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """AI自主处理数据(核心功能)。"""

@@ -56,11 +56,12 @@ def parse_multipart_form(body: bytes, content_type: str) -> Tuple[Dict[str, Any]
         name = part.get_param("name", header="content-disposition")
         if not name:
             continue
+        key = str(name) if not isinstance(name, str) else name
         filename = part.get_filename()
         if filename:
-            files[name] = part
+            files[key] = part
         else:
-            fields[name] = part.get_content()
+            fields[key] = part.get_content()
     return fields, files
 
 

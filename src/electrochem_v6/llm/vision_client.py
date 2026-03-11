@@ -34,7 +34,7 @@ class VisionClient:
         try:
             response = self.client.responses.create(
                 model=self.model,
-                input=[payload],
+                input=[payload],  # type: ignore[arg-type]
                 max_output_tokens=max_tokens,
             )
             output_text = self._extract_text(response)

@@ -164,7 +164,7 @@ class LLMConfig:
         except Exception:
             return False
 
-    def get_api_key(self, provider: str = None) -> Optional[str]:
+    def get_api_key(self, provider: Optional[str] = None) -> Optional[str]:
         provider = self.normalize_provider(provider)
         env_key = f"{provider.upper()}_API_KEY"
         if env_key in os.environ:
@@ -174,7 +174,7 @@ class LLMConfig:
     def set_api_key(self, provider: str, api_key: str):
         self.update_model_entry(provider, {"api_key": api_key})
 
-    def get_model_config(self, provider: str = None) -> Dict:
+    def get_model_config(self, provider: Optional[str] = None) -> Dict:
         provider = self.normalize_provider(provider)
         defaults = copy.deepcopy(self.DEFAULT_CONFIG.get("models", {}).get(provider, {}))
         current = copy.deepcopy(self.config.get("models", {}).get(provider, {}))

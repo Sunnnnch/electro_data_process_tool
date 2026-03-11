@@ -7,7 +7,7 @@ tools_analysis, tools_catalyst). This module wires them into a single
 
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from electrochem_v6.llm.config import LLMConfig
 from electrochem_v6.llm.vision_client import VisionClient
@@ -33,7 +33,7 @@ _logger = logging.getLogger(__name__)
 
 # ── LSV query tools (kept here – small, tightly coupled to history) ────────
 
-def tool_query_lsv_summary(project_id: str = None, sort_by: str = "eta", top_n: int = None) -> Dict:
+def tool_query_lsv_summary(project_id: Optional[str] = None, sort_by: str = "eta", top_n: Optional[int] = None) -> Dict:
     """查询LSV数据汇总。"""
     try:
         from electrochem_v6.store.legacy_runtime import get_history_manager_v6
@@ -66,7 +66,7 @@ def tool_query_lsv_summary(project_id: str = None, sort_by: str = "eta", top_n: 
         return {"success": False, "error": str(e)}
 
 
-def tool_find_best_catalysts(project_id: str = None, count: int = 5) -> Dict:
+def tool_find_best_catalysts(project_id: Optional[str] = None, count: int = 5) -> Dict:
     """找出最优催化剂。"""
     result = tool_query_lsv_summary(project_id=project_id, sort_by="eta", top_n=count)
     _logger.debug("tool_find_best_catalysts: result=%s", result)

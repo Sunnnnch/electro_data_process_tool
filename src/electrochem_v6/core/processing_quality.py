@@ -193,7 +193,7 @@ class DataQualityChecker:
             # 1. 二阶导数噪声水平检测（对LSV指数曲线更准确）
             if data_points >= 4:
                 # 使用二阶导数（加速度）来检测噪声
-                current_diff = np.diff(df['Current'].values)
+                current_diff = np.diff(df['Current'].to_numpy())
                 second_diff = np.diff(current_diff)
 
                 # 计算相对噪声水平（归一化）
@@ -223,7 +223,7 @@ class DataQualityChecker:
 
             # 2. 连续突变点检测（基于变化率的稳定性）
             if data_points >= 5:
-                current_diff = np.diff(df['Current'].values)
+                current_diff = np.diff(df['Current'].to_numpy())
 
                 # 计算差分的变化（二阶差分）
                 diff_of_diff = np.diff(current_diff)

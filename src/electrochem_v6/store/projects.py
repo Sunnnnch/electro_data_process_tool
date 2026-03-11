@@ -126,7 +126,7 @@ def _create_project_fallback(
 
 
 def get_or_create_project_id_by_name(
-    name: str,
+    name: str | None,
     *,
     description: str = "v6 process api auto-created",
     tags: Optional[List[str]] = None,
@@ -168,8 +168,10 @@ def list_projects(status: str = "active") -> Dict[str, Any]:
     for project in projects:
         item = dict(project)
         try:
-            stats = proj_mgr.get_project_stats(item.get("id"))
-            item["file_count"] = stats.get("total_files", item.get("file_count", 0))
+            pid = item.get("id")
+            if pid:
+                stats = proj_mgr.get_project_stats(pid)
+                item["file_count"] = stats.get("total_files", item.get("file_count", 0))
         except Exception as exc:
             _logger.debug("Could not get stats for project %s: %s", item.get("id"), exc)
         safe_projects.append(item)
@@ -183,8 +185,8 @@ def create_project(
     color: Optional[str] = None,
 ) -> Dict[str, Any]:
     clean_name, err = _validate_project_name(name)
-    if err:
-        return {"status": "error", "message": err}
+    if err or clean_name is None:
+        return {"status": "error", "message": err or "项目名称无效"}
     clean_desc = _sanitize_description(description)
     project_id = get_or_create_project_id_by_name(
         clean_name,

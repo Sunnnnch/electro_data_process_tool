@@ -380,7 +380,7 @@ class NativeConversationManager:
     def _save(self, payload: Dict[str, Any]) -> None:
         _atomic_write_json(Path(self.storage_file), payload)
 
-    def _find(self, conversation_id: str) -> tuple[Dict[str, Any], int] | tuple[None, int]:
+    def _find(self, conversation_id: str) -> tuple[Dict[str, Any], int]:
         payload = self._load()
         conversations = payload.get("conversations", [])
         for index, item in enumerate(conversations):
@@ -743,7 +743,7 @@ class SqliteConversationManager:
         )
 
 
-def get_history_manager_v6():
+def get_history_manager_v6() -> SqliteHistoryManager | NativeHistoryManager:
     global _history_manager_singleton
     with _RUNTIME_LOCK:
         if _USE_SQLITE:
@@ -755,10 +755,11 @@ def get_history_manager_v6():
         current = _history_manager_singleton
         if current is None or not _same_path(getattr(current, "history_file", ""), history_path):
             _history_manager_singleton = NativeHistoryManager(str(history_path))
+        assert isinstance(_history_manager_singleton, NativeHistoryManager)
         return _history_manager_singleton
 
 
-def get_project_manager_v6():
+def get_project_manager_v6() -> SqliteProjectManager | NativeProjectManager:
     global _project_manager_singleton
     with _RUNTIME_LOCK:
         if _USE_SQLITE:
@@ -770,10 +771,11 @@ def get_project_manager_v6():
         current = _project_manager_singleton
         if current is None or not _same_path(getattr(current, "projects_file", ""), projects_path):
             _project_manager_singleton = NativeProjectManager(str(projects_path))
+        assert isinstance(_project_manager_singleton, NativeProjectManager)
         return _project_manager_singleton
 
 
-def get_conversation_manager_v6():
+def get_conversation_manager_v6() -> SqliteConversationManager | NativeConversationManager:
     global _conversation_manager_singleton
     with _RUNTIME_LOCK:
         if _USE_SQLITE:
@@ -785,4 +787,5 @@ def get_conversation_manager_v6():
         current = _conversation_manager_singleton
         if current is None or not _same_path(getattr(current, "storage_file", ""), conversation_path):
             _conversation_manager_singleton = NativeConversationManager(str(conversation_path))
+        assert isinstance(_conversation_manager_singleton, NativeConversationManager)
         return _conversation_manager_singleton

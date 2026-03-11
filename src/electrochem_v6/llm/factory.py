@@ -88,7 +88,7 @@ def create_llm_client(
         model=model_name,
         base_url=base_url,
         timeout=timeout,
-        extra_headers=extra_headers,
+        extra_headers=extra_headers,  # pyright: ignore[reportCallIssue]
     )
 
 

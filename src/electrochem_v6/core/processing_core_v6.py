@@ -102,7 +102,7 @@ _VISION_DISABLED = False
 # ======================
 # Logging Configuration
 # ======================
-def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
+def setup_logger(log_dir: Optional[str] = None, log_level: int = logging.INFO) -> logging.Logger:
     """Configure structured logging system with file rotation.
 
     Args:
@@ -325,8 +325,8 @@ def save_waveform_plot(
 
         plt.figure(figsize=(8, 5))
         plt.plot(
-            df["Potential"].values,
-            df["Current"].values,
+            df["Potential"].to_numpy(),
+            df["Current"].to_numpy(),
             label="Current vs Potential",
             color="#1f77b4",
         )

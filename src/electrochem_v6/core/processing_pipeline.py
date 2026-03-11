@@ -99,14 +99,14 @@ def resolve_data_start_line(file_path: str, params: Dict[str, Any]) -> int:
 
 class NumpyEncoder(json.JSONEncoder):
     """自定义 JSON 编码器，处理 NumPy 数据类型"""
-    def default(self, obj):
-        if isinstance(obj, (np.integer, np.int64, np.int32)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float64, np.float32)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
+    def default(self, o):  # type: ignore[override]
+        if isinstance(o, (np.integer,)):  # type: ignore[arg-type]
+            return int(o)
+        elif isinstance(o, (np.floating,)):  # type: ignore[arg-type]
+            return float(o)
+        elif isinstance(o, np.ndarray):
+            return o.tolist()
+        return super().default(o)
 
 
 def _is_result_file(filename: str) -> bool:
@@ -244,8 +244,8 @@ def run_pipeline(
     # ── define per-workunit processor (closure captures outer vars) ────
     def _process_one_workunit(
         idx: int, sub: str, files: List[str],
-    ) -> Dict[str, Any]:
-        """Process a single work-unit (sub-directory). Returns partial results."""
+    ) -> None:
+        """Process a single work-unit (sub-directory)."""
         file_list = list(files)
         if preview_mode:
             file_list = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))][:preview_limit]
@@ -470,7 +470,7 @@ def run_pipeline(
                 skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
                 ecsa_res = None
             if ecsa_res:
-                results_ecsa.append(ecsa_res)
+                results_ecsa.append(ecsa_res)  # type: ignore[arg-type]
 
         emit_stage("分析", int(((idx + 1) / total) * 85))
         emit_progress(int(((idx + 1) / total) * 100))
@@ -529,7 +529,7 @@ def run_pipeline(
             columns.append("HalfWavePotential(V)")
         if _as_bool(gui_vars.get('tafel_enabled', False)):
             columns.append("TafelSlope(mV/dec)")
-        df = pd.DataFrame(results_lsv, columns=columns)
+        df = pd.DataFrame(results_lsv, columns=columns)  # type: ignore[arg-type]
         try:
             df['__skey'] = df['Sample_Name'].map(natural_sort_key)
             df['__fkey'] = df['File_Name'].map(natural_sort_key)
@@ -569,7 +569,7 @@ def run_pipeline(
     if ecsa_enabled and results_ecsa:
         emit_status("正在导出 ECSA 结果...")
         emit_stage("导出", 92)
-        df_ecsa = pd.DataFrame(results_ecsa, columns=[
+        df_ecsa = pd.DataFrame(results_ecsa, columns=[  # type: ignore[arg-type]
             'sample', 'Ev', 'n_used', 'avg_last_n', 'N_points', 'slope_mFcm2', 'intercept', 'R2',
             'Cdl_mFcm2', 'Cs_input', 'Cs_unit', 'Cs_mFcm2', 'ECSA_cm2', 'RF', 'png'
         ])
@@ -588,6 +588,7 @@ def run_pipeline(
 
     summary_path = None
     quality_report_path = None
+    quality_summary: Dict[str, Any] = {}
     try:
         # 生成质量报告统计
         quality_levels = {}

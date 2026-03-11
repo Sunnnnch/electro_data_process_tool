@@ -233,10 +233,10 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
                 'type': 'ECSA',
                 'status': 'success',
                 'results': {
-                    'Cdl': float(cdl_mFcm2),
-                    'ECSA': float(ecsa_cm2),
-                    'RF': float(rf),
-                    'R2': float(r2),
+                    'Cdl': float(cdl_mFcm2),  # type: ignore[arg-type]
+                    'ECSA': float(ecsa_cm2),  # type: ignore[arg-type]
+                    'RF': float(rf),  # type: ignore[arg-type]
+                    'R2': float(r2),  # type: ignore[arg-type]
                     'scan_rates': len(v_list)
                 }
             }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Collection, Optional
 
 # Default allowed extensions for data files
 _DATA_FILE_EXTENSIONS = frozenset({".txt", ".csv", ".xlsx", ".xls", ".json", ".zip"})
@@ -38,7 +38,7 @@ def validate_path_within(
     allowed_root: str | Path,
     *,
     must_exist: bool = True,
-    allowed_extensions: Optional[Sequence[str]] = None,
+    allowed_extensions: Optional[Collection[str]] = None,
 ) -> Path:
     """Resolve *user_path* and ensure it stays under *allowed_root*.
 

@@ -782,7 +782,7 @@ def _extract_lsv_metric(record: Dict[str, Any], metric_key: str, target_current:
         label = f"η@{target_text} (mV)"
         warning = f"样品 {sample_name} 缺少 η@{target_text} 指标"
     try:
-        num = float(value)
+        num = float(value)  # type: ignore[arg-type]
     except Exception:
         return None, label, warning, target_value
     if not math.isfinite(num):

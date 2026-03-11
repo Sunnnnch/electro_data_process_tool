@@ -148,7 +148,7 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
         description = payload.get("description", "")
         tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
         color = payload.get("color")
-        result = create_project(name=name, description=description, tags=tags, color=color)
+        result = create_project(name=name or "", description=description, tags=tags, color=color)
         handler._send_json(200 if result.get("status") == "success" else 400, result)
         return True
 
@@ -290,8 +290,8 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
             handler._send_json(400, {"status": "error", "message": str(exc)})
             return True
         result = save_process_template(
-            name=payload.get("name"),
-            state=payload.get("state"),
+            name=payload.get("name") or "",
+            state=payload.get("state") or {},
             overwrite=bool(payload.get("overwrite", False)),
         )
         handler._send_json(200 if result.get("status") == "success" else 400, result)

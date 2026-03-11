@@ -273,7 +273,7 @@ def run_stress_smoke(
     _ensure_utf8_console()
     with _isolated_data_env() as env_info:
         manager = V6ServerManager(port=port)
-        manager._agent_service = _DummyAgentService()
+        manager._agent_service = _DummyAgentService()  # type: ignore[assignment]
         ok, msg = manager.start()
         if not ok:
             return {"ok": False, "stage": "start", "message": msg}

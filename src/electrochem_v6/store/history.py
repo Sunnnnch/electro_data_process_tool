@@ -9,6 +9,7 @@ import shutil
 from typing import Any, Dict, Optional
 
 from .legacy_runtime import _USE_SQLITE, get_history_manager_v6
+from .legacy_runtime import SqliteHistoryManager as _SqliteHM
 
 __all__ = [
     "list_history",
@@ -89,6 +90,7 @@ def list_history(project_id: Optional[str] = None, limit: int = 100, include_arc
                  data_type: Optional[str] = None) -> Dict[str, Any]:
     if _USE_SQLITE:
         hist_mgr = get_history_manager_v6()
+        assert isinstance(hist_mgr, _SqliteHM)
         records = hist_mgr.db.filter_history(
             project_id=project_id, include_archived=include_archived,
             data_type=data_type, metric_key=metric_key, metric_min=metric_min, metric_max=metric_max,
@@ -106,6 +108,7 @@ def list_history(project_id: Optional[str] = None, limit: int = 100, include_arc
 def get_stats(project_id: Optional[str] = None, include_archived: bool = False) -> Dict[str, Any]:
     if _USE_SQLITE:
         hist_mgr = get_history_manager_v6()
+        assert isinstance(hist_mgr, _SqliteHM)
         stats = hist_mgr.db.get_history_stats(project_id=project_id, include_archived=include_archived)
         return {"status": "success", "data": stats}
     hist_mgr = get_history_manager_v6()
@@ -127,6 +130,7 @@ def _update_history_records(*, match_key: str, action: str) -> Dict[str, Any]:
 
     if _USE_SQLITE:
         hist_mgr = get_history_manager_v6()
+        assert isinstance(hist_mgr, _SqliteHM)
         updated = hist_mgr.db.update_history_by_key(safe_key, action)
         if updated == 0:
             return {"status": "error", "message": "history record not found", "updated": 0}
@@ -207,6 +211,7 @@ def attach_run_outputs(
 
     if _USE_SQLITE:
         hist_mgr = get_history_manager_v6()
+        assert isinstance(hist_mgr, _SqliteHM)
         updated = hist_mgr.db.attach_run_outputs(
             run_id=safe_run_id,
             output_files=safe_output_files,

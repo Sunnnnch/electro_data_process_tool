@@ -31,7 +31,7 @@ def _debug_log(tag: str, payload):
 class AgentController:
     """AI Agent控制器"""
 
-    def __init__(self, llm_client: BaseLLMClient, system_prompt: str = None):
+    def __init__(self, llm_client: BaseLLMClient, system_prompt: Optional[str] = None):
         """
         初始化Agent
 

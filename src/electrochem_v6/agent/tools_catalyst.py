@@ -139,7 +139,7 @@ def tool_get_catalyst_info(sample_name: str, include_details: bool = True) -> Di
         }
 
 
-def _evaluate_lsv_performance(eta: float = None, tafel: float = None) -> str:
+def _evaluate_lsv_performance(eta: float | None = None, tafel: float | None = None) -> str:
     """评估LSV性能等级"""
     if eta is None:
         return "未知"
