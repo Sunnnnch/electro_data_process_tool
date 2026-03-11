@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.0.4
+
+### 项目质量改进
+
+- README 与 README.en 新增完整环境变量参考表（16 个变量）、故障排查章节和安全说明
+- `pyproject.toml` 补充 license / authors / keywords 元数据
+- `packaging/README.md` 新增常见打包问题排查
+- `http_server.py` 添加安全设计说明文档字符串
+- `processing_core_v6.py` 新增 `ELECTROCHEM_V6_LOG_LEVEL` 环境变量支持
+- 依赖版本范围优化：numpy / openai 放宽至 `<3.0`，pywebview 收紧至 `<5.0`
+- 新增 `requirements-frozen.txt` 精确锁定版本
+- CI 新增 `--cov-fail-under=60` 覆盖率门槛
+
+### 测试
+
+- 新增 7 个测试文件共 109 个测试覆盖 LSV / CV / EIS / quality / LLM / agent / entry-points
+- 覆盖率从 56% 提升至 63%
+- 修复 I001 import 排序错误
+
+### CI / CD
+
+- 修复 PowerShell 中 `$(.+?)` 被误解析为子表达式的 regex bug（ci.yml 和 release.yml）
+
 ## 6.0.3
 
 ### CI / CD

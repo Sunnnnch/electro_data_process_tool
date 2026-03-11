@@ -31,8 +31,12 @@ _LOGGER = get_v6_logger("electrochem_v6.routes.post")
 def _parse_params_value(params_value: Any):
     if not params_value:
         return None
+    if isinstance(params_value, dict):
+        return params_value
+    if not isinstance(params_value, str):
+        params_value = str(params_value)
     try:
-        parsed = json.loads(str(params_value))
+        parsed = json.loads(params_value)
     except json.JSONDecodeError as exc:
         raise ValueError("params 字段必须是合法 JSON") from exc
     if not isinstance(parsed, dict):

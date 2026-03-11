@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import mimetypes
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -94,12 +95,21 @@ class V6ServerManager:
         static_root = Path(__file__).resolve().parents[1] / "ui" / "static"
         logger = get_v6_logger("electrochem_v6.http")
 
+        def _env_int(key: str, default: int) -> int:
+            raw = os.environ.get(key)
+            if raw:
+                try:
+                    return int(raw)
+                except ValueError:
+                    pass
+            return default
+
         class Handler(BaseHTTPRequestHandler):
-            MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
-            MAX_UPLOAD_BODY_BYTES = 200 * 1024 * 1024
-            MAX_UPLOAD_FILE_BYTES = 100 * 1024 * 1024
-            MAX_ZIP_FILES = 5000
-            MAX_ZIP_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+            MAX_JSON_BODY_BYTES = _env_int("ELECTROCHEM_V6_MAX_JSON_BYTES", 2 * 1024 * 1024)
+            MAX_UPLOAD_BODY_BYTES = _env_int("ELECTROCHEM_V6_MAX_UPLOAD_BYTES", 200 * 1024 * 1024)
+            MAX_UPLOAD_FILE_BYTES = _env_int("ELECTROCHEM_V6_MAX_UPLOAD_FILE_BYTES", 100 * 1024 * 1024)
+            MAX_ZIP_FILES = _env_int("ELECTROCHEM_V6_MAX_ZIP_FILES", 5000)
+            MAX_ZIP_UNCOMPRESSED_BYTES = _env_int("ELECTROCHEM_V6_MAX_ZIP_UNCOMP_BYTES", 500 * 1024 * 1024)
             _logger = logger
 
             def log_message(self, format: str, *args: Any) -> None:

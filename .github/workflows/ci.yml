@@ -172,7 +172,15 @@ jobs:
           if ($content -match $pattern) {
             $Matches[1].Trim() | Out-File release_notes.md -Encoding utf8
           } else {
-            "Release v$ver" | Out-File release_notes.md -Encoding utf8
+            # Fallback: auto-generate notes from git commits since last tag
+            $prevTag = git describe --tags --abbrev=0 HEAD~ 2>$null
+            if ($prevTag) {
+              $commits = git log "$prevTag..HEAD" --pretty=format:'- %s' --no-merges 2>$null
+            } else {
+              $commits = git log -20 --pretty=format:'- %s' --no-merges 2>$null
+            }
+            $body = "## What's Changed`n`n$($commits -join "`n")`n"
+            $body | Out-File release_notes.md -Encoding utf8
           }
 
       # ── Create GitHub Release with assets ──

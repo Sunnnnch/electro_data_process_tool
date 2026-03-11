@@ -99,17 +99,17 @@ def _to_json_safe(value: Any) -> Any:
         try:
             return _to_json_safe(value.tolist())
         except Exception:
-            pass
+            _logger.debug("tolist() conversion failed for %s", type(value).__name__, exc_info=True)
     if hasattr(value, "item"):
         try:
             return _to_json_safe(value.item())
         except Exception:
-            pass
+            _logger.debug("item() conversion failed for %s", type(value).__name__, exc_info=True)
     if hasattr(value, "as_posix"):
         try:
             return value.as_posix()
         except Exception:
-            pass
+            _logger.debug("as_posix() conversion failed for %s", type(value).__name__, exc_info=True)
     return str(value)
 
 

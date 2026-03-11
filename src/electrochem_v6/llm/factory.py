@@ -49,7 +49,7 @@ def create_llm_client(
     if not base_url and provider_key == "openai":
         base_url = "https://api.openai.com/v1"
     if not base_url:
-        raise ValueError(f"{provider_key} æä¾›å•†å¿…é¡»é…ç½® base_url")
+        raise ValueError(f"{provider_key} 提供商必须配置 base_url")
     timeout = model_cfg.get("timeout", 60)
     extra_headers = model_cfg.get("extra_headers", {})
 

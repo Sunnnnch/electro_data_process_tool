@@ -23,7 +23,7 @@ def _debug_log(tag: str, payload):
             text = payload
         else:
             text = json.dumps(payload, ensure_ascii=False, default=str)
-    except Exception:
+    except (TypeError, ValueError):
         text = str(payload)
     _logger.debug("[%s]: %s", tag, text)
 
@@ -168,6 +168,7 @@ class AgentController:
                 }, f, ensure_ascii=False, indent=2)
             return True
         except Exception:
+            _logger.warning("导出对话记录失败: %s", file_path, exc_info=True)
             return False
 
 
