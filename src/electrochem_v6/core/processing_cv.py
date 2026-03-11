@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -130,6 +131,36 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
         except Exception as exc:
             log(f"CV峰值检测异常（继续处理）: {exc}")
 
+    # ΔEp calculation (from detected peaks)
+    delta_ep = None
+    if params.get('peaks_enabled'):
+        try:
+            # sel is populated from peak detection above (if it succeeded)
+            maxes = [s for s in sel if s[0] == 'max']
+            mins = [s for s in sel if s[0] == 'min']
+            if maxes and mins:
+                ep_a = potential[maxes[0][1]]  # anodic peak potential
+                ep_c = potential[mins[0][1]]   # cathodic peak potential
+                delta_ep = abs(ep_a - ep_c)
+                plt.annotate(
+                    f"ΔEp = {delta_ep*1000:.1f} mV",
+                    xy=(0.03, 0.03), xycoords='axes fraction',
+                    fontsize=10,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8),
+                )
+        except Exception:
+            pass
+
+    # Charge integration (Q = ∫|I|dE using trapezoidal rule)
+    charge_mC = None
+    try:
+        pot_arr = np.asarray(potential, dtype=float)
+        cur_arr = np.asarray(current, dtype=float)  # mA
+        _trapz = getattr(np, 'trapezoid', np.trapz)
+        charge_mC = float(_trapz(np.abs(cur_arr), pot_arr))  # mA·V = mC (if scan rate = 1 V/s)
+    except Exception:
+        pass
+
     plt.tight_layout()
     # 避免覆盖：包含源文件名
     try:
@@ -153,7 +184,9 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
                 'results': {
                     'data_points': len(potential),
                     'potential_range': f"{min(potential):.3f} - {max(potential):.3f} V",
-                    'current_range': f"{min(current):.2f} - {max(current):.2f} mA"
+                    'current_range': f"{min(current):.2f} - {max(current):.2f} mA",
+                    'delta_ep_mV': round(delta_ep * 1000, 1) if delta_ep is not None else None,
+                    'charge_mC': round(charge_mC, 4) if charge_mC is not None else None,
                 }
             }
             if params.get('run_id'):
@@ -181,4 +214,6 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
 
     return {
         'quality_report': cv_quality_report,
+        'delta_ep_mV': round(delta_ep * 1000, 1) if delta_ep is not None else None,
+        'charge_mC': round(charge_mC, 4) if charge_mC is not None else None,
     }

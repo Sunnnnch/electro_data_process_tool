@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import os
+import zipfile
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -164,11 +166,61 @@ def dispatch_get(handler: Any) -> bool:
             handler._send_json(200 if export_payload.get("status") == "success" else 400, export_payload)
             return True
 
+    if path.startswith("/api/v1/projects/") and path.endswith("/export-zip"):
+        parts = path_parts(path)
+        if len(parts) >= 5:
+            project_id = parts[3]
+            include_archived = (query.get("include_archived", ["0"])[0] or "").strip().lower() in {"1", "true", "yes"}
+            history_payload = list_history(project_id=project_id, limit=500, include_archived=include_archived)
+            records = history_payload.get("records") or history_payload.get("history") or []
+            buf = io.BytesIO()
+            added = set()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for rec in records:
+                    for fp in (rec.get("output_files") or []):
+                        abs_fp = os.path.abspath(fp)
+                        if abs_fp not in added and os.path.isfile(abs_fp):
+                            zf.write(abs_fp, os.path.basename(abs_fp))
+                            added.add(abs_fp)
+                    src = rec.get("file_path")
+                    if src:
+                        abs_src = os.path.abspath(src)
+                        if abs_src not in added and os.path.isfile(abs_src):
+                            zf.write(abs_src, f"source/{os.path.basename(abs_src)}")
+                            added.add(abs_src)
+            data = buf.getvalue()
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/zip")
+            handler.send_header("Content-Disposition", f'attachment; filename="project_{project_id}.zip"')
+            handler.send_header("Content-Length", str(len(data)))
+            handler.end_headers()
+            handler.wfile.write(data)
+            return True
+
     if path == "/api/v1/history":
         project_id = query.get("project", [None])[0]
         limit = _safe_int(query.get("limit", ["100"])[0], 100, lo=1, hi=500)
         include_archived = (query.get("include_archived", ["0"])[0] or "").strip().lower() in {"1", "true", "yes"}
-        handler._send_json(200, list_history(project_id=project_id, limit=limit, include_archived=include_archived))
+        data_type = query.get("type", [None])[0]
+        metric_key = query.get("metric_key", [None])[0]
+        metric_min = None
+        metric_max = None
+        try:
+            raw_min = query.get("metric_min", [None])[0]
+            if raw_min is not None:
+                metric_min = float(raw_min)
+        except (ValueError, TypeError):
+            pass
+        try:
+            raw_max = query.get("metric_max", [None])[0]
+            if raw_max is not None:
+                metric_max = float(raw_max)
+        except (ValueError, TypeError):
+            pass
+        handler._send_json(200, list_history(
+            project_id=project_id, limit=limit, include_archived=include_archived,
+            metric_key=metric_key, metric_min=metric_min, metric_max=metric_max, data_type=data_type,
+        ))
         return True
 
     if path == "/api/v1/stats":

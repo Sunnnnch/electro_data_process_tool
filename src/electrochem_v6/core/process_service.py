@@ -27,6 +27,9 @@ REFERENCE_ELECTRODE_PRESETS = {
     "agcl_3m_kcl": 0.210,
     "sce": 0.241,
     "hg_hgo_1m_koh": 0.098,
+    "hg_hg2so4_sat": 0.640,
+    "mse": 0.640,
+    "rhe": 0.000,
 }
 
 
@@ -259,6 +262,7 @@ def _build_gui_vars(data_types: list[str], payload: Dict[str, Any]) -> Dict[str,
                 "eis_prefix": str(_payload_get(payload, "eis_prefix", "EIS")),
                 "plot_nyquist": _as_bool(_payload_get(payload, "plot_nyquist", True), True),
                 "plot_bode": _as_bool(_payload_get(payload, "plot_bode", False), False),
+                "eis_randles_fit": _as_bool(_payload_get(payload, "eis_randles_fit", False), False),
             }
         )
 

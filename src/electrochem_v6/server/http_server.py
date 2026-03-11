@@ -145,6 +145,11 @@ class V6ServerManager:
                     return False
                 if not resolved.exists() or not resolved.is_file():
                     return False
+                try:
+                    if resolved.stat().st_size > 10 * 1024 * 1024:  # 10 MB
+                        return False
+                except OSError:
+                    return False
                 content_type, _ = mimetypes.guess_type(str(resolved))
                 if not content_type:
                     content_type = "application/octet-stream"

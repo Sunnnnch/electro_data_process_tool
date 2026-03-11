@@ -44,18 +44,43 @@ def _record_key(record: Dict[str, Any]) -> str:
     return f"{record.get('timestamp', '')}|{record.get('type', '')}|{file_value}"
 
 
-def _filter_records(records: list[Dict[str, Any]], project_id: Optional[str] = None, include_archived: bool = False) -> list[Dict[str, Any]]:
+def _filter_records(records: list[Dict[str, Any]], project_id: Optional[str] = None, include_archived: bool = False,
+                    metric_key: Optional[str] = None, metric_min: Optional[float] = None, metric_max: Optional[float] = None,
+                    data_type: Optional[str] = None) -> list[Dict[str, Any]]:
     items = [item for item in records if isinstance(item, dict)]
     if project_id:
         items = [item for item in items if item.get("project_id") == project_id]
     if not include_archived:
         items = [item for item in items if not bool(item.get("archived", False))]
+    if data_type:
+        dt_upper = data_type.strip().upper()
+        items = [item for item in items if str(item.get("type") or "").upper() == dt_upper]
+    if metric_key and (metric_min is not None or metric_max is not None):
+        filtered = []
+        for item in items:
+            results = item.get("results") or {}
+            val = results.get(metric_key)
+            if val is None:
+                continue
+            try:
+                fval = float(val)
+            except (ValueError, TypeError):
+                continue
+            if metric_min is not None and fval < metric_min:
+                continue
+            if metric_max is not None and fval > metric_max:
+                continue
+            filtered.append(item)
+        items = filtered
     return items
 
 
-def list_history(project_id: Optional[str] = None, limit: int = 100, include_archived: bool = False) -> Dict[str, Any]:
+def list_history(project_id: Optional[str] = None, limit: int = 100, include_archived: bool = False,
+                 metric_key: Optional[str] = None, metric_min: Optional[float] = None, metric_max: Optional[float] = None,
+                 data_type: Optional[str] = None) -> Dict[str, Any]:
     hist_mgr = get_history_manager_v6()
-    records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived)
+    records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived,
+                              metric_key=metric_key, metric_min=metric_min, metric_max=metric_max, data_type=data_type)
     records = sorted(records, key=lambda x: x.get("timestamp", ""), reverse=True)
     safe_limit = max(1, min(int(limit), 500))
     return {"status": "success", "records": records[:safe_limit]}

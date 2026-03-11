@@ -120,6 +120,7 @@ const TEMPLATE_CHECK_IDS = [
   "pro-cv-quality-check",
   "pro-eis-plot-nyquist",
   "pro-eis-plot-bode",
+  "pro-eis-randles-fit",
   "pro-ecsa-avg-last-n",
   "pro-ecsa-use-abs",
 ];
@@ -204,6 +205,7 @@ const I18N = {
     pro_mode: "高级参数",
     quick_params: "基础参数",
     pro_params: "高级参数",
+    advanced_mode: "显示高级配置",
     pro_hint_intro: "建议先使用默认值，只调整你确定含义的参数。",
     pro_help_summary: "参数说明（简版）",
     pro_help_line1: "target_current: 目标电流点，支持逗号分隔多个值。",
@@ -263,6 +265,8 @@ const I18N = {
     label_ecsa_ev: "Ev 参数",
     label_ecsa_last_n: "最后 N 圈",
     label_ecsa_cs_value: "比电容 Cs",
+    label_ecsa_material: "材料预设",
+    ecsa_material_custom: "自定义",
     label_ecsa_cs_unit: "Cs 单位",
     label_cv_peaks_smooth: "平滑窗口",
     label_cv_peaks_height: "最小峰高",
@@ -293,6 +297,7 @@ const I18N = {
     enable_peak: "启用峰检测",
     plot_nyquist: "绘制 Nyquist",
     plot_bode: "绘制 Bode",
+    randles_fit: "Randles 等效电路拟合",
     avg_last_n: "平均最后 N 圈",
     use_abs_delta: "使用绝对 DeltaI",
     btn_run: "运行处理",
@@ -660,6 +665,7 @@ const I18N = {
     pro_mode: "Advanced Params",
     quick_params: "Basic Parameters",
     pro_params: "Advanced Parameters",
+    advanced_mode: "Show advanced settings",
     pro_hint_intro: "Start from defaults and adjust only parameters you clearly understand.",
     pro_help_summary: "Parameter Guide (Brief)",
     pro_help_line1: "target_current: one or multiple current targets separated by commas.",
@@ -719,6 +725,8 @@ const I18N = {
     label_ecsa_ev: "Ev parameter",
     label_ecsa_last_n: "Last N cycles",
     label_ecsa_cs_value: "Specific capacitance Cs",
+    label_ecsa_material: "Material preset",
+    ecsa_material_custom: "Custom",
     label_ecsa_cs_unit: "Cs unit",
     label_cv_peaks_smooth: "Smoothing window",
     label_cv_peaks_height: "Minimum peak height",
@@ -749,6 +757,7 @@ const I18N = {
     enable_peak: "Enable peak detection",
     plot_nyquist: "Plot Nyquist",
     plot_bode: "Plot Bode",
+    randles_fit: "Randles circuit fitting",
     avg_last_n: "Average last N cycles",
     use_abs_delta: "Use abs DeltaI",
     btn_run: "Run Processing",
@@ -3904,6 +3913,8 @@ function toggleDataTypePanels() {
 }
 
 function syncFeatureBlocks() {
+  const advancedMode = byId("pro-advanced-mode");
+  const isAdvanced = advancedMode && advancedMode.checked;
   document.querySelectorAll(".feature-body[data-feature-toggle]").forEach((body) => {
     const toggleId = body.getAttribute("data-feature-toggle");
     const toggle = byId(toggleId);
@@ -3912,6 +3923,8 @@ function syncFeatureBlocks() {
     const featureBlock = body.closest(".feature-block");
     if (featureBlock) {
       featureBlock.classList.toggle("inactive", !enabled);
+      // Hide the entire feature-block in basic mode
+      featureBlock.style.display = isAdvanced ? "" : "none";
     }
     body.querySelectorAll("input, select, textarea").forEach((el) => {
       el.disabled = !enabled;
@@ -4072,6 +4085,7 @@ function collectProcessPayload() {
     addIfSet(params, "eis_line_width", numberValue("pro-eis-line-width"));
     params.plot_nyquist = boolValue("pro-eis-plot-nyquist");
     params.plot_bode = boolValue("pro-eis-plot-bode");
+    params.eis_randles_fit = boolValue("pro-eis-randles-fit");
   }
 
   if (dataTypes.includes("ECSA")) {
@@ -4295,6 +4309,11 @@ function bindEvents() {
     }
   });
 
+  const advancedModeEl = byId("pro-advanced-mode");
+  if (advancedModeEl) {
+    advancedModeEl.addEventListener("change", syncFeatureBlocks);
+  }
+
   const potentialModeEl = byId("pro-potential-mode");
   if (potentialModeEl) {
     potentialModeEl.addEventListener("change", syncPotentialConversionUI);
@@ -4307,6 +4326,23 @@ function bindEvents() {
     const el = byId(id);
     if (el) el.addEventListener("input", renderPotentialOffsetPreview);
   });
+
+  // ECSA material preset → auto-fill Cs value
+  const ecsaMaterialPresets = {
+    "Pt": 20, "Carbon": 20, "IrO2": 40, "RuO2": 35,
+    "NiFeOOH": 60, "MnO2": 40, "CoOx": 50,
+  };
+  const ecsaMaterialEl = byId("pro-ecsa-material");
+  if (ecsaMaterialEl) {
+    ecsaMaterialEl.addEventListener("change", () => {
+      const val = ecsaMaterialEl.value;
+      if (val !== "custom" && ecsaMaterialPresets[val] != null) {
+        const csInput = byId("pro-ecsa-cs-value");
+        if (csInput) csInput.value = ecsaMaterialPresets[val];
+      }
+    });
+  }
+
   [
     ["lsv", "LSV"],
     ["cv", "CV"],

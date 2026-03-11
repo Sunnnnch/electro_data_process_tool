@@ -118,3 +118,54 @@ class TestSafePathCheckers:
         f = tmp_path / "data.csv"
         f.write_text("ok")
         assert is_safe_image_path(str(f), tmp_path) is False
+
+
+# ── open_path_target whitelist ─────────────────────────────────────────────
+
+from electrochem_v6.core.system_service import open_path_target, _is_within_allowed_roots
+
+
+class TestOpenPathTargetWhitelist:
+    def test_rejects_system_path(self):
+        result = open_path_target("C:\\Windows\\System32")
+        assert result["status"] == "error"
+        assert "outside allowed" in result["message"]
+
+    def test_rejects_traversal(self):
+        result = open_path_target("../../../../etc/passwd")
+        assert result["status"] == "error"
+        # Should be blocked by whitelist or "not found", never succeed
+        assert result["status"] != "success"
+
+    def test_rejects_empty(self):
+        result = open_path_target("")
+        assert result["status"] == "error"
+
+    def test_rejects_none(self):
+        result = open_path_target(None)
+        assert result["status"] == "error"
+
+    def test_allowed_roots_accepts_user_data(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "electrochem_v6.config.project_default_dir",
+            lambda: tmp_path,
+        )
+        ud = tmp_path / "user_data"
+        ud.mkdir()
+        assert _is_within_allowed_roots(str(ud)) is True
+
+    def test_allowed_roots_rejects_external(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "electrochem_v6.config.project_default_dir",
+            lambda: tmp_path,
+        )
+        monkeypatch.setattr(
+            "electrochem_v6.config.user_config_dir",
+            lambda: tmp_path / "cfg",
+        )
+        assert _is_within_allowed_roots("C:\\Windows\\System32") is False
+
+    def test_no_path_leakage_in_error(self):
+        result = open_path_target("C:\\Windows\\System32\\notepad.exe")
+        # Error message must NOT contain the full normalized path
+        assert "C:\\Windows" not in result.get("message", "")

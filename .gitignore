@@ -17,7 +17,6 @@ processing_history.json
 projects.json
 process_templates.json
 user_data/
-__pycache__/
 .coverage
 reports/*.json
 !reports/.gitkeep

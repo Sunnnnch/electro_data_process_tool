@@ -35,17 +35,34 @@ def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
             pass
 
 
+def _is_within_allowed_roots(path: str) -> bool:
+    """Check that *path* is under a known data directory."""
+    from electrochem_v6.config import user_config_dir, project_default_dir
+
+    resolved = os.path.realpath(path)
+    allowed_roots = [
+        os.path.realpath(str(user_config_dir())),
+        os.path.realpath(str(project_default_dir())),
+        os.path.realpath(os.path.join(str(project_default_dir()), "user_data")),
+        os.path.realpath(os.path.join(str(project_default_dir()), "reports")),
+        os.path.realpath(os.path.join(str(project_default_dir()), "project_reports")),
+    ]
+    return any(resolved == root or resolved.startswith(root + os.sep) for root in allowed_roots)
+
+
 def open_path_target(path_value: Optional[str] = None, reveal_only: bool = False) -> Dict[str, Any]:
     target = str(path_value or "").strip()
     if not target:
         return {"status": "error", "message": "path is required"}
     normalized = os.path.abspath(target)
+    if not _is_within_allowed_roots(normalized):
+        return {"status": "error", "message": "path is outside allowed directories"}
     if reveal_only:
         open_target = normalized if os.path.isdir(normalized) else os.path.dirname(normalized)
     else:
         open_target = normalized
     if not open_target or not os.path.exists(open_target):
-        return {"status": "error", "message": f"path not found: {normalized}"}
+        return {"status": "error", "message": "path not found"}
     try:
         if os.name == "nt":
             os.startfile(open_target)  # type: ignore[attr-defined]
@@ -55,4 +72,4 @@ def open_path_target(path_value: Optional[str] = None, reveal_only: bool = False
             subprocess.Popen(["xdg-open", open_target])
         return {"status": "success", "path": normalized, "opened": open_target}
     except Exception as exc:
-        return {"status": "error", "message": f"open path failed: {exc}", "path": normalized}
+        return {"status": "error", "message": f"open path failed: {exc}"}

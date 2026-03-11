@@ -20,10 +20,16 @@ Typical use cases:
 - Supports `LSV`, `CV`, `EIS`, and `ECSA` processing
 - Supports batch file matching by prefix, contains, or regex
 - Supports `LSV` target-current interpolation, potential conversion, `iR` compensation, `Tafel`, `Onset`, and `Halfwave`
-- Supports `CV` peak detection
-- Supports `EIS` `Nyquist` and `Bode` plots
-- Supports `ECSA`, `Cdl`, and `RF` calculation
-- Includes project management, history tracking, quality summaries, and quality reports
+- Supports `LSV` Tafel fit R² validation (warns in quality report when R² < 0.99)
+- Supports `CV` peak detection, `ΔEp` calculation, and charge integration
+- Supports `EIS` `Nyquist` / `Bode` plots and **Randles equivalent circuit fitting** (Rs + Rct‖Cdl)
+- Supports `ECSA`, `Cdl`, and `RF` calculation with built-in material Cs presets (Pt, Carbon, IrO₂, RuO₂, etc.)
+- Supports reference electrode presets (Ag/AgCl, SCE, Hg/HgO, Hg/Hg₂SO₄, MSE, RHE)
+- Skip-on-error mode: individual file failures do not abort the batch, errors are summarized in results
+- Per-file progress feedback (N/M files processed) during LSV/CV/EIS processing
+- UI supports basic/advanced mode toggle to simplify operation for beginners
+- Includes project management, history tracking (filterable by metric range and data type), quality summaries, and quality reports
+- Supports project result ZIP export (`GET /api/v1/projects/{id}/export-zip`)
 - Includes a local HTTP service and Web UI
 - Includes optional LLM / Agent integration
 
@@ -84,13 +90,16 @@ python run_v6.py version
 ### `CV`
 
 - Curve plotting
-- Peak detection
+- Peak detection (optional)
+- `ΔEp` peak potential separation (requires peak detection enabled)
+- Charge integration (`∫|I|dE`)
 - Configurable quality-check toggle and thresholds
 
 ### `EIS`
 
 - `Nyquist` plot
-- `Bode` plot
+- `Bode` plot (magnitude + phase)
+- **Randles equivalent circuit fitting** (simplified Rs + Rct‖Cdl model, auto-annotated on Nyquist plot)
 - History persistence and result export
 
 ### `ECSA`
@@ -98,6 +107,8 @@ python run_v6.py version
 - `ΔJ-v` fitting
 - `Cdl`
 - `ECSA`
+- `RF`
+- Built-in material Cs presets (Pt=20, Carbon=20, IrO₂=40, RuO₂=35, NiFeOOH=60, MnO₂=40, CoOₓ=50 µF/cm²)
 - `RF`
 
 ## Quality Checks
@@ -198,7 +209,7 @@ python -m pytest -q
 
 Current validation status:
 
-- `41 passed, 1 skipped`
+- `110 passed, 1 skipped`
 - `python run_v6.py check` passed
 - `python run_v6.py smoke --port 8011` passed
 
@@ -225,3 +236,6 @@ Reasonable next improvements:
 - Add finer quality checks for `EIS` / `ECSA`
 - Add screenshots or workflow diagrams to the README
 - Validate the `PyInstaller` packaging pipeline end-to-end
+- `EIS` Randles fitting with CPE instead of Cdl for a more general model
+- `CV` multi-cycle auto-segmentation and cyclic voltammetry parameter extraction
+- Display skipped-error file details in the frontend result view

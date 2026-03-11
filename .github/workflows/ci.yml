@@ -28,5 +28,5 @@ jobs:
       - name: Run smoke
         run: python run_v6.py smoke --port 8011
 
-      - name: Run server tests
-        run: python -m pytest -q tests/test_v6_server.py
+      - name: Run tests
+        run: python -m pytest tests/ -q

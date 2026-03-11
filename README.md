@@ -20,10 +20,16 @@
 - 支持 `LSV` / `CV` / `EIS` / `ECSA` 多类型数据处理
 - 支持按文件名前缀、包含、正则进行批量匹配
 - 支持 `LSV` 的目标电流、电位换算、`iR` 补偿、`Tafel`、`Onset`、`Halfwave`
-- 支持 `CV` 峰检测
-- 支持 `EIS` 的 `Nyquist` / `Bode` 绘图
-- 支持 `ECSA` 的 `Cdl` / `ECSA` / `RF` 计算
-- 支持项目管理、历史记录、质量摘要和质量报告
+- 支持 `LSV` Tafel 拟合 R² 自动验证（R² < 0.99 时在质量报告中警告）
+- 支持 `CV` 峰检测、`ΔEp` 计算和电荷积分
+- 支持 `EIS` 的 `Nyquist` / `Bode` 绘图及 **Randles 等效电路拟合**（Rs + Rct‖Cdl）
+- 支持 `ECSA` 的 `Cdl` / `ECSA` / `RF` 计算，内置材料比电容 Cs 预设（Pt、Carbon、IrO₂、RuO₂ 等）
+- 支持参比电极预设（Ag/AgCl、SCE、Hg/HgO、Hg/Hg₂SO₄、MSE、RHE）
+- 单文件失败不中断整批处理（skip-on-error），错误文件汇总至结果
+- 逐文件进度反馈（LSV/CV/EIS 处理时显示 N/M 进度）
+- UI 支持基础/高级模式切换，简化初学者操作
+- 支持项目管理、历史记录（按指标范围/数据类型过滤）、质量摘要和质量报告
+- 支持项目结果 ZIP 一键导出（`GET /api/v1/projects/{id}/export-zip`）
 - 支持本地 HTTP 服务和 Web UI
 - 支持可选的 LLM / Agent 分析链路
 
@@ -84,13 +90,16 @@ python run_v6.py version
 ### `CV`
 
 - 曲线绘制
-- 峰检测
+- 峰检测（可选）
+- `ΔEp` 峰电位差计算（需启用峰检测）
+- 电荷积分（`∫|I|dE`）
 - 质量检测开关与阈值可调
 
 ### `EIS`
 
 - `Nyquist` 图
-- `Bode` 图
+- `Bode` 图（幅值+相位）
+- **Randles 等效电路拟合**（简化 Rs + Rct‖Cdl 模型，自动注释到 Nyquist 图）
 - 历史记录与结果输出
 
 ### `ECSA`
@@ -98,6 +107,8 @@ python run_v6.py version
 - `ΔJ-v` 拟合
 - `Cdl`
 - `ECSA`
+- `RF`
+- 内置材料 Cs 预设（Pt=20、Carbon=20、IrO₂=40、RuO₂=35、NiFeOOH=60、MnO₂=40、CoOₓ=50 µF/cm²）
 - `RF`
 
 ## 质量检测
@@ -198,7 +209,7 @@ python -m pytest -q
 
 当前发布版验证状态：
 
-- `41 passed, 1 skipped`
+- `110 passed, 1 skipped`
 - `python run_v6.py check` 通过
 - `python run_v6.py smoke --port 8011` 通过
 
@@ -225,4 +236,6 @@ python -m pytest -q
 - 为 `EIS` / `ECSA` 补更细的质量检测
 - 为 README 补使用截图或流程图
 - 实测 `PyInstaller` 打包链路
-- 增加 `LICENSE`
+- `EIS` Randles 拟合支持 CPE 替代 Cdl 的更通用模型
+- `CV` 多圈自动分段与循环伏安参数提取
+- 前端结果页展示跳过错误文件的详细列表

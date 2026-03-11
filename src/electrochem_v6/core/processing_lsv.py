@@ -1081,6 +1081,18 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             except Exception as e:
                 log(f"保存LSV历史记录失败: {e}")
 
+        # Tafel R² validation: warn if fit quality is low
+        _tafel_data = tafel_fit_data_ir or tafel_fit_data_original
+        if _tafel_data and _tafel_data.get('r2') is not None:
+            _r2 = _tafel_data['r2']
+            if _r2 < 0.99 and lsv_quality_report is not None:
+                msg = f"Tafel 拟合 R²={_r2:.4f} < 0.99，拟合质量偏低，请检查拟合区间"
+                if 'warnings' in lsv_quality_report:
+                    lsv_quality_report['warnings'].append(msg)
+                else:
+                    lsv_quality_report['warnings'] = [msg]
+                logger.warning(f"{file}: {msg}")
+
         return {
             'result_row': result_row,
             'quality_report': lsv_quality_report

@@ -197,6 +197,7 @@ def run_pipeline(
     results_ecsa: List[List[Any]] = []
     saved_msgs: List[str] = []
     quality_reports: List[Dict[str, Any]] = []  # 收集所有质量检测报告
+    skipped_errors: List[Dict[str, str]] = []  # 收集跳过的错误文件
     out_path_lsv: Optional[str] = None
     out_ecsa: Optional[str] = None
     combined_path: Optional[str] = None
@@ -226,6 +227,10 @@ def run_pipeline(
         
         emit_status(f"正在处理: {os.path.basename(sub) or os.path.basename(folder_path)}")
         emit_stage("读取", int((idx / total) * 60))
+
+        # 统计待处理文件数，用于报告进度
+        file_count = len(file_list)
+        processed_in_sub = 0
 
         if lsv_enabled:
             match_mode = (gui_vars.get('lsv_match') or 'prefix').lower()
@@ -287,7 +292,14 @@ def run_pipeline(
                     }
                     # 获取质量检测选项
                     enable_qc = _as_bool(gui_vars.get('lsv_quality_check', True), True)
-                    result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
+                    processed_in_sub += 1
+                    emit_status(f"LSV ({processed_in_sub}/{file_count}): {file}")
+                    try:
+                        result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
+                    except Exception as exc:
+                        core.log(f"LSV 处理跳过 {file}: {exc}")
+                        skipped_errors.append({"file": os.path.join(sub, file), "type": "LSV", "error": str(exc)})
+                        result = None
                     if result:
                         quality_report = None
                         # 新格式：result 是字典，包含 result_row 和 quality_report
@@ -349,10 +361,17 @@ def run_pipeline(
                         },
                     }
                     enable_qc = _as_bool(gui_vars.get('cv_quality_check', True), True)
+                    processed_in_sub += 1
+                    emit_status(f"CV ({processed_in_sub}/{file_count}): {file}")
                     try:
-                        result = core.process_cv(sub, file, params, enable_quality_check=enable_qc)
-                    except TypeError:
-                        result = core.process_cv(sub, file, params)
+                        try:
+                            result = core.process_cv(sub, file, params, enable_quality_check=enable_qc)
+                        except TypeError:
+                            result = core.process_cv(sub, file, params)
+                    except Exception as exc:
+                        core.log(f"CV 处理跳过 {file}: {exc}")
+                        skipped_errors.append({"file": os.path.join(sub, file), "type": "CV", "error": str(exc)})
+                        result = None
                     if isinstance(result, dict):
                         quality_report = result.get('quality_report')
                         if quality_report:
@@ -382,8 +401,15 @@ def run_pipeline(
                         'plot_grid': _as_bool(gui_vars.get('plot_grid', True), True),
                         'plot_nyquist': _as_bool(gui_vars.get('plot_nyquist', True), True),
                         'plot_bode': _as_bool(gui_vars.get('plot_bode', False)),
+                        'randles_fit': _as_bool(gui_vars.get('eis_randles_fit', False)),
                     }
-                    core.process_eis(sub, file, params)
+                    try:
+                        processed_in_sub += 1
+                        emit_status(f"EIS ({processed_in_sub}/{file_count}): {file}")
+                        core.process_eis(sub, file, params)
+                    except Exception as exc:
+                        core.log(f"EIS 处理跳过 {file}: {exc}")
+                        skipped_errors.append({"file": os.path.join(sub, file), "type": "EIS", "error": str(exc)})
 
         if ecsa_enabled:
             ecsa_params = {
@@ -407,7 +433,12 @@ def run_pipeline(
                 'font': gui_vars.get('font_family', font_family),
                 'fontsize': gui_vars.get('font_size', 12),
             }
-            ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
+            try:
+                ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
+            except Exception as exc:
+                core.log(f"ECSA 处理跳过 {sub}: {exc}")
+                skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
+                ecsa_res = None
             if ecsa_res:
                 results_ecsa.append(ecsa_res)
 
@@ -537,9 +568,10 @@ def run_pipeline(
             'passed': sum(1 for r in quality_reports if r.get('is_valid', True)),
             'failed': sum(1 for r in quality_reports if not r.get('is_valid', True)),
             'warnings': sum(1 for r in quality_reports if r.get('warnings')),
-            'quality_levels': quality_levels,  # 添加质量等级分布
-            'recommendations': recommendations,  # 添加建议分布
-            'files': problem_reports  # 只包含有问题的文件
+            'skipped': len(skipped_errors),
+            'quality_levels': quality_levels,
+            'recommendations': recommendations,
+            'files': problem_reports
         }
 
         # Persist latest quality summary for HTTP access
@@ -594,7 +626,8 @@ def run_pipeline(
         'summary_path': summary_path,
         'quality_report_path': quality_report_path,
         'quality_reports': quality_reports,
-        'quality_summary': quality_summary if 'quality_summary' in locals() else {},  # 添加质量摘要
+        'quality_summary': quality_summary if 'quality_summary' in locals() else {},
+        'skipped_errors': skipped_errors,
         'results_lsv': results_lsv,
         'results_ecsa': results_ecsa,
     }

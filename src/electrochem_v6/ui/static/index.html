@@ -93,6 +93,9 @@
 
             <section id="proc-pro-panel" class="proc-subpanel">
               <h4 data-i18n="pro_params">高级参数</h4>
+              <div class="check-grid" style="margin-bottom:0.5em;">
+                <label><input id="pro-advanced-mode" type="checkbox"><span data-i18n="advanced_mode">显示高级配置</span></label>
+              </div>
               <p class="param-note" data-i18n="pro_hint_intro">建议先使用默认值，只调整你确定含义的参数。</p>
               <details class="param-help">
                 <summary data-i18n="pro_help_summary">参数说明（简版）</summary>
@@ -142,6 +145,9 @@
                         <option value="agcl_3m_kcl" data-potential="0.210">Ag/AgCl (3 M KCl, +0.210 V)</option>
                         <option value="sce" data-potential="0.241">SCE (+0.241 V)</option>
                         <option value="hg_hgo_1m_koh" data-potential="0.098">Hg/HgO (1 M KOH, +0.098 V)</option>
+                        <option value="hg_hg2so4_sat" data-potential="0.640">Hg/Hg₂SO₄ (sat. K₂SO₄, +0.640 V)</option>
+                        <option value="mse" data-potential="0.640">MSE (Hg/Hg₂SO₄ sat., +0.640 V)</option>
+                        <option value="rhe" data-potential="0.000">RHE (+0.000 V)</option>
                         <option value="custom" data-i18n="opt_ref_custom">自定义</option>
                       </select>
                     </div>
@@ -481,6 +487,7 @@
                 <div class="check-grid">
                   <label><input id="pro-eis-plot-nyquist" type="checkbox" checked><span data-i18n="plot_nyquist">绘制 Nyquist</span></label>
                   <label><input id="pro-eis-plot-bode" type="checkbox"><span data-i18n="plot_bode">绘制 Bode</span></label>
+                  <label><input id="pro-eis-randles-fit" type="checkbox"><span data-i18n="randles_fit">Randles 等效电路拟合</span></label>
                 </div>
               </section>
 
@@ -508,6 +515,19 @@
                     <label class="input-label" for="pro-ecsa-last-n" data-i18n="label_ecsa_last_n">最后 N 圈</label>
                     <input id="pro-ecsa-last-n" type="text" data-i18n-title="title_ecsa_last_n" title="取最后 N 圈用于计算，建议排除前几圈活化段。" placeholder="ecsa_last_n，默认 1">
                     <div class="param-tip" data-i18n="tip_ecsa_last_n">常用：1-3 圈；如果前几圈明显活化，建议只取后几圈。</div>
+                  </div>
+                  <div class="input-item">
+                    <label class="input-label" for="pro-ecsa-material" data-i18n="label_ecsa_material">材料预设</label>
+                    <select id="pro-ecsa-material">
+                      <option value="custom" data-i18n="ecsa_material_custom">自定义</option>
+                      <option value="Pt">Pt (20 µF/cm²)</option>
+                      <option value="Carbon">Carbon (20 µF/cm²)</option>
+                      <option value="IrO2" selected>IrO₂ (40 µF/cm²)</option>
+                      <option value="RuO2">RuO₂ (35 µF/cm²)</option>
+                      <option value="NiFeOOH">NiFeOOH (60 µF/cm²)</option>
+                      <option value="MnO2">MnO₂ (40 µF/cm²)</option>
+                      <option value="CoOx">CoOₓ (50 µF/cm²)</option>
+                    </select>
                   </div>
                   <div class="input-item">
                     <label class="input-label" for="pro-ecsa-cs-value" data-i18n="label_ecsa_cs_value">比电容 Cs</label>

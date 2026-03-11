@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+import numpy as np
 import matplotlib.pyplot as plt
 
 from . import processing_core_v6 as core
@@ -15,6 +16,72 @@ PROJECT_MANAGER_AVAILABLE = core.PROJECT_MANAGER_AVAILABLE
 get_history_manager = core.get_history_manager
 get_project_manager = core.get_project_manager
 log = core.log
+
+
+def _randles_impedance(freq_arr, Rs, Rct, Cdl):
+    """Calculate impedance of simplified Randles circuit: Rs + Rct/(1 + j*w*Rct*Cdl)."""
+    omega = 2.0 * np.pi * freq_arr
+    Z_faradaic = Rct / (1.0 + 1j * omega * Rct * Cdl)
+    Z_total = Rs + Z_faradaic
+    return Z_total
+
+
+def fit_randles(freq, z_real, z_imag):
+    """Fit simplified Randles circuit (Rs + Rct||Cdl) to EIS data.
+
+    Returns dict with Rs, Rct, Cdl and fitted Z arrays, or None on failure.
+    """
+    from scipy.optimize import curve_fit
+
+    freq_arr = np.asarray(freq, dtype=float)
+    z_real_arr = np.asarray(z_real, dtype=float)
+    z_imag_arr = np.asarray(z_imag, dtype=float)
+
+    # Stack real and imaginary parts for fitting
+    z_data = np.concatenate([z_real_arr, z_imag_arr])
+
+    def _model(freq_repeated, Rs, Rct, Cdl):
+        n = len(freq_repeated) // 2
+        f = freq_repeated[:n]
+        Z = _randles_impedance(f, Rs, Rct, Cdl)
+        return np.concatenate([Z.real, Z.imag])
+
+    freq_stack = np.concatenate([freq_arr, freq_arr])
+
+    # Initial guesses
+    Rs0 = float(np.min(z_real_arr))
+    Rct0 = float(np.max(z_real_arr) - np.min(z_real_arr))
+    if Rct0 <= 0:
+        Rct0 = 1.0
+    Cdl0 = 1e-5
+
+    try:
+        popt, _ = curve_fit(
+            _model, freq_stack, z_data,
+            p0=[Rs0, Rct0, Cdl0],
+            bounds=([0, 0, 1e-12], [np.inf, np.inf, 1.0]),
+            maxfev=10000,
+        )
+    except Exception:
+        return None
+
+    Rs_fit, Rct_fit, Cdl_fit = popt
+    Z_fit = _randles_impedance(freq_arr, Rs_fit, Rct_fit, Cdl_fit)
+
+    # R² goodness-of-fit
+    z_complex = z_real_arr + 1j * z_imag_arr
+    ss_res = np.sum(np.abs(z_complex - Z_fit) ** 2)
+    ss_tot = np.sum(np.abs(z_complex - np.mean(z_complex)) ** 2)
+    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    return {
+        'Rs': float(Rs_fit),
+        'Rct': float(Rct_fit),
+        'Cdl': float(Cdl_fit),
+        'r2': float(r2),
+        'z_fit_real': Z_fit.real.tolist(),
+        'z_fit_imag': Z_fit.imag.tolist(),
+    }
 
 def process_eis(subfolder, file, params):
     """处理EIS数据文件 - v3.0.4: 支持奈奎斯特图和波特图"""
@@ -52,6 +119,18 @@ def process_eis(subfolder, file, params):
     # v3.0.4: 根据用户选择绘制图形
     plot_nyquist = params.get('plot_nyquist', True)
     plot_bode = params.get('plot_bode', False)
+    randles_fit_enabled = params.get('randles_fit', False)
+
+    # Attempt Randles fit if enabled
+    randles_result = None
+    if randles_fit_enabled:
+        try:
+            randles_result = fit_randles(freq, z_real, z_imag)
+            if randles_result and randles_result['r2'] < 0.5:
+                log(f"Randles fit R²={randles_result['r2']:.3f} 过低，丢弃拟合结果")
+                randles_result = None
+        except Exception as exc:
+            log(f"Randles 拟合失败 {file}: {exc}")
     
     if plot_nyquist:
         # 绘制奈奎斯特图
@@ -60,7 +139,24 @@ def process_eis(subfolder, file, params):
         plt.plot(z_real, z_imag_neg, marker='o',
                  color=params.get('line_color', 'blue'),
                  linewidth=params.get('line_width', 2.0),
-                 markersize=4)
+                 markersize=4, label='实测数据')
+
+        # Overlay Randles fit curve on Nyquist plot
+        if randles_result:
+            plt.plot(randles_result['z_fit_real'],
+                     [-v for v in randles_result['z_fit_imag']],
+                     '--', color='red', linewidth=1.5,
+                     label=f"Randles fit (R²={randles_result['r2']:.4f})")
+            annotation = (
+                f"Rs={randles_result['Rs']:.2f} Ω\n"
+                f"Rct={randles_result['Rct']:.2f} Ω\n"
+                f"Cdl={randles_result['Cdl']:.2e} F"
+            )
+            plt.annotate(annotation, xy=(0.97, 0.97), xycoords='axes fraction',
+                         ha='right', va='top', fontsize=9,
+                         bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8))
+            plt.legend(fontsize=9)
+
         plt.xlabel(params['xlabel'])
         plt.ylabel(params['ylabel'])
         plt.title(params['title'].replace("{sample}", subname),
@@ -123,10 +219,14 @@ def process_eis(subfolder, file, params):
             # 计算Rs（如果IR补偿启用）
             Rs = None
             Rct = None
-            if params.get('ir_enabled'):
-                # 简单估算Rs（高频实部）
+            Cdl = None
+            if randles_result:
+                Rs = randles_result['Rs']
+                Rct = randles_result['Rct']
+                Cdl = randles_result['Cdl']
+            elif params.get('ir_enabled'):
                 if len(z_real) > 0:
-                    Rs = min(z_real)  # 高频端的实阻抗近似为Rs
+                    Rs = min(z_real)
             
             # 构建历史记录
             record = {
@@ -139,6 +239,8 @@ def process_eis(subfolder, file, params):
                 'results': {
                     'Rs': float(Rs) if Rs is not None else None,
                     'Rct': float(Rct) if Rct is not None else None,
+                    'Cdl': float(Cdl) if Cdl is not None else None,
+                    'randles_r2': float(randles_result['r2']) if randles_result else None,
                     'frequency_range': f"{min(freq):.2e} - {max(freq):.2e} Hz",
                     'data_points': len(freq)
                 }

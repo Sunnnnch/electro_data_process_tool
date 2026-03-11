@@ -68,6 +68,8 @@ def write_uploaded_zip(file_item: Any, zip_path: str, max_upload_file_bytes: int
     payload = file_item.get_payload(decode=True)
     if payload is None:
         raise ValueError("上传文件为空")
+    if len(payload) < 4 or payload[:4] != b"PK\x03\x04":
+        raise ValueError("上传文件不是有效的 ZIP 格式")
     if len(payload) > max_upload_file_bytes:
         raise ValueError(f"上传 ZIP 过大，最大支持 {max_upload_file_bytes // (1024 * 1024)}MB")
     with open(zip_path, "wb") as f:
