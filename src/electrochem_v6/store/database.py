@@ -708,7 +708,10 @@ class Database:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-        except Exception:
+        except FileNotFoundError:
+            return 0
+        except Exception as exc:
+            _logger.warning("Failed to read history JSON %s: %s", filepath, exc)
             return 0
         records = payload.get("records") if isinstance(payload, dict) else payload
         if not isinstance(records, list):
@@ -728,7 +731,10 @@ class Database:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-        except Exception:
+        except FileNotFoundError:
+            return 0
+        except Exception as exc:
+            _logger.warning("Failed to read projects JSON %s: %s", filepath, exc)
             return 0
         projects = payload.get("projects", []) if isinstance(payload, dict) else []
         if not isinstance(projects, list):
@@ -751,7 +757,10 @@ class Database:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-        except Exception:
+        except FileNotFoundError:
+            return 0
+        except Exception as exc:
+            _logger.warning("Failed to read conversations JSON %s: %s", filepath, exc)
             return 0
         conversations = payload.get("conversations", []) if isinstance(payload, dict) else []
         if not isinstance(conversations, list):
@@ -793,7 +802,10 @@ class Database:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-        except Exception:
+        except FileNotFoundError:
+            return 0
+        except Exception as exc:
+            _logger.warning("Failed to read templates JSON %s: %s", filepath, exc)
             return 0
         templates = payload.get("templates", []) if isinstance(payload, dict) else []
         if not isinstance(templates, list):

@@ -5,12 +5,14 @@
 ### 安全修复
 
 - `system_service.py`：`open_path_target` 增加白名单校验，仅允许打开 `folder` / `file`
+- `system_service.py`：新增运行时目录注册 + 历史记录回退校验，修复处理完成后"打开文件/目录"无响应的问题
 - `http_server.py`：静态文件响应增加 10MB 大小限制
 - `request_utils.py`：ZIP 上传增加 `PK\x03\x04` 魔数校验
 - `.gitignore`：去除重复的 `__pycache__/` 条目
 
 ### 新增功能
 
+- **SQLite 存储后端**：新增 `database.py`，WAL 模式 + 线程安全连接池，首次启动自动从 JSON 迁移；设置 `ELECTROCHEM_V6_STORAGE=json` 可切回旧 JSON 模式
 - **Pipeline skip-on-error**：单文件处理失败不中断批处理，错误汇总至结果 (`skipped_errors`)
 - **逐文件进度反馈**：LSV/CV/EIS 处理时显示 `类型 (N/M): 文件名` 进度状态
 - **EIS Randles 等效电路拟合**：简化 Rs + Rct‖Cdl 模型，拟合曲线叠加到 Nyquist 图并标注参数

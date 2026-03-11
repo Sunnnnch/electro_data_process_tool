@@ -122,7 +122,13 @@ class TestSafePathCheckers:
 
 # ── open_path_target whitelist ─────────────────────────────────────────────
 
-from electrochem_v6.core.system_service import open_path_target, _is_within_allowed_roots
+from electrochem_v6.core.system_service import (
+    open_path_target,
+    _is_within_allowed_roots,
+    register_allowed_dir,
+    _runtime_allowed_dirs,
+    _runtime_allowed_dirs_lock,
+)
 
 
 class TestOpenPathTargetWhitelist:
@@ -169,3 +175,36 @@ class TestOpenPathTargetWhitelist:
         result = open_path_target("C:\\Windows\\System32\\notepad.exe")
         # Error message must NOT contain the full normalized path
         assert "C:\\Windows" not in result.get("message", "")
+
+    def test_register_allowed_dir_enables_access(self, tmp_path, monkeypatch):
+        """Runtime-registered directories should pass the whitelist check."""
+        monkeypatch.setattr("electrochem_v6.config.project_default_dir", lambda: tmp_path / "proj")
+        monkeypatch.setattr("electrochem_v6.config.user_config_dir", lambda: tmp_path / "cfg")
+        output_dir = tmp_path / "output_results"
+        output_dir.mkdir()
+        # Before registration — rejected
+        assert _is_within_allowed_roots(str(output_dir)) is False
+        # After registration — accepted
+        register_allowed_dir(str(output_dir))
+        assert _is_within_allowed_roots(str(output_dir)) is True
+        # Cleanup
+        with _runtime_allowed_dirs_lock:
+            _runtime_allowed_dirs.discard(os.path.realpath(str(output_dir)))
+
+    def test_register_allowed_dir_ignores_nonexistent(self, tmp_path):
+        """Non-existent directories should NOT be registered."""
+        fake = str(tmp_path / "does_not_exist")
+        register_allowed_dir(fake)
+        with _runtime_allowed_dirs_lock:
+            assert os.path.realpath(fake) not in _runtime_allowed_dirs
+
+    def test_open_path_target_succeeds_for_allowed_dir(self, tmp_path, monkeypatch):
+        """open_path_target should succeed for dirs under project_default_dir."""
+        monkeypatch.setattr("electrochem_v6.config.project_default_dir", lambda: tmp_path)
+        monkeypatch.setattr("electrochem_v6.config.user_config_dir", lambda: tmp_path / "cfg")
+        target_dir = tmp_path / "user_data"
+        target_dir.mkdir()
+        # Patch os.startfile to avoid actually opening a window
+        monkeypatch.setattr(os, "startfile", lambda p: None, raising=False)
+        result = open_path_target(str(target_dir))
+        assert result["status"] == "success"
