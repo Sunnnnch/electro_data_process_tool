@@ -6,6 +6,15 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Sunnnnch" }]
 keywords = ["electrochemistry", "LSV", "CV", "EIS", "data-processing"]
+dependencies = [
+    "numpy>=1.24,<3.0",
+    "pandas>=2.0,<3.0",
+    "matplotlib>=3.7,<4.0",
+    "scipy>=1.10,<2.0",
+    "openpyxl>=3.1,<4.0",
+    "requests>=2.28,<3.0",
+    "openai>=1.0,<3.0",
+]
 
 [tool.semantic_release]
 version_toml = []                              # we don't use pyproject version
@@ -56,8 +65,6 @@ select = ["E", "F", "W", "I"]
 ignore = [
     "E501",   # line too long — handled by formatter
     "E402",   # module-level import not at top (matplotlib.use must precede imports)
-    "F401",   # imported but unused — many re-exports in __init__.py
-    "F841",   # local var assigned but unused — common in data processing
     "E741",   # ambiguous variable name — `I` is standard for current in electrochemistry
     "E701",   # multiple statements on one line (colon) — compact data parsing
     "E702",   # multiple statements on one line (semicolon) — compact data parsing
@@ -65,7 +72,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"processing_core_v6.py" = ["E402"]
+"processing_core_v6.py" = ["E402", "F401", "F841"]
+"processing_ecsa.py" = ["F841"]
+"processing_lsv.py" = ["F841"]
+"processing_pipeline.py" = ["F841"]
+"conftest.py" = ["F401"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -437,6 +437,28 @@ def _bind_v6_runtime_managers():
         processing_core.get_project_manager = original_project_getter
 
 
+def _is_allowed_process_dir(folder_path: str) -> bool:
+    """Check *folder_path* is under an allowed root for data processing.
+
+    Allowed roots:
+    - current working directory tree
+    - user home directory tree
+    - any directory previously registered at runtime (via register_allowed_dir)
+    """
+    from electrochem_v6.core.system_service import _is_within_allowed_roots
+
+    resolved = os.path.realpath(folder_path)
+    # Always allow subdirs of cwd and user home
+    cwd_root = os.path.realpath(os.getcwd())
+    home_root = os.path.realpath(os.path.expanduser("~"))
+    if resolved == cwd_root or resolved.startswith(cwd_root + os.sep):
+        return True
+    if resolved == home_root or resolved.startswith(home_root + os.sep):
+        return True
+    # Fall back to the existing runtime whitelist
+    return _is_within_allowed_roots(resolved)
+
+
 def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         return {"status": "error", "message": "request payload must be a JSON object"}
@@ -445,6 +467,10 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "error", "message": "folder_path 不能为空"}
     if not os.path.isdir(folder_path):
         return {"status": "error", "message": f"文件夹不存在: {folder_path}"}
+
+    # ── path security: reject traversal / disallowed directories ──
+    if not _is_allowed_process_dir(folder_path):
+        return {"status": "error", "message": "路径不在允许范围内，拒绝处理"}
 
     try:
         data_types = _normalize_data_types(payload)
@@ -505,6 +531,7 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "output_files": output_files,
             },
             "quality_summary": result.get("quality_summary", {}),
+            "skipped_errors": result.get("skipped_errors", []),
             "summary_json": normalized_summary,
             "raw": result,
         },

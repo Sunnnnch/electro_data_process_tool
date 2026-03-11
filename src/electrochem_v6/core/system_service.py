@@ -8,6 +8,12 @@ import sys
 import threading
 from typing import Any, Dict, Optional, Set
 
+__all__ = [
+    "register_allowed_dir",
+    "select_folder_dialog",
+    "open_path_target",
+]
+
 # ── dynamic runtime whitelist for open-path operations ──────────────
 _runtime_allowed_dirs_lock = threading.Lock()
 _runtime_allowed_dirs: Set[str] = set()

@@ -1,0 +1,738 @@
+openapi: "3.1.0"
+info:
+  title: ElectroChem V6 API
+  description: |
+    本地电化学数据处理与智能分析 HTTP API。
+
+    服务默认运行在 `http://127.0.0.1:8010`。
+    所有 JSON 响应均使用 UTF-8 编码，包含 `status` 字段
+    （`"success"` 或 `"error"`）。
+  version: "6.0.7"
+  license:
+    name: MIT
+    url: https://github.com/Sunnnnch/electro_data_process_tool/blob/main/LICENSE
+
+servers:
+  - url: http://127.0.0.1:8010
+    description: 本地开发/桌面默认端口
+
+tags:
+  - name: Health
+    description: 服务健康检查
+  - name: Projects
+    description: 项目的 CRUD 与指标查询
+  - name: History
+    description: 处理历史记录管理
+  - name: Processing
+    description: 批量数据处理（文件夹/ZIP）
+  - name: LLM
+    description: LLM 配置与 AI 会话
+  - name: Agent
+    description: AI Agent 会话管理
+  - name: Templates
+    description: 处理参数模板
+  - name: Quality
+    description: 数据质量报告
+  - name: System
+    description: 系统级操作（文件夹选择、路径打开）
+
+paths:
+  /:
+    get:
+      operationId: getRoot
+      tags: [Health]
+      summary: API 根信息
+      responses:
+        "200":
+          description: 服务名称、状态与可用端点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootInfo"
+
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Health]
+      summary: 健康检查
+      responses:
+        "200":
+          description: 服务在线
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  # ── Projects ──────────────────────────────────────────────────────────
+  /api/v1/projects:
+    get:
+      operationId: listProjects
+      tags: [Projects]
+      summary: 列出所有项目
+      parameters:
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: 项目列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+    post:
+      operationId: createProject
+      tags: [Projects]
+      summary: 创建项目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: "HER-Pt-2026" }
+                description: { type: string }
+                tags: { type: array, items: { type: string } }
+                color: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/projects/{project_id}/update:
+    post:
+      operationId: updateProject
+      tags: [Projects]
+      summary: 更新项目信息
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                tags: { type: array, items: { type: string } }
+                color: { type: string }
+                status: { type: string }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/projects/{project_id}/delete:
+    post:
+      operationId: deleteProject
+      tags: [Projects]
+      summary: 删除项目
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: 删除成功
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/projects/{project_id}/report:
+    get:
+      operationId: exportProjectReport
+      tags: [Projects]
+      summary: 导出项目报告
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: 报告导出成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/projects/{project_id}/export-zip:
+    get:
+      operationId: exportProjectZip
+      tags: [Projects]
+      summary: 打包项目输出文件为 ZIP 下载
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: ZIP 文件流
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  /api/v1/projects/{project_id}/lsv-summary:
+    get:
+      operationId: getProjectLsvSummary
+      tags: [Projects]
+      summary: 项目 LSV 指标摘要
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: LSV 指标汇总
+
+  /api/v1/projects/{project_id}/lsv-target-currents:
+    get:
+      operationId: getProjectLsvTargetCurrents
+      tags: [Projects]
+      summary: 获取已处理的目标电流密度列表
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: 目标电流列表
+
+  /api/v1/projects/{project_id}/lsv-compare:
+    get:
+      operationId: getLsvCompare
+      tags: [Projects]
+      summary: 生成 LSV 对比图
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: samples
+          in: query
+          required: true
+          schema: { type: string }
+          description: 逗号分隔的样品名
+        - name: chart_type
+          in: query
+          schema: { type: string, enum: [overlay, bar, scatter, radar] }
+        - name: metric
+          in: query
+          schema: { type: string, enum: [eta, potential, tafel] }
+        - name: target_current
+          in: query
+          schema: { type: number }
+      responses:
+        "200":
+          description: 对比图生成成功
+
+  /api/v1/projects/{project_id}/lsv-compare/latest:
+    get:
+      operationId: getLatestLsvCompare
+      tags: [Projects]
+      summary: 获取最近一次 LSV 对比图
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: 最新对比图
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── History ───────────────────────────────────────────────────────────
+  /api/v1/history:
+    get:
+      operationId: listHistory
+      tags: [History]
+      summary: 列出处理历史
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+        - name: data_type
+          in: query
+          schema: { type: string, enum: [LSV, CV, EIS, ECSA] }
+      responses:
+        "200":
+          description: 历史记录列表
+
+  /api/v1/history/stats:
+    get:
+      operationId: getHistoryStats
+      tags: [History]
+      summary: 统计摘要
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: 统计数据
+
+  /api/v1/history/archive:
+    post:
+      operationId: archiveHistory
+      tags: [History]
+      summary: 归档历史记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [history_key]
+              properties:
+                history_key: { type: string }
+      responses:
+        "200":
+          description: 归档成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/history/delete:
+    post:
+      operationId: deleteHistory
+      tags: [History]
+      summary: 删除历史记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [history_key]
+              properties:
+                history_key: { type: string }
+      responses:
+        "200":
+          description: 删除成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Processing ────────────────────────────────────────────────────────
+  /api/v1/process:
+    post:
+      operationId: processFolder
+      tags: [Processing]
+      summary: 处理文件夹中的电化学数据
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [folder_path, data_type]
+              properties:
+                folder_path: { type: string, example: "D:\\data\\sample1" }
+                data_type:
+                  type: string
+                  enum: [LSV, CV, EIS, ECSA]
+                project_name: { type: string }
+                potential_offset: { type: number }
+                electrode_area: { type: number }
+                target_current: { type: string, example: "10,100" }
+                tafel_range: { type: string, example: "1-10" }
+                params:
+                  type: object
+                  description: 额外处理参数
+      responses:
+        "200":
+          description: 处理成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process-zip:
+    post:
+      operationId: processZip
+      tags: [Processing]
+      summary: 上传 ZIP 并处理数据
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, data_type]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP 数据文件
+                data_type: { type: string, enum: [LSV, CV, EIS, ECSA] }
+                project_name: { type: string }
+                potential_offset: { type: number }
+                electrode_area: { type: number }
+                target_current: { type: string }
+                tafel_range: { type: string }
+                params: { type: string, description: JSON 编码的额外参数 }
+      responses:
+        "200":
+          description: 处理成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          description: 内部服务器错误
+
+  # ── Templates ─────────────────────────────────────────────────────────
+  /api/v1/process/templates:
+    get:
+      operationId: listTemplates
+      tags: [Templates]
+      summary: 列出参数模板
+      responses:
+        "200":
+          description: 模板列表
+
+    post:
+      operationId: saveTemplate
+      tags: [Templates]
+      summary: 保存参数模板
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, params]
+              properties:
+                name: { type: string }
+                params: { type: object }
+      responses:
+        "200":
+          description: 保存成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process/templates/{template_name}/delete:
+    post:
+      operationId: deleteTemplate
+      tags: [Templates]
+      summary: 删除参数模板
+      parameters:
+        - name: template_name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 删除成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Quality ───────────────────────────────────────────────────────────
+  /api/v1/quality-report/latest:
+    get:
+      operationId: getLatestQualityReport
+      tags: [Quality]
+      summary: 获取最新数据质量报告
+      responses:
+        "200":
+          description: 质量报告
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── LLM ───────────────────────────────────────────────────────────────
+  /api/v1/llm/config:
+    get:
+      operationId: getLlmConfig
+      tags: [LLM]
+      summary: 获取 LLM 配置（API Key 已脱敏）
+      responses:
+        "200":
+          description: LLM 配置
+
+    post:
+      operationId: updateLlmConfig
+      tags: [LLM]
+      summary: 更新 LLM 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: { type: string, example: openai }
+                model: { type: string, example: gpt-4o-mini }
+                base_url: { type: string }
+                timeout: { type: integer }
+                api_key: { type: string }
+      responses:
+        "200":
+          description: 更新成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/agent/chat:
+    post:
+      operationId: agentChat
+      tags: [Agent]
+      summary: 发送消息给 AI Agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+                conversation_id: { type: string }
+                provider: { type: string }
+                model: { type: string }
+                project_name: { type: string }
+                data_type: { type: string, enum: [LSV, CV, EIS, ECSA] }
+                processing_result: { type: object }
+                attachments:
+                  type: array
+                  items: { type: object }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+                conversation_id: { type: string }
+                provider: { type: string }
+                model: { type: string }
+                project_name: { type: string }
+                data_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP 数据附件
+      responses:
+        "200":
+          description: AI 回复
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: success }
+                  reply: { type: string }
+                  conversation_id: { type: string }
+                  tool_calls: { type: array, items: { type: object } }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── Agent Conversations ───────────────────────────────────────────────
+  /api/v1/agent/conversations:
+    get:
+      operationId: listConversations
+      tags: [Agent]
+      summary: 列出 AI 会话
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: 按标题/项目搜索
+      responses:
+        "200":
+          description: 会话列表
+
+  /api/v1/agent/conversations/{conversation_id}:
+    get:
+      operationId: getConversation
+      tags: [Agent]
+      summary: 获取会话详情
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: 会话详情（含完整消息）
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent/conversations/{conversation_id}/rename:
+    post:
+      operationId: renameConversation
+      tags: [Agent]
+      summary: 重命名会话
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 80 }
+      responses:
+        "200":
+          description: 重命名成功
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent/conversations/{conversation_id}/delete:
+    post:
+      operationId: deleteConversation
+      tags: [Agent]
+      summary: 删除会话
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: 删除成功
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── System ────────────────────────────────────────────────────────────
+  /api/v1/select-folder:
+    post:
+      operationId: selectFolder
+      tags: [System]
+      summary: 打开系统文件夹选择器
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initial_dir: { type: string }
+      responses:
+        "200":
+          description: 已选择文件夹
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/open-path:
+    post:
+      operationId: openPath
+      tags: [System]
+      summary: 打开文件/目录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+                reveal_only: { type: boolean, default: false }
+      responses:
+        "200":
+          description: 已发送打开请求
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: 项目 UUID
+
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: 会话 UUID
+
+  responses:
+    BadRequest:
+      description: 请求参数无效或业务逻辑失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    RootInfo:
+      type: object
+      properties:
+        app_name: { type: string, example: ElectroChem V6 }
+        status: { type: string, example: success }
+        endpoints:
+          type: array
+          items: { type: string }
+
+    SuccessResponse:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        data: { type: object }
+
+    ErrorResponse:
+      type: object
+      properties:
+        status: { type: string, example: error }
+        message: { type: string }
+
+    ProcessResult:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        summary_path: { type: string }
+        quality_summary:
+          type: object
+          properties:
+            total_files: { type: integer }
+            passed: { type: integer }
+            failed: { type: integer }
+            warnings: { type: integer }
+        messages:
+          type: array
+          items: { type: string }
+        skipped_errors:
+          type: array
+          items:
+            type: object
+            properties:
+              file: { type: string }
+              error: { type: string }

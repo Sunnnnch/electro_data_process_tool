@@ -2,21 +2,15 @@
 
 import json
 import os
-import sys
 import threading
 from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
 # Force SQLite backend for these tests
 os.environ["ELECTROCHEM_V6_STORAGE"] = "sqlite"
 
-from electrochem_v6.store.database import Database, _json_dumps, _json_loads, _to_json_safe
+from electrochem_v6.store.database import Database, _json_loads, _to_json_safe
 
 # ── Helpers ───────────────────────────────────────────────────────
 
@@ -45,7 +39,7 @@ def _sample_record(**overrides):
 
 def test_database_creates_file(tmp_path):
     db_path = str(tmp_path / "sub" / "test.db")
-    db = Database(db_path)
+    Database(db_path)  # side-effect: creates file
     assert os.path.exists(db_path)
 
 

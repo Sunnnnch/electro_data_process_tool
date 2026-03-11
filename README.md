@@ -113,7 +113,6 @@ python run_v6.py version
 - `ECSA`
 - `RF`
 - 内置材料 Cs 预设（Pt=20、Carbon=20、IrO₂=40、RuO₂=35、NiFeOOH=60、MnO₂=40、CoOₓ=50 µF/cm²）
-- `RF`
 
 ## 质量检测
 

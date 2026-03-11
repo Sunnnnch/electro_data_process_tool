@@ -59,7 +59,7 @@ from tkinter import messagebox
 from electrochem_v6.config import APP_VERSION, user_config_dir
 from electrochem_v6.server import V6ServerManager
 
-APP_TITLE = f"电化学数据处理软件 V{APP_VERSION}"
+APP_TITLE = "电化学数据处理软件 V6"
 APP_SUBTITLE = "默认采用桌面工作台模式；若内嵌壳启动失败，会自动回退到浏览器模式。"
 CANDIDATE_PORTS = (8010, 8011, 8012, 8013, 8014, 8015)
 WINDOW_SIZE = (1480, 960)

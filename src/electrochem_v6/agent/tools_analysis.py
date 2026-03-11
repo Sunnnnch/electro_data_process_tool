@@ -7,7 +7,7 @@ import glob
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Dict
 
 
 def tool_read_quality_report(report_type: str = "latest") -> Dict:
@@ -85,7 +85,6 @@ def tool_analyze_processing_results(include_quality: bool = True, include_perfor
 
                 # 计算统计信息
                 eta_values = [s.get('overpotential_10') for s in samples if s.get('overpotential_10') is not None]
-                tafel_values = [s.get('tafel_slope') for s in samples if s.get('tafel_slope') is not None]
 
                 if eta_values:
                     import statistics

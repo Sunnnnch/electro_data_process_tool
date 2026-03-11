@@ -1,18 +1,9 @@
 import json
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-REPO = ROOT.parent
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
-
-from electrochem_v6.config import resolve_data_path, user_config_dir  # noqa: E402
-from electrochem_v6.llm.config import LLMConfig  # noqa: E402
-from electrochem_v6.store.legacy_runtime import (  # noqa: E402
+from electrochem_v6.config import resolve_data_path, user_config_dir
+from electrochem_v6.llm.config import LLMConfig
+from electrochem_v6.store.legacy_runtime import (
     get_conversation_manager_v6,
     get_history_manager_v6,
     get_project_manager_v6,

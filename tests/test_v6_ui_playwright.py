@@ -1,19 +1,9 @@
 import socket
-import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-REPO = ROOT.parent
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
-
-from electrochem_v6.server import V6ServerManager  # noqa: E402
-from electrochem_v6.store.conversations import append_message, get_conversation  # noqa: E402
+from electrochem_v6.server import V6ServerManager
+from electrochem_v6.store.conversations import append_message, get_conversation
 
 
 def _get_free_port() -> int:

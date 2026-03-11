@@ -1,19 +1,7 @@
 """Tests for processing_eis.py — EIS data processing and Randles fitting."""
-import os
-import sys
-from pathlib import Path
-
-import matplotlib
-
-matplotlib.use("Agg")
 
 import numpy as np
 import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from electrochem_v6.core.processing_eis import _randles_impedance, fit_randles, process_eis
 

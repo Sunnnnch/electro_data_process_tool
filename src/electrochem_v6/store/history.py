@@ -10,6 +10,15 @@ from typing import Any, Dict, Optional
 
 from .legacy_runtime import _USE_SQLITE, get_history_manager_v6
 
+__all__ = [
+    "list_history",
+    "get_stats",
+    "archive_history_record",
+    "delete_history_record",
+    "build_project_report",
+    "attach_run_outputs",
+]
+
 _logger = logging.getLogger(__name__)
 
 

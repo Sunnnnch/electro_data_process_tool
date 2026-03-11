@@ -33,6 +33,9 @@ jobs:
       - name: Lint (ruff)
         run: ruff check src/ tests/ --output-format=github
 
+      - name: Type check (pyright)
+        run: pyright src/
+
       - name: Run check
         env:
           PYTHONUTF8: "1"
@@ -46,7 +49,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONUTF8: "1"
-        run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing --cov-fail-under=60
+        run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing --cov-fail-under=65
 
   # ── Auto-release: bump version, build, publish GitHub Release ──
   release:

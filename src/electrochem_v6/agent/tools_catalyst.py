@@ -3,7 +3,7 @@ Catalyst-centric tools - Query all data types for a specific sample.
 以催化剂为中心的工具 - 查询特定样品的所有数据类型。
 """
 
-from typing import Any, Dict
+from typing import Dict
 
 
 def tool_get_catalyst_info(sample_name: str, include_details: bool = True) -> Dict:

@@ -32,7 +32,7 @@ def read_json(handler: Any, max_json_body_bytes: int) -> Dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ValueError("请求体不是合法的 JSON") from exc
     if not isinstance(payload, dict):
-        raise ValueError("JSON ??????????")
+        raise ValueError("JSON 请求体必须是对象")
     return payload
 
 

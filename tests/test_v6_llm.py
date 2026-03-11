@@ -1,17 +1,9 @@
 """Tests for LLM client layer — factory, config, openai_client."""
 import json
-import os
 import sys
-from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from electrochem_v6.llm.base_client import BaseLLMClient
 from electrochem_v6.llm.config import LLMConfig

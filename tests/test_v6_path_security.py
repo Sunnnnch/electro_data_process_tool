@@ -1,7 +1,6 @@
 """Tests for electrochem_v6.core.path_security module."""
 
 import os
-from pathlib import Path
 
 import pytest
 

@@ -175,17 +175,36 @@ def dispatch_get(handler: Any) -> bool:
             records = history_payload.get("records") or history_payload.get("history") or []
             buf = io.BytesIO()
             added = set()
+
+            # Build a set of allowed roots from history records so that
+            # export-zip only bundles files belonging to known data dirs.
+            _export_allowed_roots = set()
+            for _rec in records:
+                _folder = str(_rec.get("folder_path") or "").strip()
+                if _folder and os.path.isdir(_folder):
+                    _export_allowed_roots.add(os.path.realpath(_folder))
+            # Also allow cwd and user home as fallback
+            _export_allowed_roots.add(os.path.realpath(os.getcwd()))
+            _export_allowed_roots.add(os.path.realpath(os.path.expanduser("~")))
+
+            def _is_export_safe(fpath: str) -> bool:
+                resolved = os.path.realpath(fpath)
+                return any(
+                    resolved == root or resolved.startswith(root + os.sep)
+                    for root in _export_allowed_roots
+                )
+
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for rec in records:
                     for fp in (rec.get("output_files") or []):
                         abs_fp = os.path.abspath(fp)
-                        if abs_fp not in added and os.path.isfile(abs_fp):
+                        if abs_fp not in added and os.path.isfile(abs_fp) and _is_export_safe(abs_fp):
                             zf.write(abs_fp, os.path.basename(abs_fp))
                             added.add(abs_fp)
                     src = rec.get("file_path")
                     if src:
                         abs_src = os.path.abspath(src)
-                        if abs_src not in added and os.path.isfile(abs_src):
+                        if abs_src not in added and os.path.isfile(abs_src) and _is_export_safe(abs_src):
                             zf.write(abs_src, f"source/{os.path.basename(abs_src)}")
                             added.add(abs_src)
             data = buf.getvalue()

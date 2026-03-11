@@ -2,21 +2,11 @@ import io
 import json
 import os
 import socket
-import sys
 import uuid
 import zipfile
-from pathlib import Path
 from urllib import error, request
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-REPO = ROOT.parent
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
 
 # Force JSON storage backend for all tests — they were designed to verify
 # JSON-file persistence and should not be routed through SQLite.

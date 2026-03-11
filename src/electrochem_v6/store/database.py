@@ -9,7 +9,6 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 _logger = logging.getLogger(__name__)

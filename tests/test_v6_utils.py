@@ -1,6 +1,5 @@
 """Tests for electrochem_v6.core.utils module."""
 
-import os
 
 import pytest
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 
 class VisionClient:

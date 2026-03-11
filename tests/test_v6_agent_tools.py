@@ -1,22 +1,12 @@
 import os
-import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-REPO = ROOT.parent
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
-
-from electrochem_v6.agent.tool_executor import (  # noqa: E402
+from electrochem_v6.agent.tool_executor import (
     tool_get_current_compare_selection,
     tool_get_current_project_history,
     tool_get_current_project_summary,
 )
-from electrochem_v6.store.legacy_runtime import get_history_manager_v6  # noqa: E402
-from electrochem_v6.store.projects import create_project  # noqa: E402
+from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+from electrochem_v6.store.projects import create_project
 
 
 def test_v6_agent_tools_query_current_project(tmp_path):

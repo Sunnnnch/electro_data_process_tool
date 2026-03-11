@@ -1,5 +1,43 @@
 # Changelog
 
+## 6.0.7
+
+### 代码质量 & 安全加固
+
+- XSS 防护：引入 DOMPurify 3.2.4，所有 AI / 服务端返回的 HTML 均经过消毒
+- 路径安全：`validate_path_within` 增加 `..` / null-byte / 符号链接跳出检测
+- 批处理并行度：新增 `ELECTROCHEM_V6_PARALLEL` 环境变量控制工作线程上限
+- `skipped_errors` 结构化返回：批处理跳过的文件以 `{file, error}` 数组形式返回前端
+
+### 前端
+
+- i18n 翻译提取至独立 `i18n.js`（~280 键 × 2 语言），`app.js` 减少约 926 行
+- 版本显示简化为 "V6"，页脚增加 GitHub 链接
+
+### 文档
+
+- 新增 `docs/openapi.yaml`：OpenAPI 3.1.0 完整规范，覆盖 31 个 API 端点
+- 中英文使用手册同步更新
+
+### CI / CD
+
+- GitHub Actions 新增 Pyright 类型检查步骤
+- 覆盖率门槛从 60% 提升至 65%
+
+### 测试
+
+- 新增 11 个测试文件（agent_controller / agent_service / config_adapter / history / lsv_calc / processing_ecsa / smoke / system_service / tools_catalyst / tools_data / vision_client）
+- 新增约 100+ 测试用例，测试总数从 ~430 增至 ~460
+- conftest.py 统一 ROOT/SRC/sys.path 管理，清理 17 个旧测试文件的重复路径设置
+- 全部 ruff / Pyright lint 警告清零
+
+### 代码清理
+
+- 移除 4 处未使用变量（`tafel_values` / `encodings` × 2 / `db`）
+- 移除 30+ 处未使用 import（`typing.Any` / `pytest` / `patch` 等）
+- 12 处 import 排序修复（I001）
+- 核心模块补充 `__all__` 导出声明
+
 ## 6.0.4
 
 ### 项目质量改进
@@ -92,3 +130,16 @@
   - `server` 相关测试
   - `e2e real data`
   - `stress`
+
+## 6.0.0
+
+### 初始版本
+
+- 从内部项目拆分为独立仓库，建立 v6 架构
+- 支持 LSV / CV / EIS / ECSA 四种数据类型处理
+- 本地 HTTP 服务 + Web UI 工作台
+- 项目管理、历史记录、质量报告基础框架
+- 可选的 LLM / Agent 分析链路
+- 参比电极预设（Ag/AgCl、SCE、Hg/HgO）
+- 批量匹配（前缀、包含、正则）
+- JSON 存储后端

@@ -1,14 +1,7 @@
 import os
-import sys
 import uuid
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from electrochem_v6.core.logging_policy import (  # noqa: E402
+from electrochem_v6.core.logging_policy import (
     get_v6_logger,
     log_event,
     sanitize_for_log,

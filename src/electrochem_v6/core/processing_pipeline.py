@@ -1,9 +1,29 @@
-"""Pipeline orchestration and data-start helpers for v6 processing."""
+"""Pipeline orchestration and data-start helpers for v6 processing.
+
+Parallelism architecture
+~~~~~~~~~~~~~~~~~~~~~~~~
+The pipeline processes *work_units* (sub-directories) sequentially by default.
+Set the environment variable ``ELECTROCHEM_V6_PARALLEL_WORKERS`` to an integer
+> 1 to process multiple sub-directories concurrently via
+``concurrent.futures.ThreadPoolExecutor``.
+
+**Limitation**: matplotlib's *pyplot* module maintains global "current figure"
+state which is not thread-safe.  ``_PIPELINE_LOCK`` serialises all
+``core.process_*()`` calls that use pyplot, so the actual speedup comes from
+overlapping I/O (file scanning, parameter construction, data loading) across
+threads while one thread holds the lock for plotting.
+
+To achieve full CPU-parallel processing, the individual processing modules
+(``processing_lsv``, ``processing_cv``, etc.) should be refactored to use the
+OOP matplotlib API (``Figure()`` / ``Axes``) instead of ``pyplot``.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -11,6 +31,10 @@ import numpy as np
 import pandas as pd
 
 from electrochem_v6.core.utils import as_bool as _as_bool
+
+# ── parallel processing configuration ────────────────────────────────────
+_MAX_PARALLEL_WORKERS = max(1, int(os.environ.get("ELECTROCHEM_V6_PARALLEL_WORKERS", "1")))
+_PIPELINE_LOCK = threading.Lock()
 
 
 def natural_sort_key(s):
@@ -83,6 +107,21 @@ class NumpyEncoder(json.JSONEncoder):
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         return super().default(obj)
+
+
+def _is_result_file(filename: str) -> bool:
+    """Check if *filename* matches common result / output file patterns."""
+    lower_name = filename.lower()
+    result_patterns = [
+        '_results.csv',
+        'results.csv',
+        '_combined_',
+        'combined_',
+        '_quality_report',
+        'quality_report',
+        '_summary',
+    ]
+    return any(pattern in lower_name for pattern in result_patterns)
 
 
 def run_pipeline(
@@ -202,28 +241,15 @@ def run_pipeline(
     out_ecsa: Optional[str] = None
     combined_path: Optional[str] = None
 
-    for idx, (sub, files) in enumerate(work_units):
+    # ── define per-workunit processor (closure captures outer vars) ────
+    def _process_one_workunit(
+        idx: int, sub: str, files: List[str],
+    ) -> Dict[str, Any]:
+        """Process a single work-unit (sub-directory). Returns partial results."""
         file_list = list(files)
         if preview_mode:
             file_list = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))][:preview_limit]
-
-        # 过滤掉结果文件，避免重复处理
-        # 更严格的过滤：检查文件名中的特征模式
-        def is_result_file(filename: str) -> bool:
-            lower_name = filename.lower()
-            # 常见结果文件模式
-            result_patterns = [
-                '_results.csv',
-                'results.csv',
-                '_combined_',
-                'combined_',
-                '_quality_report',
-                'quality_report',
-                '_summary',
-            ]
-            return any(pattern in lower_name for pattern in result_patterns)
-
-        file_list = [f for f in file_list if not is_result_file(f)]
+        file_list = [f for f in file_list if not _is_result_file(f)]
 
         emit_status(f"正在处理: {os.path.basename(sub) or os.path.basename(folder_path)}")
         emit_stage("读取", int((idx / total) * 60))
@@ -295,7 +321,8 @@ def run_pipeline(
                     processed_in_sub += 1
                     emit_status(f"LSV ({processed_in_sub}/{file_count}): {file}")
                     try:
-                        result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
+                        with _PIPELINE_LOCK:
+                            result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
                     except Exception as exc:
                         core.log(f"LSV 处理跳过 {file}: {exc}")
                         skipped_errors.append({"file": os.path.join(sub, file), "type": "LSV", "error": str(exc)})
@@ -364,10 +391,11 @@ def run_pipeline(
                     processed_in_sub += 1
                     emit_status(f"CV ({processed_in_sub}/{file_count}): {file}")
                     try:
-                        try:
-                            result = core.process_cv(sub, file, params, enable_quality_check=enable_qc)
-                        except TypeError:
-                            result = core.process_cv(sub, file, params)
+                        with _PIPELINE_LOCK:
+                            try:
+                                result = core.process_cv(sub, file, params, enable_quality_check=enable_qc)
+                            except TypeError:
+                                result = core.process_cv(sub, file, params)
                     except Exception as exc:
                         core.log(f"CV 处理跳过 {file}: {exc}")
                         skipped_errors.append({"file": os.path.join(sub, file), "type": "CV", "error": str(exc)})
@@ -406,7 +434,8 @@ def run_pipeline(
                     try:
                         processed_in_sub += 1
                         emit_status(f"EIS ({processed_in_sub}/{file_count}): {file}")
-                        core.process_eis(sub, file, params)
+                        with _PIPELINE_LOCK:
+                            core.process_eis(sub, file, params)
                     except Exception as exc:
                         core.log(f"EIS 处理跳过 {file}: {exc}")
                         skipped_errors.append({"file": os.path.join(sub, file), "type": "EIS", "error": str(exc)})
@@ -434,7 +463,8 @@ def run_pipeline(
                 'fontsize': gui_vars.get('font_size', 12),
             }
             try:
-                ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
+                with _PIPELINE_LOCK:
+                    ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
             except Exception as exc:
                 core.log(f"ECSA 处理跳过 {sub}: {exc}")
                 skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
@@ -444,6 +474,20 @@ def run_pipeline(
 
         emit_stage("分析", int(((idx + 1) / total) * 85))
         emit_progress(int(((idx + 1) / total) * 100))
+
+    # ── execute work-units (serial or parallel) ──────────────────────
+    _n_workers = min(_MAX_PARALLEL_WORKERS, len(work_units))
+    if _n_workers > 1:
+        with ThreadPoolExecutor(max_workers=_n_workers) as pool:
+            futures = {
+                pool.submit(_process_one_workunit, idx, sub, list(files)): idx
+                for idx, (sub, files) in enumerate(work_units)
+            }
+            for future in as_completed(futures):
+                future.result()  # propagate exceptions from worker threads
+    else:
+        for idx, (sub, files) in enumerate(work_units):
+            _process_one_workunit(idx, sub, list(files))
 
     if lsv_enabled and results_lsv:
         emit_status("正在汇总导出 LSV 结果...")

@@ -1,4 +1,4 @@
-# Electrochemical Data Processing Software V6.0.1 Manual
+# Electrochemical Data Processing Software V6 Manual
 
 ## Software Purpose
 

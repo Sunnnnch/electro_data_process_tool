@@ -5,7 +5,7 @@ AI Agent控制器 - 管理对话流程和工具调用。
 
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from electrochem_v6.llm.base_client import BaseLLMClient
 

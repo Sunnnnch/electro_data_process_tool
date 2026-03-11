@@ -25,7 +25,6 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     subname = os.path.basename(subfolder)
     file_stem = os.path.splitext(os.path.basename(file))[0]
 
-    encodings = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1', 'cp1252']
     lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
     if lines is None:
