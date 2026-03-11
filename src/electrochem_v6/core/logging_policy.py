@@ -11,7 +11,6 @@ from typing import Any
 
 from electrochem_v6.config import ensure_parent_dir, get_log_file
 
-
 _LOGGER_CACHE: dict[str, logging.Logger] = {}
 _MAX_DEPTH = 8
 _MAX_TEXT = 400

@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from . import processing_core_v6 as core
 from .utils import read_file_with_fallback_encodings
@@ -131,7 +131,7 @@ def process_eis(subfolder, file, params):
                 randles_result = None
         except Exception as exc:
             log(f"Randles 拟合失败 {file}: {exc}")
-    
+
     if plot_nyquist:
         # 绘制奈奎斯特图
         plt.figure(figsize=(8, 6))
@@ -169,18 +169,18 @@ def process_eis(subfolder, file, params):
             plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
         finally:
             plt.close()
-    
+
     if plot_bode:
         # 绘制波特图（幅值图和相位图）
         import numpy as np
-        
+
         # 计算阻抗模长和相位
         z_mag = [np.sqrt(real**2 + imag**2) for real, imag in zip(z_real, z_imag)]
         z_phase = [np.arctan2(imag, real) * 180 / np.pi for real, imag in zip(z_real, z_imag)]
-        
+
         # 创建包含两个子图的图形
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
-        
+
         # 幅值图 (上方)
         ax1.loglog(freq, z_mag, marker='o',
                    color=params.get('line_color', 'blue'),
@@ -192,7 +192,7 @@ def process_eis(subfolder, file, params):
                       fontname=font_to_use, fontsize=int(params['fontsize']))
         if params.get('plot_grid', True):
             ax1.grid(True, alpha=0.3)
-        
+
         # 相位图 (下方)
         ax2.semilogx(freq, z_phase, marker='o',
                      color=params.get('line_color', 'blue'),
@@ -204,18 +204,18 @@ def process_eis(subfolder, file, params):
                       fontname=font_to_use, fontsize=int(params['fontsize']))
         if params.get('plot_grid', True):
             ax2.grid(True, alpha=0.3)
-        
+
         plt.tight_layout()
         try:
             plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
         finally:
             plt.close()
-    
+
     # ✅ 添加：保存EIS历史记录
     if HISTORY_MANAGER_AVAILABLE:
         try:
             history_mgr = get_history_manager()
-            
+
             # 计算Rs（如果IR补偿启用）
             Rs = None
             Rct = None
@@ -227,7 +227,7 @@ def process_eis(subfolder, file, params):
             elif params.get('ir_enabled'):
                 if len(z_real) > 0:
                     Rs = min(z_real)
-            
+
             # 构建历史记录
             record = {
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -247,11 +247,11 @@ def process_eis(subfolder, file, params):
             }
             if params.get('run_id'):
                 record['run_id'] = params.get('run_id')
-            
+
             # 添加项目信息
             if 'project_id' in params and params['project_id']:
                 record['project_id'] = params['project_id']
-                
+
                 if PROJECT_MANAGER_AVAILABLE:
                     try:
                         proj_mgr = get_project_manager()
@@ -260,9 +260,9 @@ def process_eis(subfolder, file, params):
                             record['project_name'] = proj['name']
                     except Exception:
                         pass
-            
+
             history_mgr.add_record(record)
             log(f"EIS历史记录已保存: {subname}/{file_stem}")
-            
+
         except Exception as e:
             log(f"保存EIS历史记录失败: {e}")

@@ -49,6 +49,9 @@ ignore = [
     "E402",   # module-level import not at top (matplotlib.use must precede imports)
     "F401",   # imported but unused — many re-exports in __init__.py
     "F841",   # local var assigned but unused — common in data processing
+    "E741",   # ambiguous variable name — `I` is standard for current in electrochemistry
+    "E701",   # multiple statements on one line (colon) — compact data parsing
+    "E702",   # multiple statements on one line (semicolon) — compact data parsing
 ]
 
 [tool.ruff.lint.per-file-ignores]

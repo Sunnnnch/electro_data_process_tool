@@ -3,13 +3,17 @@ import sys
 import uuid
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from electrochem_v6.core.logging_policy import get_v6_logger, log_event, sanitize_for_log, summarize_payload  # noqa: E402
+from electrochem_v6.core.logging_policy import (  # noqa: E402
+    get_v6_logger,
+    log_event,
+    sanitize_for_log,
+    summarize_payload,
+)
 
 
 def test_sanitize_for_log_masks_sensitive_fields_and_tokens():

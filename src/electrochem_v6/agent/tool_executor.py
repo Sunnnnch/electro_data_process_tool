@@ -7,9 +7,12 @@ tools_analysis, tools_catalyst). This module wires them into a single
 
 import json
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
-from .tools_analysis import tool_read_quality_report, tool_analyze_processing_results
+from electrochem_v6.llm.config import LLMConfig
+from electrochem_v6.llm.vision_client import VisionClient
+
+from .tools_analysis import tool_analyze_processing_results, tool_read_quality_report
 from .tools_catalyst import tool_get_catalyst_info
 from .tools_data import (
     tool_analyze_data_characteristics,
@@ -24,8 +27,6 @@ from .tools_projects import (
     tool_get_current_project_summary,
     tool_get_processing_history,
 )
-from electrochem_v6.llm.config import LLMConfig
-from electrochem_v6.llm.vision_client import VisionClient
 
 _logger = logging.getLogger(__name__)
 

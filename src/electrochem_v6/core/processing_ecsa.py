@@ -224,7 +224,7 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
     if HISTORY_MANAGER_AVAILABLE:
         try:
             history_mgr = get_history_manager()
-            
+
             record = {
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'sample_name': subname,
@@ -242,11 +242,11 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
             }
             if params.get('run_id'):
                 record['run_id'] = params.get('run_id')
-            
+
             # 添加项目信息
             if 'project_id' in params and params['project_id']:
                 record['project_id'] = params['project_id']
-                
+
                 if PROJECT_MANAGER_AVAILABLE:
                     try:
                         proj_mgr = get_project_manager()
@@ -255,13 +255,13 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
                             record['project_name'] = proj['name']
                     except Exception:
                         pass
-            
+
             history_mgr.add_record(record)
             log(f"ECSA历史记录已保存: {subname}")
-            
+
         except Exception as e:
             log(f"保存ECSA历史记录失败: {e}")
-    
+
     return {'sample': subname, 'Ev': Ev, 'n_used': last_n, 'avg_last_n': avg_last_n, 'N_points': len(v_list),
             'slope_mFcm2': slope, 'intercept': intercept, 'R2': r2, 'Cdl_mFcm2': cdl_mFcm2,
             'Cs_input': float(params.get('cs_value',40.0)), 'Cs_unit': params.get('cs_unit','µF/cm²'),

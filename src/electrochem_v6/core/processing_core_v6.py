@@ -5,23 +5,23 @@ re-exports the domain-specific processing functions from split modules.
 """
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
-import json
 import sys
-import logging
-from logging.handlers import RotatingFileHandler
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import pandas as pd
-import numpy as np
 import matplotlib
+import numpy as np
+import pandas as pd
 
 matplotlib.use('Agg')  # non-interactive backend for headless environments
-import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
 from matplotlib.ft2font import FT2Font
 
 
@@ -104,27 +104,27 @@ _VISION_DISABLED = False
 # ======================
 def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.Logger:
     """Configure structured logging system with file rotation.
-    
+
     Args:
         log_dir: Directory for log files. If None, uses current directory.
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    
+
     Returns:
         Configured logger instance
     """
     logger = logging.getLogger('ElectroChem')
-    
+
     # Avoid adding handlers multiple times
     if logger.handlers:
         return logger
-    
+
     logger.setLevel(log_level)
-    
+
     # File handler with rotation (max 10MB per file, keep 5 backups)
     if log_dir is None:
         log_dir = os.getcwd()
     os.makedirs(log_dir, exist_ok=True)
-    
+
     log_file = os.path.join(log_dir, 'electrochem.log')
     file_handler = RotatingFileHandler(
         log_file,
@@ -138,21 +138,21 @@ def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     file_handler.setFormatter(file_formatter)
-    
+
     # Console handler (only warnings and above)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.WARNING)
     console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
     console_handler.setFormatter(console_formatter)
-    
+
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
-    
+
     logger.info("=" * 60)
     logger.info("ElectroChem Data Processing Logger Initialized")
     logger.info(f"Log file: {log_file}")
     logger.info("=" * 60)
-    
+
     return logger
 
 
@@ -459,15 +459,15 @@ def log(msg):
 # Domain processing modules are re-exported here to preserve the historic
 # `processing_core` import surface used by the server, tests, and shim layer.
 from .processing_cv import process_cv
-from .processing_eis import process_eis
 from .processing_ecsa import (
     _extract_sample_token,
     _match_eis_by_sample,
     process_ecsa_for_subfolder,
 )
+from .processing_eis import process_eis
 from .processing_lsv import (
-    _parse_tafel_range,
     _filter_outliers,
+    _parse_tafel_range,
     get_ir_from_eis,
     interpolate_multiple_potentials,
     interpolate_potential,

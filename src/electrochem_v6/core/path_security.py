@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 from typing import Optional, Sequence
 
-
 # Default allowed extensions for data files
 _DATA_FILE_EXTENSIONS = frozenset({".txt", ".csv", ".xlsx", ".xls", ".json", ".zip"})
 

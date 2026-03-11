@@ -1,6 +1,7 @@
 """Tests for electrochem_v6.core.utils module."""
 
 import os
+
 import pytest
 
 from electrochem_v6.core.utils import (
@@ -9,7 +10,6 @@ from electrochem_v6.core.utils import (
     as_int,
     read_file_with_fallback_encodings,
 )
-
 
 # ── as_float ───────────────────────────────────────────────────────────────
 

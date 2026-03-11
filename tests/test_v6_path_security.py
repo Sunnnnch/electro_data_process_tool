@@ -1,16 +1,16 @@
 """Tests for electrochem_v6.core.path_security module."""
 
 import os
-import pytest
 from pathlib import Path
 
+import pytest
+
 from electrochem_v6.core.path_security import (
-    sanitize_filename,
-    validate_path_within,
     is_safe_data_path,
     is_safe_image_path,
+    sanitize_filename,
+    validate_path_within,
 )
-
 
 # ── sanitize_filename ──────────────────────────────────────────────────────
 
@@ -123,11 +123,11 @@ class TestSafePathCheckers:
 # ── open_path_target whitelist ─────────────────────────────────────────────
 
 from electrochem_v6.core.system_service import (
-    open_path_target,
     _is_within_allowed_roots,
-    register_allowed_dir,
     _runtime_allowed_dirs,
     _runtime_allowed_dirs_lock,
+    open_path_target,
+    register_allowed_dir,
 )
 
 

@@ -12,14 +12,17 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import matplotlib.pyplot as plt
+
 from electrochem_v6.config import APP_NAME, APP_VERSION, get_quality_report_file
 from electrochem_v6.core import processing_core_v6 as processing_core
 from electrochem_v6.core.processing_compat import run_pipeline
 from electrochem_v6.core.system_service import register_allowed_dir
-from electrochem_v6.core.utils import as_float as _as_float, as_int as _as_int, as_bool as _as_bool
-from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
+from electrochem_v6.core.utils import as_bool as _as_bool
+from electrochem_v6.core.utils import as_float as _as_float
+from electrochem_v6.core.utils import as_int as _as_int
 from electrochem_v6.store.history import attach_run_outputs
-import matplotlib.pyplot as plt
+from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
 
 SUPPORTED_DATA_TYPES = ("LSV", "CV", "EIS", "ECSA")
 SUMMARY_SCHEMA_VERSION = "1.0"

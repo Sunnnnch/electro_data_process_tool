@@ -206,7 +206,7 @@ def run_pipeline(
         file_list = list(files)
         if preview_mode:
             file_list = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))][:preview_limit]
-        
+
         # 过滤掉结果文件，避免重复处理
         # 更严格的过滤：检查文件名中的特征模式
         def is_result_file(filename: str) -> bool:
@@ -222,9 +222,9 @@ def run_pipeline(
                 '_summary',
             ]
             return any(pattern in lower_name for pattern in result_patterns)
-        
+
         file_list = [f for f in file_list if not is_result_file(f)]
-        
+
         emit_status(f"正在处理: {os.path.basename(sub) or os.path.basename(folder_path)}")
         emit_stage("读取", int((idx / total) * 60))
 
@@ -548,21 +548,21 @@ def run_pipeline(
         # 生成质量报告统计
         quality_levels = {}
         recommendations = {}
-        
+
         # 统计质量等级和建议分布
         for report in quality_reports:
             level = report.get('quality_level', 'unknown')
             quality_levels[level] = quality_levels.get(level, 0) + 1
-            
+
             recommendation = report.get('recommendation', 'unknown')
             recommendations[recommendation] = recommendations.get(recommendation, 0) + 1
-        
+
         # 过滤：只保留有问题的数据（有警告或问题的文件）
         problem_reports = [
-            r for r in quality_reports 
+            r for r in quality_reports
             if r.get('warnings') or r.get('issues') or not r.get('is_valid', True)
         ]
-        
+
         quality_summary = {
             'total_files': len(quality_reports),
             'passed': sum(1 for r in quality_reports if r.get('is_valid', True)),
@@ -584,14 +584,14 @@ def run_pipeline(
                 }, handle, ensure_ascii=False, indent=2, cls=NumpyEncoder)
         except Exception:
             pass
-        
+
         # 保存详细质量报告
         if quality_reports:
             quality_report_path = os.path.join(folder_path, 'quality_report.json')
             with open(quality_report_path, 'w', encoding='utf-8') as qf:
                 json.dump(quality_summary, qf, ensure_ascii=False, indent=2, cls=NumpyEncoder)
             saved_msgs.append(f"质量报告: {quality_report_path}")
-        
+
         summary = {
             'version': '3.0.4',
             'folder': folder_path,

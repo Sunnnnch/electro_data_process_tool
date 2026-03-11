@@ -8,7 +8,7 @@ import os
 import shutil
 from typing import Any, Dict, Optional
 
-from .legacy_runtime import get_history_manager_v6, _USE_SQLITE
+from .legacy_runtime import _USE_SQLITE, get_history_manager_v6
 
 _logger = logging.getLogger(__name__)
 

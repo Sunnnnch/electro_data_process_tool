@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from . import processing_core_v6 as core
+from .processing_core_v6 import DataProcessingError, FileFormatError
 from .processing_pipeline import _as_bool
 from .processing_quality import DataQualityChecker
 from .utils import read_file_with_fallback_encodings
@@ -182,7 +183,6 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
       (E10, ext)，E10 为 float (不可得则为 np.nan)；
       ext 为 (E_ext_array, I_ext_array, method_str) 或 None，用于绘图虚线。
     """
-    import numpy as np
     E = np.asarray(potential_V, dtype=float)
     I = np.asarray(current_mAcm2, dtype=float)
 
@@ -391,7 +391,7 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
 
 def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=True):
     """处理LSV数据文件，包含数据质量检查和详细错误处理
-    
+
     Args:
         subfolder: 子文件夹路径
         file: 文件名
@@ -403,7 +403,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     filepath = os.path.join(subfolder, file)
     subname = os.path.basename(subfolder)
     file_stem = os.path.splitext(os.path.basename(file))[0]
-    
+
     logger.info(f"开始处理LSV文件: {file} (样品: {subname})")
 
     # 初始化Tafel拟合数据存储变量
@@ -460,7 +460,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                 'Potential': potential,
                 'Current': current
             })
-            
+
             # 执行数据质量检查（使用 子文件夹/文件名 格式）
             display_name = f"{subname}/{file}" if subname else file
             quality_report = DataQualityChecker.check_lsv_data(
@@ -469,30 +469,30 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                 source_path=filepath,
                 config=params.get('quality_config'),
             )
-            
+
             # 保存质量报告供后续汇总使用（无论是否有效）
             lsv_quality_report = quality_report
-            
+
             # 如果有严重问题，记录警告（但不中断处理）
             if not quality_report['is_valid']:
                 logger.warning(f"LSV数据质量较差: {file}")
                 for issue in quality_report['issues']:
                     logger.warning(f"  - {issue}")
                 # 不再抛出异常，允许继续处理
-            
+
             # 记录警告信息
             if quality_report['warnings']:
                 logger.warning(f"LSV数据质量警告: {file}")
                 for warning in quality_report['warnings']:
                     logger.warning(f"  - {warning}")
-            
+
             # 记录统计信息
             stats = quality_report['stats']
             logger.info(
                 f"数据统计: {stats['data_points']}点, "
                 f"电位范围: {stats['potential_range'][0]:.3f}~{stats['potential_range'][1]:.3f}V"
             )
-            
+
         except Exception as e:
             logger.warning(f"数据质量检查过程异常（继续处理）: {str(e)}")
     else:
@@ -539,16 +539,16 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                 logger.info(f"找到EIS文件: {eis_file}")
                 try:
                     ir_value = get_ir_from_eis(
-                        subfolder, eis_file, 
-                        params['eis_start_line'], 
-                        params.get('ir_method', 'auto'), 
+                        subfolder, eis_file,
+                        params['eis_start_line'],
+                        params.get('ir_method', 'auto'),
                         params.get('ir_linear_points', 10)
                     )
                     if ir_value is not None and ir_value > 0:
                         ir_compensation = ir_value
                         logger.info(f"✓ 成功获取IR值: {ir_compensation:.3f}Ω")
                         potential_compensated = [
-                            pot - ((cur_sig / 1000) * float(params.get('area', 1.0))) * ir_compensation 
+                            pot - ((cur_sig / 1000) * float(params.get('area', 1.0))) * ir_compensation
                             for pot, cur_sig in zip(potential, current_signed)
                         ]
                     else:
@@ -573,13 +573,13 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             if (not ir_compensation or ir_compensation <= 0) and (manual_rs and manual_rs > 0):
                 ir_compensation = manual_rs
                 potential_compensated = [
-                    pot - ((cur_sig / 1000) * float(params.get('area', 1.0))) * ir_compensation 
+                    pot - ((cur_sig / 1000) * float(params.get('area', 1.0))) * ir_compensation
                     for pot, cur_sig in zip(potential, current_signed)
                 ]
                 logger.info(f"采用手动Rs兜底: {ir_compensation:.3f}Ω")
     except Exception as e:
         logger.warning(f"手动Rs兜底处理异常: {str(e)}")
-    
+
     # 计算多个目标电流对应的电位（覆盖则插值；不足则稳健外推）
     target_potentials_original = {}
     ext_segments_original = []
@@ -682,7 +682,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                 # 保存Tafel数据用于独立图导出
                 tafel_fit_data_original = {
                     'I_data': I_all[mask],
-                    'E_data': E_all[mask], 
+                    'E_data': E_all[mask],
                     'I_fit': I_fit,
                     'E_fit': E_fit,
                     'slope_mVdec': float(b*1000.0),
@@ -773,7 +773,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     # 保存IR补偿Tafel数据用于独立图导出
                     tafel_fit_data_ir = {
                         'I_data': I_all[mask],
-                        'E_data': E_all[mask], 
+                        'E_data': E_all[mask],
                         'I_fit': I_fit,
                         'E_fit': E_fit,
                         'slope_mVdec': float(b*1000.0),
@@ -938,12 +938,12 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     pd.DataFrame(tgt_records).to_csv(os.path.join(subfolder, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
             except Exception:
                 pass
-        
+
         # Tafel拟合图导出（如果启用）
         if params.get('export_tafel_plot', False):
-            log(f"开始导出Tafel图...")
+            log("开始导出Tafel图...")
             import numpy as _np  # 用于log计算
-            
+
             # 优先导出IR补偿Tafel图（推荐使用）
             if tafel_fit_data_ir is not None:
                 log("找到IR补偿Tafel拟合数据，开始生成IR补偿Tafel图...")
@@ -951,22 +951,22 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     plt.figure(figsize=(8, 6))
                     plt.rcParams['font.sans-serif'] = [font_to_use]
                     plt.rcParams['axes.unicode_minus'] = False
-                    
+
                     # 绘制IR补偿数据点（在拟合范围内）- 传统Tafel图格式
                     data = tafel_fit_data_ir
                     # 计算log(j)用于X轴
                     log_j_data = _np.log10(_np.clip(data['I_data'], 1e-12, None))
                     log_j_fit = _np.log10(_np.clip(data['I_fit'], 1e-12, None))
-                    
+
                     plt.scatter(log_j_data, data['E_data'], c='blue', s=30, alpha=0.7, label='IR-compensated Tafel data')
-                    
+
                     # 绘制Tafel拟合线
-                    plt.plot(log_j_fit, data['E_fit'], 'r-', linewidth=2, 
+                    plt.plot(log_j_fit, data['E_fit'], 'r-', linewidth=2,
                             label=f"Tafel fit: {data['slope_mVdec']:.1f} mV/dec, R²={data['r2']:.3f}")
-                    
+
                     plt.xlabel('log(j) [j in mA/cm²]')
                     plt.ylabel('Potential (V, IR-compensated)')
-                    plt.title(f'Tafel Plot (IR-compensated) - {subname}_{file_stem} (Rs={data["ir_compensation"]:.2f}Ω)', 
+                    plt.title(f'Tafel Plot (IR-compensated) - {subname}_{file_stem} (Rs={data["ir_compensation"]:.2f}Ω)',
                              fontname=font_to_use, fontsize=int(params['fontsize']))
                     if params.get('plot_grid', True):
                         plt.grid(True, alpha=0.3)
@@ -984,19 +984,19 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     plt.figure(figsize=(8, 6))
                     plt.rcParams['font.sans-serif'] = [font_to_use]
                     plt.rcParams['axes.unicode_minus'] = False
-                    
+
                     # 绘制原始数据点（在拟合范围内）- 传统Tafel图格式
                     data = tafel_fit_data_original
                     # 计算log(j)用于X轴
                     log_j_data = _np.log10(_np.clip(data['I_data'], 1e-12, None))
                     log_j_fit = _np.log10(_np.clip(data['I_fit'], 1e-12, None))
-                    
+
                     plt.scatter(log_j_data, data['E_data'], c='blue', s=30, alpha=0.7, label='Original Tafel data')
-                    
+
                     # 绘制Tafel拟合线
-                    plt.plot(log_j_fit, data['E_fit'], 'r-', linewidth=2, 
+                    plt.plot(log_j_fit, data['E_fit'], 'r-', linewidth=2,
                             label=f"Tafel fit: {data['slope_mVdec']:.1f} mV/dec, R²={data['r2']:.3f}")
-                    
+
                     plt.xlabel('log(j) [j in mA/cm²]')
                     plt.ylabel('Potential (V)')
                     plt.title(f'Tafel Plot (Original Data) - {subname}_{file_stem}', fontname=font_to_use, fontsize=int(params['fontsize']))
@@ -1222,7 +1222,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     pd.DataFrame(tgt_records).to_csv(os.path.join(subfolder, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
             except Exception:
                 pass
-        
+
         # 保存处理历史记录
         if HISTORY_MANAGER_AVAILABLE:
             try:
@@ -1238,7 +1238,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                 }
                 if params.get('run_id'):
                     record['run_id'] = params.get('run_id')
-                
+
                 # 写入关键指标到 results
                 if target_potentials_original:
                     for tc, pot in target_potentials_original.items():
@@ -1246,7 +1246,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     if overpotential_enabled:
                         for tc, eta in target_overpotentials_original.items():
                             record['results'][f'overpotential_at_{tc}'] = eta
-                
+
                 # 记录 10 mA/cm² 对应电位与过电位
                 if 10.0 in target_potentials_original:
                     record['results']['potential_10'] = target_potentials_original[10.0]
@@ -1254,15 +1254,15 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         record['results']['overpotential_10'] = target_overpotentials_original.get(10.0)
                         record['results']['equilibrium_potential'] = eqv
                         record['results']['overpotential_enabled'] = True
-                
+
                 # 记录 Tafel 斜率
                 if slope_mVdec is not None:
                     record['results']['tafel_slope'] = slope_mVdec
-                
+
                 # 记录 IR 补偿值
                 if ir_compensation:
                     record['results']['ir_compensation'] = ir_compensation
-                
+
                 # 如果没有提供 project_id，则使用默认项目
                 if not project_id and PROJECT_MANAGER_AVAILABLE:
                     proj_mgr = get_project_manager()
@@ -1278,7 +1278,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                     'tafel_fit_original': tafel_fit_data_original,
                     'tafel_fit_ir': tafel_fit_data_ir,
                 }
-                
+
                 try:
                     history_mgr.add_record(
                         record,
@@ -1296,7 +1296,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             except Exception as e:
                 log(f"写入 LSV 历史记录失败: {e}")
                 log(f"保存LSV历史记录失败: {e}")
-        
+
         # 返回结果：包含数据行和质量报告
         return {
             'result_row': result_row,

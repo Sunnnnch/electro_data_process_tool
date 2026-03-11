@@ -10,8 +10,8 @@ import tempfile
 import time
 import uuid
 import zipfile
-from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Any, Dict, Tuple
 from urllib import error, request
 

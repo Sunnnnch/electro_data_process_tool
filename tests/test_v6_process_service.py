@@ -2,7 +2,6 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 REPO = ROOT.parent
@@ -11,8 +10,8 @@ if str(SRC) not in sys.path:
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from electrochem_v6.config import APP_VERSION  # noqa: E402
 import electrochem_v6.core.process_service as process_service  # noqa: E402
+from electrochem_v6.config import APP_VERSION  # noqa: E402
 
 
 def test_process_folder_rewrites_summary_with_v6_version(tmp_path, monkeypatch):

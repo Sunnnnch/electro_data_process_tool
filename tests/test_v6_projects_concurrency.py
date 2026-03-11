@@ -4,14 +4,17 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from electrochem_v6.store.projects import get_or_create_project_id_by_name, create_project  # noqa: E402
-from electrochem_v6.store.projects import _validate_project_name, _sanitize_description  # noqa: E402
+from electrochem_v6.store.projects import (  # noqa: E402  # noqa: E402
+    _sanitize_description,
+    _validate_project_name,
+    create_project,
+    get_or_create_project_id_by_name,
+)
 
 
 def test_v6_get_or_create_project_concurrent_same_name(tmp_path):

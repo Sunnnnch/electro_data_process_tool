@@ -5,7 +5,7 @@ DeepSeek client implementation compatible with BaseLLMClient.
 from __future__ import annotations
 
 import json
-from typing import List, Dict, Any, Optional, Iterator
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 

@@ -10,8 +10,8 @@ from .base_client import BaseLLMClient
 from .config import LLMConfig
 from .deepseek_client import DeepSeekClient
 from .kimi_client import KimiClient
-from .openai_compatible_client import OpenAICompatibleHTTPClient
 from .openai_client import OpenAIClient
+from .openai_compatible_client import OpenAICompatibleHTTPClient
 from .qwen_client import QwenClient
 
 

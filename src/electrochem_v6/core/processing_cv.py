@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from . import processing_core_v6 as core
@@ -167,12 +167,12 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
         plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_CV.png"), dpi=300, bbox_inches='tight')
     finally:
         plt.close()
-    
+
     # ✅ 添加：保存CV历史记录
     if HISTORY_MANAGER_AVAILABLE:
         try:
             history_mgr = get_history_manager()
-            
+
             # 构建历史记录
             record = {
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -191,11 +191,11 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
             }
             if params.get('run_id'):
                 record['run_id'] = params.get('run_id')
-            
+
             # 尝试添加项目信息
             if 'project_id' in params and params['project_id']:
                 record['project_id'] = params['project_id']
-                
+
                 # 获取项目名称
                 if PROJECT_MANAGER_AVAILABLE:
                     try:
@@ -205,10 +205,10 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
                             record['project_name'] = proj['name']
                     except Exception:
                         pass
-            
+
             history_mgr.add_record(record)
             log(f"CV历史记录已保存: {subname}/{file_stem}")
-            
+
         except Exception as e:
             log(f"保存CV历史记录失败: {e}")
 

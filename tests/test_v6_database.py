@@ -16,8 +16,7 @@ if str(SRC) not in sys.path:
 # Force SQLite backend for these tests
 os.environ["ELECTROCHEM_V6_STORAGE"] = "sqlite"
 
-from electrochem_v6.store.database import Database, _to_json_safe, _json_dumps, _json_loads
-
+from electrochem_v6.store.database import Database, _json_dumps, _json_loads, _to_json_safe
 
 # ── Helpers ───────────────────────────────────────────────────────
 
@@ -132,7 +131,7 @@ def test_filter_history_limit(db):
 
 def test_archive_and_delete_history(db):
     db.add_history_record(_sample_record())
-    key = f"2026-03-01 12:00:00|LSV|/data/test.txt"
+    key = "2026-03-01 12:00:00|LSV|/data/test.txt"
     assert db.update_history_by_key(key, "archive") == 1
     assert db.get_all_history_records()[0]["archived"] is True
 

@@ -1,5 +1,5 @@
-import json
 import io
+import json
 import os
 import socket
 import sys
@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib import error, request
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -23,14 +22,15 @@ if str(REPO) not in sys.path:
 # JSON-file persistence and should not be routed through SQLite.
 os.environ["ELECTROCHEM_V6_STORAGE"] = "json"
 
-from electrochem_v6.server import V6ServerManager  # noqa: E402
-from electrochem_v6.store.conversations import append_message, get_conversation  # noqa: E402
-from electrochem_v6.store.legacy_runtime import get_history_manager_v6, _reset_singletons  # noqa: E402
-from electrochem_v6.store.history import attach_run_outputs  # noqa: E402
+import processing_core  # noqa: E402
+
 import electrochem_v6.core.process_service as process_service  # noqa: E402
 import electrochem_v6.server.routes_get as routes_get  # noqa: E402
 import electrochem_v6.server.routes_post as routes_post  # noqa: E402
-import processing_core  # noqa: E402
+from electrochem_v6.server import V6ServerManager  # noqa: E402
+from electrochem_v6.store.conversations import append_message, get_conversation  # noqa: E402
+from electrochem_v6.store.history import attach_run_outputs  # noqa: E402
+from electrochem_v6.store.legacy_runtime import _reset_singletons, get_history_manager_v6  # noqa: E402
 
 
 def _get_free_port():

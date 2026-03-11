@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from electrochem_v6.config import ensure_parent_dir
 
-from .legacy_runtime import get_history_manager_v6, get_project_manager_v6, _USE_SQLITE
+from .legacy_runtime import _USE_SQLITE, get_history_manager_v6, get_project_manager_v6
 
 _PROJECTS_IO_LOCK = threading.RLock()
 _logger = logging.getLogger(__name__)

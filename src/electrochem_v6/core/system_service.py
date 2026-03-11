@@ -54,7 +54,7 @@ def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
 
 def _is_within_allowed_roots(path: str) -> bool:
     """Check that *path* is under a known data directory or a runtime-registered directory."""
-    from electrochem_v6.config import user_config_dir, project_default_dir
+    from electrochem_v6.config import project_default_dir, user_config_dir
 
     resolved = os.path.realpath(path)
     allowed_roots = [
