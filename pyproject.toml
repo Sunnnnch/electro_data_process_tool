@@ -18,6 +18,12 @@ tag_format = "v{version}"
 build_command = ""                             # no pip build; packaging is done separately
 upload_to_pypi = false
 
+[tool.semantic_release.remote]
+name = "origin"
+type = "github"
+owner = "Sunnnnch"
+repo = "electro_data_process_tool"
+
 [tool.semantic_release.changelog]
 # v10+ configuration path
 default_templates = { changelog_file = "CHANGELOG.md" }
