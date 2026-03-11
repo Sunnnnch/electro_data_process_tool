@@ -107,7 +107,9 @@ def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.
 
     Args:
         log_dir: Directory for log files. If None, uses current directory.
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+                   Can also be overridden via the ``ELECTROCHEM_V6_LOG_LEVEL``
+                   environment variable (e.g. ``DEBUG``, ``WARNING``).
 
     Returns:
         Configured logger instance
@@ -117,6 +119,11 @@ def setup_logger(log_dir: str = None, log_level: int = logging.INFO) -> logging.
     # Avoid adding handlers multiple times
     if logger.handlers:
         return logger
+
+    # Allow env-var override: ELECTROCHEM_V6_LOG_LEVEL=DEBUG|INFO|WARNING|ERROR
+    env_level = os.environ.get('ELECTROCHEM_V6_LOG_LEVEL', '').upper()
+    if env_level and hasattr(logging, env_level):
+        log_level = getattr(logging, env_level)
 
     logger.setLevel(log_level)
 

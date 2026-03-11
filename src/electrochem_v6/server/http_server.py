@@ -1,4 +1,17 @@
-"""Embedded HTTP server host for v6 API-first refactor."""
+"""Embedded HTTP server host for v6 API-first refactor.
+
+Security design notes
+---------------------
+* The server only binds to 127.0.0.1 (localhost) — it is **not** reachable
+  from the network.  This is intentional: the application is a local desktop
+  tool, so CORS headers and authentication are deliberately omitted.
+* If a future version needs network access, add:
+  - ``Access-Control-Allow-Origin`` gating
+  - Bearer-token or session-cookie authentication
+  - TLS termination (or run behind a reverse proxy)
+* ``Content-Security-Policy`` uses ``'unsafe-inline'`` because the bundled
+  single-page UI injects small inline scripts during hydration.
+"""
 
 from __future__ import annotations
 

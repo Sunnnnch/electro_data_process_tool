@@ -163,11 +163,74 @@ setup.bat
 
 ### 日志和数据保存在哪里
 
-可用环境变量控制：
+默认路径为 `~/.electrochem/v6/`，可通过环境变量自定义。
 
-- `ELECTROCHEM_V6_DATA_DIR`
-- `ELECTROCHEM_V6_LOG_FILE`
-- `ELECTROCHEM_V6_PORT`
+## 环境变量参考
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `ELECTROCHEM_V6_DATA_DIR` | 统一数据根目录（设置后其余路径跟随） | `~/.electrochem/v6` |
+| `ELECTROCHEM_V6_PORT` | HTTP 服务端口 | `8010` |
+| `ELECTROCHEM_V6_LOG_FILE` | 日志文件路径 | `<data_dir>/logs/v6_server.log` |
+| `ELECTROCHEM_V6_LOG_LEVEL` | 日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |
+| `ELECTROCHEM_V6_PROJECTS_FILE` | 项目列表文件路径 | `<data_dir>/projects.json` |
+| `ELECTROCHEM_V6_HISTORY_FILE` | 处理历史文件路径 | `<data_dir>/processing_history.json` |
+| `ELECTROCHEM_V6_CONVERSATION_FILE` | 对话历史文件路径 | `<data_dir>/conversation_history.json` |
+| `ELECTROCHEM_V6_TEMPLATE_FILE` | 处理模板文件路径 | `<data_dir>/process_templates.json` |
+| `ELECTROCHEM_V6_QUALITY_REPORT_FILE` | 质量报告文件路径 | `latest_quality_report.json` |
+| `ELECTROCHEM_V6_LLM_CONFIG_FILE` | LLM 配置文件路径 | `~/.electrochem/llm_config.json` |
+| `ELECTROCHEM_V6_STORAGE` | 存储后端：`sqlite`（默认）或 `json` | `sqlite` |
+| `OPENAI_API_KEY` | OpenAI API 密钥（优先于配置文件） | — |
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | — |
+| `QWEN_API_KEY` | Qwen API 密钥 | — |
+| `KIMI_API_KEY` | Kimi API 密钥 | — |
+
+> **安全说明**：服务仅监听 `127.0.0.1`（localhost），不对外网暴露，无需 CORS 或身份认证。
+
+## 故障排查
+
+### Unicode / 编码错误
+
+在 PowerShell 或 CI 中出现中文乱码时，设置：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+```
+
+或在 CMD 中：
+
+```cmd
+set PYTHONUTF8=1
+```
+
+### 中文字体缺失（图表显示方块）
+
+系统需安装中文字体（SimHei / Microsoft YaHei / SimSun 之一）。  
+也可通过处理参数的 `font` 字段指定可用字体名称。
+
+### matplotlib 后端报错
+
+在无图形界面环境（CI / Docker）中，需在导入 matplotlib 前设置：
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+```
+
+### 数据文件读取失败
+
+- 检查文件编码：支持 UTF-8、GBK、GB2312、ASCII、Latin-1
+- 检查 `start_line` 参数是否跳过了表头行
+- 确认数据列之间以制表符或逗号分隔
+
+### 调试模式
+
+启用详细日志：
+
+```powershell
+$env:ELECTROCHEM_V6_LOG_LEVEL = "DEBUG"
+python run_v6.py
+```
 
 ## 项目结构
 

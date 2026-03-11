@@ -44,3 +44,26 @@ cd v6_refactor_no_license/packaging
 2. The launcher currently opens `http://127.0.0.1:<port>/ui` in the system browser.
 3. Runtime data still defaults to `~/.electrochem/v6/`.
 4. If later you switch to `pywebview`, keep this directory and only replace the launcher entrypoint.
+
+## Troubleshooting
+
+### PyInstaller build fails with ModuleNotFoundError
+
+- Ensure you are using the `.venv-pack` environment, **not** the dev venv.
+- Run `pip install -r requirements-pack.txt` inside `.venv-pack`.
+- If a hidden import is missing, add it to the `hiddenimports` list in `electrochem_v6.spec`.
+
+### Built exe crashes immediately
+
+- Open a terminal and run `dist\ElectroChemV6\ElectroChemV6.exe` manually to see the traceback.
+- Common cause: missing runtime data files. Check `runtime_data_dir_hook.py` datas list.
+
+### Inno Setup not found
+
+- Install via `choco install innosetup -y` or download from https://jrsoftware.org/isinfo.php .
+- Ensure `iscc.exe` is in your PATH (default: `C:\Program Files (x86)\Inno Setup 6\`).
+
+### DLL not found / scipy / numpy import error
+
+- Rebuild with a clean `.venv-pack` using the **same** Python version as the target machine.
+- On Windows, `numpy` and `scipy` may require the Visual C++ Redistributable (vc_redist.x64.exe).

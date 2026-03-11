@@ -46,7 +46,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONUTF8: "1"
-        run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing
+        run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing --cov-fail-under=60
 
   # ── Auto-release: bump version, build, publish GitHub Release ──
   release:

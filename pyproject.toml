@@ -3,6 +3,9 @@ name = "electrochem-v6"
 dynamic = ["version"]
 description = "电化学数据处理与智能分析软件"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Sunnnnch" }]
+keywords = ["electrochemistry", "LSV", "CV", "EIS", "data-processing"]
 
 [tool.semantic_release]
 version_toml = []                              # we don't use pyproject version

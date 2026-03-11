@@ -163,11 +163,68 @@ setup.bat
 
 ### Where are logs and data stored
 
-You can control paths via environment variables:
+Default: `~/.electrochem/v6/`. Override with environment variables (see below).
 
-- `ELECTROCHEM_V6_DATA_DIR`
-- `ELECTROCHEM_V6_LOG_FILE`
-- `ELECTROCHEM_V6_PORT`
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ELECTROCHEM_V6_DATA_DIR` | Shared data root (other paths follow automatically) | `~/.electrochem/v6` |
+| `ELECTROCHEM_V6_PORT` | HTTP server port | `8010` |
+| `ELECTROCHEM_V6_LOG_FILE` | Log file path | `<data_dir>/logs/v6_server.log` |
+| `ELECTROCHEM_V6_LOG_LEVEL` | Log verbosity: `DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |
+| `ELECTROCHEM_V6_PROJECTS_FILE` | Projects list file | `<data_dir>/projects.json` |
+| `ELECTROCHEM_V6_HISTORY_FILE` | Processing history file | `<data_dir>/processing_history.json` |
+| `ELECTROCHEM_V6_CONVERSATION_FILE` | Chat history file | `<data_dir>/conversation_history.json` |
+| `ELECTROCHEM_V6_TEMPLATE_FILE` | Processing templates file | `<data_dir>/process_templates.json` |
+| `ELECTROCHEM_V6_QUALITY_REPORT_FILE` | Quality report file | `latest_quality_report.json` |
+| `ELECTROCHEM_V6_LLM_CONFIG_FILE` | LLM config file | `~/.electrochem/llm_config.json` |
+| `ELECTROCHEM_V6_STORAGE` | Storage backend: `sqlite` (default) or `json` | `sqlite` |
+| `OPENAI_API_KEY` | OpenAI API key (takes priority over config file) | — |
+| `DEEPSEEK_API_KEY` | DeepSeek API key | — |
+| `QWEN_API_KEY` | Qwen API key | — |
+| `KIMI_API_KEY` | Kimi API key | — |
+
+> **Security note**: The server binds to `127.0.0.1` only (localhost). No CORS or authentication is needed.
+
+## Troubleshooting
+
+### Unicode / Encoding errors
+
+If you see garbled CJK text in PowerShell or CI:
+
+```powershell
+$env:PYTHONUTF8 = "1"
+```
+
+### Chinese font missing (boxes in plots)
+
+Install a CJK font (SimHei / Microsoft YaHei / SimSun).  
+You can also specify a font name via the `font` processing parameter.
+
+### matplotlib backend error
+
+In headless environments (CI / Docker):
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+```
+
+### Data file read failure
+
+- Check encoding: UTF-8, GBK, GB2312, ASCII, Latin-1 are supported
+- Check `start_line` parameter to skip header rows
+- Ensure columns are separated by tabs or commas
+
+### Debug mode
+
+Enable verbose logging:
+
+```powershell
+$env:ELECTROCHEM_V6_LOG_LEVEL = "DEBUG"
+python run_v6.py
+```
 
 ## Project Structure
 
