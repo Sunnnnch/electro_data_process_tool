@@ -168,7 +168,8 @@ jobs:
         run: |
           $ver = "${{ steps.semver.outputs.VERSION }}"
           $content = Get-Content CHANGELOG.md -Raw -Encoding utf8
-          if ($content -match "(?ms)## $ver\s*$(.+?)(?=\r?\n## |\z)") {
+          $pattern = '(?ms)^## ' + [regex]::Escape($ver) + '\s*$(.+?)(?=\r?\n## |\z)'
+          if ($content -match $pattern) {
             $Matches[1].Trim() | Out-File release_notes.md -Encoding utf8
           } else {
             "Release v$ver" | Out-File release_notes.md -Encoding utf8

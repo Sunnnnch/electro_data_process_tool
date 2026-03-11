@@ -92,7 +92,7 @@ jobs:
           $ver = "${{ steps.version.outputs.VER }}"
           $content = Get-Content CHANGELOG.md -Raw
           # Match the section for this version (between ## <ver> and next ## or EOF)
-          $pattern = "(?ms)^## \Q$ver\E\s*$(.*?)(?=^## |\z)"
+          $pattern = '(?ms)^## ' + [regex]::Escape($ver) + '\s*$(.*?)(?=^## |\z)'
           if ($content -match $pattern) {
             $body = $Matches[1].Trim()
           } else {
