@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict
 
 APP_NAME = "电化学数据处理与智能分析软件"
-APP_VERSION = "6.0.4"
+APP_VERSION = "6.0.5"
 
 # v6 design choice: no activation required.
 ENABLE_LICENSE = False
