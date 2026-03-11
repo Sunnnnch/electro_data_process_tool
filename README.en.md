@@ -1,4 +1,7 @@
-# ElectroChem V6
+<h1>
+  <img src="docs/logo.png" width="36" height="36" align="absmiddle" />
+  ElectroChem V6
+</h1>
 
 [![CI](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Sunnnnch/electro_data_process_tool?include_prereleases)](https://github.com/Sunnnnch/electro_data_process_tool/releases)
