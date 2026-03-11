@@ -312,14 +312,13 @@ def get_ir_from_eis(subfolder, eis_filename, start_line, method='auto', hf_point
                 high_freq_real, high_freq_imag, high_freq_freqs
             )
 
-            if not high_freq_real or not high_freq_freqs:
+            if not high_freq_real or not high_freq_imag or not high_freq_freqs:
                 log("高频区数据经异常值过滤后为空, 使用全局初始IR值")
             else:
                 log(
                     f"高频区筛选出 {len(high_freq_real)} 个数据点, "
                     f"频率范围: {min(high_freq_freqs):.2f} ~ {max(high_freq_freqs):.2f} Hz")
 
-            if high_freq_imag:
                 min_imag_idx_in_high_freq = min(range(len(high_freq_imag)), key=lambda i: abs(high_freq_imag[i]))
                 high_freq_ir_value = high_freq_real[min_imag_idx_in_high_freq]
                 log(f"高频区最小虚部: Z'={high_freq_ir_value:.3f}Ω")
