@@ -13,6 +13,20 @@ Write-Host "== ElectroChem V6 packaging (onedir) ==" -ForegroundColor Cyan
 Write-Host "Project root: $ProjectRoot"
 Write-Host "Packaging dir: $PackagingDir"
 
+# Auto-sync version from config.py into installer.iss
+$configPy = Join-Path $ProjectRoot "src\electrochem_v6\config.py"
+if (Test-Path $configPy) {
+    $match = Select-String -Path $configPy -Pattern 'APP_VERSION\s*=\s*"([^"]+)"'
+    if ($match) {
+        $ver = $match.Matches[0].Groups[1].Value
+        $issFile = Join-Path $PackagingDir "installer.iss"
+        if (Test-Path $issFile) {
+            (Get-Content $issFile) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content $issFile
+            Write-Host "Synced installer.iss version to $ver" -ForegroundColor Yellow
+        }
+    }
+}
+
 if (-not (Test-Path $VenvDir)) {
     Write-Host "Creating packaging virtual environment..." -ForegroundColor Yellow
     python -m venv $VenvDir

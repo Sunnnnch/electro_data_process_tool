@@ -1,0 +1,119 @@
+name: Release
+
+# Triggered by pushing a version tag (v*) or manually from the Actions tab.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v6.0.3). Leave empty to use latest tag."
+        required: false
+
+permissions:
+  contents: write          # create GitHub Release & upload assets
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag }}"
+          if (-not $tag) { $tag = "${{ github.ref_name }}" }
+          $ver = $tag -replace '^v', ''
+          echo "TAG=$tag"   >> $env:GITHUB_OUTPUT
+          echo "VER=$ver"   >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing $tag (version $ver)"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Build portable (onedir)
+        shell: pwsh
+        run: |
+          & packaging/build_onedir.ps1
+
+      # ── Create ZIP artifact from the onedir build ──
+      - name: Package ZIP
+        id: zip
+        shell: pwsh
+        run: |
+          $ver  = "${{ steps.version.outputs.VER }}"
+          $name = "ElectroChemV6-$ver-win64"
+          $src  = "dist/ElectroChemV6"
+          $zip  = "dist/$name.zip"
+          Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
+          echo "ZIP_PATH=$zip"   >> $env:GITHUB_OUTPUT
+          echo "ZIP_NAME=$name.zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Created $zip"
+
+      # ── Build Inno Setup installer (optional — skipped if ISCC not found) ──
+      - name: Build installer
+        id: installer
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # Sync version into installer.iss
+          $ver = "${{ steps.version.outputs.VER }}"
+          $iss = "packaging/installer.iss"
+          (Get-Content $iss) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content $iss
+          & packaging/build_installer.ps1
+          $exe = Get-ChildItem "dist_installer/ElectroChemV6-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($exe) {
+            echo "EXE_PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+            echo "EXE_NAME=$($exe.Name)"     >> $env:GITHUB_OUTPUT
+            echo "HAS_INSTALLER=true"        >> $env:GITHUB_OUTPUT
+          } else {
+            echo "HAS_INSTALLER=false"       >> $env:GITHUB_OUTPUT
+          }
+
+      # ── Extract release notes from CHANGELOG ──
+      - name: Extract release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.VER }}"
+          $content = Get-Content CHANGELOG.md -Raw
+          # Match the section for this version (between ## <ver> and next ## or EOF)
+          $pattern = "(?ms)^## \Q$ver\E\s*$(.*?)(?=^## |\z)"
+          if ($content -match $pattern) {
+            $body = $Matches[1].Trim()
+          } else {
+            $body = "Release $ver"
+          }
+          # Write to file to avoid shell escaping issues
+          $body | Out-File -FilePath release_notes.md -Encoding utf8
+          Write-Host $body
+
+      # ── Create GitHub Release ──
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "v${{ steps.version.outputs.VER }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            ${{ steps.zip.outputs.ZIP_PATH }}
+            ${{ steps.installer.outputs.HAS_INSTALLER == 'true' && steps.installer.outputs.EXE_PATH || '' }}

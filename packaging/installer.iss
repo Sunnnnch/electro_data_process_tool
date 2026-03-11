@@ -1,5 +1,5 @@
 ﻿#define AppName "电化学数据处理软件"
-#define AppVersion "6.0.1"
+#define AppVersion "6.0.2"
 #define AppPublisher "Sun"
 #define AppExeName "ElectroChemV6.exe"
 

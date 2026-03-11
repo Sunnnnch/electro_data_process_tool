@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
+    branches: [main]
+    tags-ignore: ["v*"]     # skip CI when release workflow pushes a tag
   pull_request:
+
+permissions:
+  contents: write           # semantic-release needs to push tags
 
 jobs:
   test:
@@ -11,6 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -30,3 +38,29 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -q
+
+  # ── Auto-release: bump version, tag, push ──────────────────────
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install semantic-release
+        run: pip install python-semantic-release
+
+      - name: Run semantic-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release version --no-vcs-release
