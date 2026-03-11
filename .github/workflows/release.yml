@@ -1,10 +1,7 @@
-name: Release
+name: Release (Manual)
 
-# Triggered by pushing a version tag (v*) or manually from the Actions tab.
+# Manual-only fallback. The main CI workflow handles automated releases.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
