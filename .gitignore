@@ -40,3 +40,15 @@ Desktop.ini
 *.egg
 *.whl
 artifacts/
+
+# Internal dev docs (kept locally, not published)
+TODO.md
+WORKLOG.md
+MIGRATION_GUIDE_V5_TO_V6.md
+MIGRATION_MAP.md
+MIGRATION_PENDING.md
+PUBLISH_CHECKLIST.md
+V5_V6_BASELINE_ACCEPTANCE.md
+reports/CHANGELOG_V6_0_1.md
+reports/PACKAGING_PLAN_V6_0_1.md
+reports/RELEASE_CHECKLIST_V6_0_1.md
