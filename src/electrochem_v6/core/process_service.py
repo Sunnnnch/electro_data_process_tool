@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from electrochem_v6.config import APP_NAME, APP_VERSION, get_quality_report_file
 from electrochem_v6.core import processing_core_v6 as processing_core
 from electrochem_v6.core.processing_compat import run_pipeline
+from electrochem_v6.core.system_service import register_allowed_dir
 from electrochem_v6.core.utils import as_float as _as_float, as_int as _as_int, as_bool as _as_bool
 from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
 from electrochem_v6.store.history import attach_run_outputs
@@ -483,6 +484,9 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
         summary_path=normalized_summary_path or result.get("summary_path"),
         quality_summary=result.get("quality_summary", {}),
     )
+
+    # Register the data folder so that "open file / open dir" works in the UI
+    register_allowed_dir(folder_path)
 
     return {
         "status": "success",

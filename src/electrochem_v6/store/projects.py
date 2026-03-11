@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from electrochem_v6.config import ensure_parent_dir
 
-from .legacy_runtime import get_history_manager_v6, get_project_manager_v6
+from .legacy_runtime import get_history_manager_v6, get_project_manager_v6, _USE_SQLITE
 
 _PROJECTS_IO_LOCK = threading.RLock()
 _logger = logging.getLogger(__name__)
@@ -143,6 +143,14 @@ def get_or_create_project_id_by_name(
                     return proj.get("id")
         except Exception as exc:
             _logger.warning("Failed to lookup existing projects: %s", exc)
+        # SQLite backend: use the manager's create_project directly
+        if _USE_SQLITE:
+            return proj_mgr.create_project(
+                clean_name,
+                description=str(description or "").strip(),
+                tags=tags or [],
+                color=color,
+            )
         return _create_project_fallback(
             proj_mgr,
             name=clean_name,

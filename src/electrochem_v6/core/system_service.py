@@ -5,7 +5,24 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Any, Dict, Optional
+import threading
+from typing import Any, Dict, Optional, Set
+
+# ── dynamic runtime whitelist for open-path operations ──────────────
+_runtime_allowed_dirs_lock = threading.Lock()
+_runtime_allowed_dirs: Set[str] = set()
+
+
+def register_allowed_dir(directory: str) -> None:
+    """Register a directory as allowed for open-path operations.
+
+    Called after successful data processing so that the output folder
+    can be opened / revealed by the user from the UI.
+    """
+    resolved = os.path.realpath(directory)
+    if os.path.isdir(resolved):
+        with _runtime_allowed_dirs_lock:
+            _runtime_allowed_dirs.add(resolved)
 
 
 def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
@@ -36,7 +53,7 @@ def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
 
 
 def _is_within_allowed_roots(path: str) -> bool:
-    """Check that *path* is under a known data directory."""
+    """Check that *path* is under a known data directory or a runtime-registered directory."""
     from electrochem_v6.config import user_config_dir, project_default_dir
 
     resolved = os.path.realpath(path)
@@ -47,7 +64,45 @@ def _is_within_allowed_roots(path: str) -> bool:
         os.path.realpath(os.path.join(str(project_default_dir()), "reports")),
         os.path.realpath(os.path.join(str(project_default_dir()), "project_reports")),
     ]
+    # Include directories registered at runtime (from processing results)
+    with _runtime_allowed_dirs_lock:
+        allowed_roots.extend(_runtime_allowed_dirs)
     return any(resolved == root or resolved.startswith(root + os.sep) for root in allowed_roots)
+
+
+def _is_path_in_history_outputs(path: str) -> bool:
+    """Check if *path* belongs to a directory that contains known output files from processing history."""
+    try:
+        from electrochem_v6.store.legacy_runtime import _USE_SQLITE
+        resolved = os.path.realpath(path)
+
+        if _USE_SQLITE:
+            from electrochem_v6.store.legacy_runtime import _get_db
+            db = _get_db()
+            known_dirs = set(db.get_history_output_dirs())
+        else:
+            from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+            hist_mgr = get_history_manager_v6()
+            records = hist_mgr.get_all_records()
+            known_dirs: set[str] = set()
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                for output_file in (record.get("output_files") or []):
+                    output_path = str(output_file).strip()
+                    if output_path:
+                        known_dirs.add(os.path.realpath(os.path.dirname(output_path)))
+                folder = str(record.get("folder_path") or "").strip()
+                if folder:
+                    known_dirs.add(os.path.realpath(folder))
+
+        # Register them for future fast lookups
+        for d in known_dirs:
+            if os.path.isdir(d):
+                register_allowed_dir(d)
+        return any(resolved == d or resolved.startswith(d + os.sep) for d in known_dirs)
+    except Exception:
+        return False
 
 
 def open_path_target(path_value: Optional[str] = None, reveal_only: bool = False) -> Dict[str, Any]:
@@ -55,7 +110,7 @@ def open_path_target(path_value: Optional[str] = None, reveal_only: bool = False
     if not target:
         return {"status": "error", "message": "path is required"}
     normalized = os.path.abspath(target)
-    if not _is_within_allowed_roots(normalized):
+    if not _is_within_allowed_roots(normalized) and not _is_path_in_history_outputs(normalized):
         return {"status": "error", "message": "path is outside allowed directories"}
     if reveal_only:
         open_target = normalized if os.path.isdir(normalized) else os.path.dirname(normalized)

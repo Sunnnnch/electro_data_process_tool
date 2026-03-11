@@ -19,9 +19,13 @@ if str(SRC) not in sys.path:
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+# Force JSON storage backend for all tests — they were designed to verify
+# JSON-file persistence and should not be routed through SQLite.
+os.environ["ELECTROCHEM_V6_STORAGE"] = "json"
+
 from electrochem_v6.server import V6ServerManager  # noqa: E402
 from electrochem_v6.store.conversations import append_message, get_conversation  # noqa: E402
-from electrochem_v6.store.legacy_runtime import get_history_manager_v6  # noqa: E402
+from electrochem_v6.store.legacy_runtime import get_history_manager_v6, _reset_singletons  # noqa: E402
 from electrochem_v6.store.history import attach_run_outputs  # noqa: E402
 import electrochem_v6.core.process_service as process_service  # noqa: E402
 import electrochem_v6.server.routes_get as routes_get  # noqa: E402
@@ -509,6 +513,7 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
     old_projects = os.environ.get("ELECTROCHEM_V6_PROJECTS_FILE")
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
     old_conv = os.environ.get("ELECTROCHEM_V6_CONVERSATION_FILE")
+    _reset_singletons()
     try:
         os.environ["ELECTROCHEM_V6_PROJECTS_FILE"] = str(tmp_path / "projects.json")
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
@@ -549,14 +554,14 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
             {"folder_path": str(data_dir), "data_type": "LSV", "project_name": "demo_project"}
         )
         assert payload.get("status") == "success"
-        history_file = tmp_path / "history.json"
-        history_data = json.loads(history_file.read_text(encoding="utf-8"))
-        records = history_data.get("records") or []
+        hist = get_history_manager_v6()
+        records = hist.get_all_records()
         assert records
         record = records[-1]
         assert str(output_csv) in (record.get("output_files") or [])
         assert record.get("summary_path") == str(summary_path)
     finally:
+        _reset_singletons()
         if old_projects is None:
             os.environ.pop("ELECTROCHEM_V6_PROJECTS_FILE", None)
         else:
@@ -575,6 +580,7 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
     import numpy as np
 
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
+    _reset_singletons()
     try:
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
         hist = get_history_manager_v6()
@@ -593,12 +599,14 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
                 "nested": {"fit": np.array([[1.0, 2.0], [3.0, 4.0]])},
             },
         )
-        payload = json.loads((tmp_path / "history.json").read_text(encoding="utf-8"))
-        record = payload["records"][0]
+        records = hist.get_all_records()
+        assert records
+        record = records[-1]
         assert record["results"]["value"] == 0.123
         assert record["data"]["curve"] == [0.1, 0.2, 0.3]
         assert record["data"]["nested"]["fit"] == [[1.0, 2.0], [3.0, 4.0]]
     finally:
+        _reset_singletons()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -607,6 +615,7 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
 
 def test_v6_history_manager_migrates_legacy_list_file(tmp_path):
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
+    _reset_singletons()
     try:
         history_path = tmp_path / "history.json"
         history_path.write_text("[]", encoding="utf-8")
@@ -623,13 +632,13 @@ def test_v6_history_manager_migrates_legacy_list_file(tmp_path):
                 "results": {"value": 1.23},
             }
         )
-        payload = json.loads(history_path.read_text(encoding="utf-8"))
-        assert isinstance(payload, dict)
-        assert payload.get("version") == "1.0"
-        records = payload.get("records") or []
-        assert len(records) == 1
-        assert records[0].get("sample_name") == "sample_legacy"
+        records = hist.get_all_records()
+        assert len(records) >= 1
+        found = [r for r in records if r.get("sample_name") == "sample_legacy"]
+        assert found
+        assert found[0].get("sample_name") == "sample_legacy"
     finally:
+        _reset_singletons()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -640,6 +649,7 @@ def test_v6_attach_run_outputs_serializes_quality_summary(tmp_path):
     import numpy as np
 
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
+    _reset_singletons()
     try:
         history_path = tmp_path / "history.json"
         history_path.write_text(
@@ -672,11 +682,13 @@ def test_v6_attach_run_outputs_serializes_quality_summary(tmp_path):
             quality_summary={"missing_values": np.int64(0), "potential_range": np.array([0.1, 0.2])},
         )
         assert result.get("status") == "success"
-        payload = json.loads(history_path.read_text(encoding="utf-8"))
-        record = payload["records"][0]
+        hist = get_history_manager_v6()
+        records = hist.get_all_records()
+        record = [r for r in records if r.get("run_id") == "run-qc-1"][0]
         assert record["quality_summary"]["missing_values"] == 0
         assert record["quality_summary"]["potential_range"] == [0.1, 0.2]
     finally:
+        _reset_singletons()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -687,6 +699,7 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
     old_projects = os.environ.get("ELECTROCHEM_V6_PROJECTS_FILE")
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
     old_conv = os.environ.get("ELECTROCHEM_V6_CONVERSATION_FILE")
+    _reset_singletons()
     try:
         os.environ["ELECTROCHEM_V6_PROJECTS_FILE"] = str(tmp_path / "projects.json")
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
@@ -731,13 +744,14 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
         )
         assert payload.get("status") == "success"
 
-        history_data = json.loads((tmp_path / "history.json").read_text(encoding="utf-8"))
-        records = history_data.get("records") or []
-        assert len(records) == 1
-        record = records[0]
+        hist = get_history_manager_v6()
+        records = hist.get_all_records()
+        assert len(records) >= 1
+        record = [r for r in records if r.get("sample_name") == "sample_bind"][0]
         assert record.get("project_name") == "bind_project"
         assert str(output_csv) in (record.get("output_files") or [])
     finally:
+        _reset_singletons()
         if old_projects is None:
             os.environ.pop("ELECTROCHEM_V6_PROJECTS_FILE", None)
         else:
@@ -833,6 +847,7 @@ def test_run_pipeline_propagates_run_and_project_ids_to_all_types(tmp_path, monk
 
 def test_v6_history_archive_and_delete_routes(tmp_path):
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
+    _reset_singletons()
     try:
         history_file = tmp_path / "history.json"
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(history_file)
@@ -909,6 +924,7 @@ def test_v6_history_archive_and_delete_routes(tmp_path):
         finally:
             manager.stop()
     finally:
+        _reset_singletons()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:

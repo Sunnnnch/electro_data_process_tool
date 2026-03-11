@@ -8,7 +8,7 @@ import os
 import shutil
 from typing import Any, Dict, Optional
 
-from .legacy_runtime import get_history_manager_v6
+from .legacy_runtime import get_history_manager_v6, _USE_SQLITE
 
 _logger = logging.getLogger(__name__)
 
@@ -78,6 +78,14 @@ def _filter_records(records: list[Dict[str, Any]], project_id: Optional[str] = N
 def list_history(project_id: Optional[str] = None, limit: int = 100, include_archived: bool = False,
                  metric_key: Optional[str] = None, metric_min: Optional[float] = None, metric_max: Optional[float] = None,
                  data_type: Optional[str] = None) -> Dict[str, Any]:
+    if _USE_SQLITE:
+        hist_mgr = get_history_manager_v6()
+        records = hist_mgr.db.filter_history(
+            project_id=project_id, include_archived=include_archived,
+            data_type=data_type, metric_key=metric_key, metric_min=metric_min, metric_max=metric_max,
+            limit=limit,
+        )
+        return {"status": "success", "records": records}
     hist_mgr = get_history_manager_v6()
     records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived,
                               metric_key=metric_key, metric_min=metric_min, metric_max=metric_max, data_type=data_type)
@@ -87,6 +95,10 @@ def list_history(project_id: Optional[str] = None, limit: int = 100, include_arc
 
 
 def get_stats(project_id: Optional[str] = None, include_archived: bool = False) -> Dict[str, Any]:
+    if _USE_SQLITE:
+        hist_mgr = get_history_manager_v6()
+        stats = hist_mgr.db.get_history_stats(project_id=project_id, include_archived=include_archived)
+        return {"status": "success", "data": stats}
     hist_mgr = get_history_manager_v6()
     records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived)
     stats = {
@@ -100,10 +112,18 @@ def get_stats(project_id: Optional[str] = None, include_archived: bool = False) 
 
 
 def _update_history_records(*, match_key: str, action: str) -> Dict[str, Any]:
-    hist_mgr = get_history_manager_v6()
     safe_key = str(match_key or "").strip()
     if not safe_key:
         return {"status": "error", "message": "missing history key", "updated": 0}
+
+    if _USE_SQLITE:
+        hist_mgr = get_history_manager_v6()
+        updated = hist_mgr.db.update_history_by_key(safe_key, action)
+        if updated == 0:
+            return {"status": "error", "message": "history record not found", "updated": 0}
+        return {"status": "success", "updated": updated, "action": action}
+
+    hist_mgr = get_history_manager_v6()
     updated = 0
     with hist_mgr.lock:
         try:
@@ -171,11 +191,22 @@ def attach_run_outputs(
     summary_path: Optional[str] = None,
     quality_summary: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    hist_mgr = get_history_manager_v6()
     safe_run_id = str(run_id or "").strip()
     if not safe_run_id:
         return {"status": "error", "message": "missing run id", "updated": 0}
     safe_output_files = [str(item).strip() for item in output_files if str(item).strip()]
+
+    if _USE_SQLITE:
+        hist_mgr = get_history_manager_v6()
+        updated = hist_mgr.db.attach_run_outputs(
+            run_id=safe_run_id,
+            output_files=safe_output_files,
+            summary_path=summary_path,
+            quality_summary=quality_summary,
+        )
+        return {"status": "success", "updated": updated}
+
+    hist_mgr = get_history_manager_v6()
     updated = 0
     with hist_mgr.lock:
         try:

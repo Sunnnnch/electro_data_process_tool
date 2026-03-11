@@ -1,8 +1,17 @@
-"""Native v6 runtime managers for projects, history, and conversations."""
+"""Native v6 runtime managers for projects, history, and conversations.
+
+Supports two storage backends:
+- JSON files (legacy default)
+- SQLite (new default, auto-migrates from JSON on first run)
+
+Set environment variable ``ELECTROCHEM_V6_STORAGE=json`` to force the old
+JSON backend.  Anything else (or unset) uses SQLite.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -18,10 +27,26 @@ from electrochem_v6.config import (
     get_projects_file,
 )
 
+_logger = logging.getLogger(__name__)
+
 _RUNTIME_LOCK = threading.RLock()
-_history_manager_singleton: Optional["NativeHistoryManager"] = None
-_project_manager_singleton: Optional["NativeProjectManager"] = None
-_conversation_manager_singleton: Optional["NativeConversationManager"] = None
+_history_manager_singleton: Optional[Any] = None
+_project_manager_singleton: Optional[Any] = None
+_conversation_manager_singleton: Optional[Any] = None
+
+_USE_SQLITE = os.environ.get("ELECTROCHEM_V6_STORAGE", "sqlite").strip().lower() != "json"
+
+
+def _reset_singletons() -> None:
+    """Reset all manager singletons and the database instance. For testing only."""
+    global _history_manager_singleton, _project_manager_singleton
+    global _conversation_manager_singleton, _db_singleton, _USE_SQLITE
+    with _RUNTIME_LOCK:
+        _history_manager_singleton = None
+        _project_manager_singleton = None
+        _conversation_manager_singleton = None
+        _db_singleton = None
+        _USE_SQLITE = os.environ.get("ELECTROCHEM_V6_STORAGE", "sqlite").strip().lower() != "json"
 
 
 def _same_path(current: str, expected: Path) -> bool:
@@ -485,9 +510,247 @@ class NativeConversationManager:
             return conversation_id
 
 
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  SQLite-backed wrappers (same interface as JSON managers)        ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+_db_singleton: Optional[Any] = None
+
+
+def _get_db() -> Any:
+    """Return the global :class:`Database` singleton, auto-migrating JSON data on first use."""
+    global _db_singleton
+    if _db_singleton is not None:
+        return _db_singleton
+    from .database import Database
+
+    db_dir = str(ensure_parent_dir(get_history_file()).parent)
+    db_path = os.path.join(db_dir, "electrochem_v6.db")
+    db = Database(db_path)
+
+    if not db.is_migrated():
+        history_f = str(get_history_file())
+        projects_f = str(get_projects_file())
+        conv_f = str(get_conversation_file())
+        templates_f = None
+        try:
+            from electrochem_v6.config import get_templates_file
+            templates_f = str(get_templates_file())
+        except Exception:
+            pass
+        counts = db.migrate_from_json(
+            history_file=history_f if os.path.exists(history_f) else None,
+            projects_file=projects_f if os.path.exists(projects_f) else None,
+            conversations_file=conv_f if os.path.exists(conv_f) else None,
+            templates_file=templates_f if templates_f and os.path.exists(templates_f) else None,
+        )
+        _logger.info("Auto-migrated JSON → SQLite: %s", counts)
+
+    _db_singleton = db
+    return db
+
+
+class SqliteHistoryManager:
+    """Drop-in replacement for NativeHistoryManager backed by SQLite."""
+
+    def __init__(self) -> None:
+        self.db = _get_db()
+        # Expose attributes that higher-level modules access directly
+        self.history_file = str(ensure_parent_dir(get_history_file()))
+        self.lock = threading.RLock()
+
+    def get_all_records(self) -> list[Dict[str, Any]]:
+        return self.db.get_all_history_records()
+
+    def add_record(
+        self,
+        record: Dict[str, Any],
+        data: Optional[Dict[str, Any]] = None,
+        project_id: Optional[str] = None,
+        **extra_fields: Any,
+    ) -> None:
+        next_record = dict(record or {})
+        if "timestamp" not in next_record:
+            next_record["timestamp"] = _now_text()
+        if isinstance(data, dict) and data:
+            next_record["data"] = data
+        if project_id:
+            next_record["project_id"] = project_id
+        for key, value in extra_fields.items():
+            if value is not None:
+                next_record[key] = value
+        self.db.add_history_record(next_record)
+
+    def get_lsv_summary(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+        records = self.db.get_lsv_records(project_id=project_id)
+
+        grouped: dict[str, list[Dict[str, Any]]] = {}
+        for record in records:
+            sample_name = str(record.get("sample_name") or record.get("file_name") or "Unknown").strip() or "Unknown"
+            grouped.setdefault(sample_name, []).append(record)
+
+        samples: list[Dict[str, Any]] = []
+        for sample_name, items in grouped.items():
+            potentials: list[float] = []
+            overpotentials: list[float] = []
+            tafel_slopes: list[float] = []
+            latest_time = ""
+            for item in items:
+                latest_time = max(latest_time, str(item.get("timestamp") or ""))
+                results = item.get("results") or {}
+                if not isinstance(results, dict):
+                    continue
+                for key, bucket in (
+                    ("potential_10", potentials),
+                    ("overpotential_10", overpotentials),
+                    ("tafel_slope", tafel_slopes),
+                ):
+                    try:
+                        if results.get(key) is not None:
+                            bucket.append(float(results[key]))
+                    except Exception:
+                        pass
+            samples.append(
+                {
+                    "sample_name": sample_name,
+                    "potential_10": (sum(potentials) / len(potentials)) if potentials else None,
+                    "overpotential_10": (sum(overpotentials) / len(overpotentials)) if overpotentials else None,
+                    "tafel_slope": (sum(tafel_slopes) / len(tafel_slopes)) if tafel_slopes else None,
+                    "record_count": len(items),
+                    "latest_time": latest_time,
+                }
+            )
+        return {"samples": samples, "total_count": len(records)}
+
+    # Compatibility shims for code that reaches into manager internals
+    @staticmethod
+    def _to_json_safe(value: Any) -> Any:
+        from .database import _to_json_safe
+        return _to_json_safe(value)
+
+    def _atomic_write_payload(self, payload: Dict[str, Any]) -> None:
+        """Compatibility shim — re-import records from a full payload dict."""
+        pass  # SQLite is the source of truth; JSON writes are no-ops
+
+
+class SqliteProjectManager:
+    """Drop-in replacement for NativeProjectManager backed by SQLite."""
+
+    PRESET_COLORS = ["#2196F3", "#03A9F4", "#00BCD4", "#4CAF50", "#8BC34A", "#009688", "#FF9800", "#FF5722", "#F44336"]
+
+    def __init__(self) -> None:
+        self.db = _get_db()
+        self.projects_file = str(ensure_parent_dir(get_projects_file()))
+        self.lock = threading.RLock()
+
+    def _generate_project_id(self) -> str:
+        return f"proj_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+    def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
+        return self.db.get_project(project_id)
+
+    def get_default_project(self) -> Optional[str]:
+        return self.db.get_default_project()
+
+    def get_all_projects(self, status: str = "active") -> list[Dict[str, Any]]:
+        return self.db.get_all_projects(status=status)
+
+    def create_project(self, name: str, description: str = "", tags: Optional[list[str]] = None, color: Optional[str] = None) -> Optional[str]:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            return None
+        # Check for existing active project with same name
+        for proj in self.get_all_projects("active"):
+            if proj.get("name") == clean_name:
+                return str(proj.get("id") or "")
+        project_id = self._generate_project_id()
+        now = _now_text()
+        all_projects = self.db.get_all_projects("all")
+        if not color:
+            color = self.PRESET_COLORS[len(all_projects) % len(self.PRESET_COLORS)]
+        project = {
+            "id": project_id,
+            "name": clean_name,
+            "description": str(description or "").strip(),
+            "created_at": now,
+            "updated_at": now,
+            "status": "active",
+            "tags": list(tags or []),
+            "file_count": 0,
+            "color": color,
+        }
+        self.db.create_project(project)
+        if not self.db.get_default_project():
+            self.db.set_default_project(project_id)
+        return project_id
+
+    def update_project(self, project_id: str, **kwargs: Any) -> bool:
+        return self.db.update_project(project_id, **kwargs)
+
+    def delete_project(self, project_id: str, delete_data: bool = False) -> bool:
+        del delete_data
+        default = self.db.get_default_project()
+        result = self.db.delete_project(project_id)
+        if result and default == project_id:
+            remaining = self.db.get_all_projects("active")
+            self.db.set_default_project(remaining[0]["id"] if remaining else None)
+        return result
+
+    def get_project_stats(self, project_id: str) -> Dict[str, Any]:
+        return self.db.get_history_stats(project_id=project_id)
+
+
+class SqliteConversationManager:
+    """Drop-in replacement for NativeConversationManager backed by SQLite."""
+
+    def __init__(self) -> None:
+        self.db = _get_db()
+        self.storage_file = str(ensure_parent_dir(get_conversation_file()))
+        self.lock = threading.RLock()
+
+    def list_conversations(self, page: int = 1, page_size: int = 20, filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        return self.db.list_conversations(page=page, page_size=page_size, filters=filters)
+
+    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        return self.db.get_conversation(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        return self.db.delete_conversation(conversation_id)
+
+    def rename_conversation(self, conversation_id: str, title: str) -> bool:
+        clean_title = str(title or "").strip()
+        if not clean_title:
+            return False
+        return self.db.rename_conversation(conversation_id, clean_title)
+
+    def append_message(
+        self,
+        conversation_id: Optional[str],
+        role: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        attachments: Optional[list[Dict[str, Any]]] = None,
+    ) -> str:
+        clean_content = str(content or "").strip()
+        if not clean_content:
+            return str(conversation_id or "")
+        return self.db.append_message(
+            conversation_id=conversation_id,
+            role=role,
+            content=clean_content,
+            metadata=metadata,
+            attachments=attachments,
+        )
+
+
 def get_history_manager_v6():
     global _history_manager_singleton
     with _RUNTIME_LOCK:
+        if _USE_SQLITE:
+            if _history_manager_singleton is None or not isinstance(_history_manager_singleton, SqliteHistoryManager):
+                _history_manager_singleton = SqliteHistoryManager()
+            return _history_manager_singleton
+        # JSON fallback
         history_path = ensure_parent_dir(get_history_file())
         current = _history_manager_singleton
         if current is None or not _same_path(getattr(current, "history_file", ""), history_path):
@@ -498,6 +761,11 @@ def get_history_manager_v6():
 def get_project_manager_v6():
     global _project_manager_singleton
     with _RUNTIME_LOCK:
+        if _USE_SQLITE:
+            if _project_manager_singleton is None or not isinstance(_project_manager_singleton, SqliteProjectManager):
+                _project_manager_singleton = SqliteProjectManager()
+            return _project_manager_singleton
+        # JSON fallback
         projects_path = ensure_parent_dir(get_projects_file())
         current = _project_manager_singleton
         if current is None or not _same_path(getattr(current, "projects_file", ""), projects_path):
@@ -508,6 +776,11 @@ def get_project_manager_v6():
 def get_conversation_manager_v6():
     global _conversation_manager_singleton
     with _RUNTIME_LOCK:
+        if _USE_SQLITE:
+            if _conversation_manager_singleton is None or not isinstance(_conversation_manager_singleton, SqliteConversationManager):
+                _conversation_manager_singleton = SqliteConversationManager()
+            return _conversation_manager_singleton
+        # JSON fallback
         conversation_path = ensure_parent_dir(get_conversation_file())
         current = _conversation_manager_singleton
         if current is None or not _same_path(getattr(current, "storage_file", ""), conversation_path):
