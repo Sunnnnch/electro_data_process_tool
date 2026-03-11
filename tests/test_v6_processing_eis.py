@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import numpy as np
@@ -15,7 +16,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from electrochem_v6.core.processing_eis import _randles_impedance, fit_randles, process_eis
-
 
 # ── _randles_impedance ─────────────────────────────────────────────────────
 

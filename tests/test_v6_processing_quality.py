@@ -13,7 +13,6 @@ if str(SRC) not in sys.path:
 
 from electrochem_v6.core.processing_quality import DataQualityChecker
 
-
 # ── normalize_lsv_config ──────────────────────────────────────────────────
 
 class TestNormalizeLsvConfig:

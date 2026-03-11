@@ -16,7 +16,6 @@ if str(SRC) not in sys.path:
 from electrochem_v6.llm.base_client import BaseLLMClient
 from electrochem_v6.llm.config import LLMConfig
 
-
 # ── LLMConfig ──────────────────────────────────────────────────────────────
 
 class TestLLMConfig:

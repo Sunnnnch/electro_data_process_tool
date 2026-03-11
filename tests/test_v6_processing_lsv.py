@@ -16,7 +16,6 @@ from electrochem_v6.core.processing_lsv import (
     parse_target_currents,
 )
 
-
 # ── interpolate_potential ──────────────────────────────────────────────────
 
 class TestInterpolatePotential:
@@ -168,8 +167,8 @@ class TestProcessLsvFile:
         process_lsv(str(lsv_data_dir), "LSV_test.txt", params)
 
     def test_process_lsv_file_not_found(self, tmp_path):
-        from electrochem_v6.core.processing_lsv import process_lsv
         from electrochem_v6.core.processing_core_v6 import FileFormatError
+        from electrochem_v6.core.processing_lsv import process_lsv
 
         params = {
             "start_line": "1",
