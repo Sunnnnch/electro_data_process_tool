@@ -36,3 +36,30 @@ allowed_tags = [
 ]
 minor_tags = ["feat"]
 patch_tags = ["fix", "perf", "refactor"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "E402",   # module-level import not at top (matplotlib.use must precede imports)
+    "F401",   # imported but unused — many re-exports in __init__.py
+    "F841",   # local var assigned but unused — common in data processing
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"processing_core_v6.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"

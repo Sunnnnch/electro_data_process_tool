@@ -724,7 +724,7 @@ class Database:
                 self.add_history_record(record)
                 count += 1
             except Exception as exc:
-                _logger.debug("Skipped history record during migration: %s", exc)
+                _logger.warning("Skipped history record #%d during migration: %s (keys=%s)", records.index(record), exc, list(record.keys())[:5])
         return count
 
     def _migrate_projects_json(self, filepath: str) -> int:
@@ -748,7 +748,7 @@ class Database:
                 self.create_project(project)
                 count += 1
             except Exception as exc:
-                _logger.debug("Skipped project during migration: %s", exc)
+                _logger.warning("Skipped project '%s' during migration: %s", project.get('id', '?'), exc)
         if default_project:
             self.set_default_project(default_project)
         return count
@@ -795,7 +795,7 @@ class Database:
                     )
                 count += 1
             except Exception as exc:
-                _logger.debug("Skipped conversation during migration: %s", exc)
+                _logger.warning("Skipped conversation '%s' during migration: %s", cid, exc)
         return count
 
     def _migrate_templates_json(self, filepath: str) -> int:
@@ -828,5 +828,5 @@ class Database:
                     )
                 count += 1
             except Exception as exc:
-                _logger.debug("Skipped template during migration: %s", exc)
+                _logger.warning("Skipped template '%s' during migration: %s", name, exc)
         return count

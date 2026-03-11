@@ -30,6 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Lint (ruff)
+        run: ruff check src/ tests/ --output-format=github
+
       - name: Run check
         env:
           PYTHONUTF8: "1"
@@ -43,7 +46,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONUTF8: "1"
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing
 
   # ── Auto-release: bump version, build, publish GitHub Release ──
   release:
@@ -131,6 +134,12 @@ jobs:
           echo "ZIP_NAME=$name.zip" >> $env:GITHUB_OUTPUT
 
       # ── Build Inno Setup installer (optional) ──
+      - name: Install Inno Setup
+        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
+        shell: pwsh
+        continue-on-error: true
+        run: choco install innosetup -y --no-progress
+
       - name: Build installer
         if: steps.semver.outputs.SHOULD_RELEASE == 'true'
         id: installer

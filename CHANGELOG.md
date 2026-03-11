@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.0.3
+
+### CI / CD
+
+- CI release job 迁移至 `windows-latest`，自动构建 PyInstaller 便携包 + Inno Setup 安装程序
+- GitHub Release 现在包含 `ElectroChemV6-<version>-win64.zip` 及可选安装程序 EXE
+- 修复 GITHUB_TOKEN 推送的 tag 无法触发其他 workflow 的问题（合并 build+release 为同一 job）
+- `release.yml` 改为手动触发备用
+- CI 新增 `pytest-cov` 覆盖率报告和 `ruff` 代码风格检查
+- Inno Setup 在 CI 上通过 `choco install` 自动安装
+
+### 代码质量
+
+- 统一 `print()` 替换为 `logger` 调用（processing_core_v6 / processing_cv / processing_eis）
+- 数据库 JSON→SQLite 迁移路径异常处理细化，增加失败记录的上下文日志
+- `requirements-dev.txt` 补全开发工具（pytest-cov、ruff、pyright）
+- `.gitignore` 补全 IDE / OS 常见条目
+
+### 文档
+
+- README 添加 CI 状态、Release、License 徽章
+- CHANGELOG 补充 v6.0.3 条目
+
 ## 6.0.2
 
 ### 安全修复

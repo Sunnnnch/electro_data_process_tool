@@ -1,5 +1,9 @@
 # ElectroChem V6
 
+[![CI](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Sunnnnch/electro_data_process_tool?include_prereleases)](https://github.com/Sunnnnch/electro_data_process_tool/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [中文](README.md) | [English](README.en.md)
 
 面向电化学实验数据的本地处理与分析工具，支持 `LSV`、`CV`、`EIS`、`ECSA` 批量处理、本地 Web UI、项目/历史管理，以及可选的 AI 辅助分析。

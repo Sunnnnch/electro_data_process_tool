@@ -1,5 +1,9 @@
 # ElectroChem V6
 
+[![CI](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Sunnnnch/electro_data_process_tool?include_prereleases)](https://github.com/Sunnnnch/electro_data_process_tool/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [中文](README.md) | [English](README.en.md)
 
 A local electrochemical data processing and analysis toolkit for batch `LSV`, `CV`, `EIS`, and `ECSA` workflows, with a local Web UI, project/history management, and optional AI-assisted analysis.

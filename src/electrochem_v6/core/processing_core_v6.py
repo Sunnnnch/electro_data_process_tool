@@ -26,7 +26,11 @@ from matplotlib.ft2font import FT2Font
 
 
 def _safe_print(msg: str) -> None:
-    """Print that never crashes on non-UTF-8 terminals (e.g. cp1252 in CI)."""
+    """Log that never crashes on non-UTF-8 terminals (e.g. cp1252 in CI)."""
+    _init_logger = logging.getLogger('ElectroChem')
+    if _init_logger.handlers:
+        _init_logger.info(msg)
+        return
     try:
         print(msg)
     except UnicodeEncodeError:
@@ -442,12 +446,6 @@ def log(msg):
         get_logger().info(text)
     except Exception:
         pass  # Fallback to silent failure
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
-        safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
-        print(safe_text)
     finally:
         try:
             if LOG_FILE_PATH:

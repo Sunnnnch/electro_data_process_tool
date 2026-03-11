@@ -29,7 +29,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
     if lines is None:
-        print(f"无法读取CV文件 {filepath}，尝试了所有编码格式")
+        log(f"无法读取CV文件 {filepath}，尝试了所有编码格式")
         return
 
     potential, current = [], []

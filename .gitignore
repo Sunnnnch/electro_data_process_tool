@@ -18,5 +18,24 @@ projects.json
 process_templates.json
 user_data/
 .coverage
+htmlcov/
 reports/*.json
 !reports/.gitkeep
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Eggs / wheels
+*.egg-info/
+*.egg
+*.whl

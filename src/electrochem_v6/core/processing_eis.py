@@ -93,7 +93,7 @@ def process_eis(subfolder, file, params):
     lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
     if lines is None:
-        print(f"无法读取EIS文件 {filepath}，尝试了所有编码格式")
+        log(f"无法读取EIS文件 {filepath}，尝试了所有编码格式")
         return
 
     # v3.0.4: 读取频率、实阻抗和虚阻抗数据
