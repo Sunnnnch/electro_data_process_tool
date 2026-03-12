@@ -468,6 +468,9 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not os.path.isdir(folder_path):
         return {"status": "error", "message": f"文件夹不存在: {folder_path}"}
 
+    # User submitted this folder for processing → treat as explicit consent
+    register_allowed_dir(folder_path)
+
     # ── path security: reject traversal / disallowed directories ──
     if not _is_allowed_process_dir(folder_path):
         return {"status": "error", "message": "路径不在允许范围内，拒绝处理"}

@@ -47,6 +47,8 @@ def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
         selected = filedialog.askdirectory(initialdir=default_dir, title="选择数据文件夹")
         if not selected:
             return {"status": "error", "message": "未选择文件夹"}
+        # User explicitly chose this folder via dialog → register as allowed
+        register_allowed_dir(selected)
         return {"status": "success", "folder_path": selected}
     except Exception as exc:
         return {"status": "error", "message": f"打开文件夹选择器失败: {exc}"}
