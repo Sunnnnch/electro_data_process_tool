@@ -439,23 +439,35 @@ def _bind_v6_runtime_managers():
         processing_core.get_project_manager = original_project_getter
 
 
+# Directories under user home that should never be processed (credentials / secrets)
+_HOME_SENSITIVE_DIRS = frozenset({
+    ".ssh", ".gnupg", ".gpg", ".aws", ".azure", ".kube",
+    ".password-store", ".docker",
+})
+
+
 def _is_allowed_process_dir(folder_path: str) -> bool:
     """Check *folder_path* is under an allowed root for data processing.
 
     Allowed roots:
     - current working directory tree
-    - user home directory tree
+    - user home directory tree (excluding sensitive subdirectories)
     - any directory previously registered at runtime (via register_allowed_dir)
     """
     from electrochem_v6.core.system_service import _is_within_allowed_roots
 
-    resolved = os.path.realpath(folder_path)
-    # Always allow subdirs of cwd and user home
-    cwd_root = os.path.realpath(os.getcwd())
-    home_root = os.path.realpath(os.path.expanduser("~"))
+    resolved = os.path.normcase(os.path.realpath(folder_path))
+    # Always allow subdirs of cwd
+    cwd_root = os.path.normcase(os.path.realpath(os.getcwd()))
     if resolved == cwd_root or resolved.startswith(cwd_root + os.sep):
         return True
+    # Allow subdirs of home, but block sensitive directories
+    home_root = os.path.normcase(os.path.realpath(os.path.expanduser("~")))
     if resolved == home_root or resolved.startswith(home_root + os.sep):
+        rel = resolved[len(home_root) + len(os.sep):] if resolved != home_root else ""
+        first_component = rel.split(os.sep)[0] if rel else ""
+        if first_component and first_component in {d.lower() for d in _HOME_SENSITIVE_DIRS}:
+            return False
         return True
     # Fall back to the existing runtime whitelist
     return _is_within_allowed_roots(resolved)

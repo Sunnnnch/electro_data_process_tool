@@ -40,6 +40,14 @@ def user_config_dir() -> Path:
 
 
 def project_default_dir() -> Path:
+    shared = _shared_data_dir()
+    if shared is not None:
+        return shared
+    # In frozen (packaged) mode, use the exe's directory instead of cwd
+    # so that data paths remain stable regardless of launch location.
+    if getattr(__import__('sys'), 'frozen', False):
+        import sys
+        return Path(sys.executable).resolve().parent
     return Path.cwd()
 
 

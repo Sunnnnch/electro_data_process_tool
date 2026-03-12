@@ -91,7 +91,10 @@ class LLMConfig:
         return None
 
     def _user_config_path(self) -> Path:
-        return Path.home() / ".electrochem" / self.config_file
+        # Align with central config: user-level LLM config lives under ~/.electrochem/
+        # (not ~/.electrochem/v6/) for backward compatibility with v5.
+        from electrochem_v6.config import _llm_user_dir
+        return _llm_user_dir() / self.config_file
 
     def _project_config_path(self) -> Path:
         return Path(self.config_file)

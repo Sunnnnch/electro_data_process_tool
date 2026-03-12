@@ -183,9 +183,8 @@ def dispatch_get(handler: Any) -> bool:
                 _folder = str(_rec.get("folder_path") or "").strip()
                 if _folder and os.path.isdir(_folder):
                     _export_allowed_roots.add(os.path.realpath(_folder))
-            # Also allow cwd and user home as fallback
+            # Also allow cwd as fallback (not user home to avoid exporting sensitive files)
             _export_allowed_roots.add(os.path.realpath(os.getcwd()))
-            _export_allowed_roots.add(os.path.realpath(os.path.expanduser("~")))
 
             def _is_export_safe(fpath: str) -> bool:
                 resolved = os.path.realpath(fpath)
@@ -210,7 +209,9 @@ def dispatch_get(handler: Any) -> bool:
             data = buf.getvalue()
             handler.send_response(200)
             handler.send_header("Content-Type", "application/zip")
-            handler.send_header("Content-Disposition", f'attachment; filename="project_{project_id}.zip"')
+            import re as _re
+            safe_pid = _re.sub(r'[^A-Za-z0-9_\-]', '_', str(project_id))[:64]
+            handler.send_header("Content-Disposition", f'attachment; filename="project_{safe_pid}.zip"')
             handler.send_header("Content-Length", str(len(data)))
             handler.end_headers()
             handler.wfile.write(data)
