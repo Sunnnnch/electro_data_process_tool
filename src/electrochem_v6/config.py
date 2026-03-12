@@ -85,20 +85,7 @@ def _project_path(kind: str) -> Path:
 
 
 def resolve_data_path(kind: str, *, for_write: bool = False) -> Path:
-    """Resolve path using priority: env > user dir > project default.
-
-    Read mode:
-    - env path if set
-    - existing user path
-    - existing project path
-    - fallback to user path
-
-    Write mode:
-    - env path if set
-    - existing user path
-    - existing project path
-    - fallback to user path
-    """
+    """Resolve path using priority: env > user dir > project default."""
     env_path = _env_path(kind)
     if env_path is not None:
         return env_path

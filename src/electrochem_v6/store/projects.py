@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +52,8 @@ def _safe_load_projects(projects_file: str) -> dict[str, Any]:
 
 
 def _atomic_write_json(path: str, data: dict[str, Any]) -> None:
+    from electrochem_v6.store._json_utils import atomic_write_json
+
     target = ensure_parent_dir(Path(path))
     # Create backup before writing
     if target.exists():
@@ -60,19 +61,7 @@ def _atomic_write_json(path: str, data: dict[str, Any]) -> None:
             shutil.copy2(str(target), str(target) + ".bak")
         except Exception:
             _logger.warning("Failed to create backup for %s", path)
-    fd, tmp_path = tempfile.mkstemp(prefix=f"{target.stem}_", suffix=".tmp", dir=str(target.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(target))
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+    atomic_write_json(target, data)
 
 
 def _create_project_fallback(

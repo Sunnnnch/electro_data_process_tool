@@ -125,7 +125,7 @@ def test_filter_history_limit(db):
 
 def test_archive_and_delete_history(db):
     db.add_history_record(_sample_record())
-    key = "2026-03-01 12:00:00|LSV|/data/test.txt"
+    key = "2026-03-01 12:00:00|LSV|/data/test.txt|run_1"
     assert db.update_history_by_key(key, "archive") == 1
     assert db.get_all_history_records()[0]["archived"] is True
 

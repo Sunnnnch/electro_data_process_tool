@@ -72,20 +72,8 @@ def _load_json_dict(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
-    target = ensure_parent_dir(path)
-    fd, tmp_path = tempfile.mkstemp(prefix=f"{target.stem}_", suffix=".tmp", dir=str(target.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(target))
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+    from electrochem_v6.store._json_utils import atomic_write_json
+    atomic_write_json(path, payload)
 
 
 class NativeHistoryManager:
@@ -115,30 +103,8 @@ class NativeHistoryManager:
         return payload
 
     def _to_json_safe(self, value: Any) -> Any:
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, dict):
-            return {str(key): self._to_json_safe(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple, set)):
-            return [self._to_json_safe(item) for item in value]
-        if isinstance(value, datetime):
-            return value.isoformat()
-        if hasattr(value, "tolist"):
-            try:
-                return self._to_json_safe(value.tolist())
-            except Exception:
-                pass
-        if hasattr(value, "item"):
-            try:
-                return self._to_json_safe(value.item())
-            except Exception:
-                pass
-        if hasattr(value, "as_posix"):
-            try:
-                return value.as_posix()
-            except Exception:
-                pass
-        return str(value)
+        from electrochem_v6.store._json_utils import to_json_safe
+        return to_json_safe(value)
 
     def _atomic_write_payload(self, payload: Dict[str, Any]) -> None:
         _atomic_write_json(Path(self.history_file), self._to_json_safe(payload))

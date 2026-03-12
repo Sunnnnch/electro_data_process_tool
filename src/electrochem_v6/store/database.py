@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Generator, List, Optional
 
+from electrochem_v6.store._json_utils import to_json_safe as _to_json_safe
+
 _logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
@@ -83,33 +85,13 @@ CREATE TABLE IF NOT EXISTS projects_meta (
 );
 """
 
-
-def _to_json_safe(value: Any) -> Any:
-    """Convert non-serialisable types to JSON-friendly values."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): _to_json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_to_json_safe(item) for item in value]
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if hasattr(value, "tolist"):
-        try:
-            return _to_json_safe(value.tolist())
-        except Exception:
-            _logger.debug("tolist() conversion failed for %s", type(value).__name__, exc_info=True)
-    if hasattr(value, "item"):
-        try:
-            return _to_json_safe(value.item())
-        except Exception:
-            _logger.debug("item() conversion failed for %s", type(value).__name__, exc_info=True)
-    if hasattr(value, "as_posix"):
-        try:
-            return value.as_posix()
-        except Exception:
-            _logger.debug("as_posix() conversion failed for %s", type(value).__name__, exc_info=True)
-    return str(value)
+# ── Schema migration SQL per version ──────────────────────────────────
+# Add entries here when bumping SCHEMA_VERSION. Each key maps to a list
+# of SQL statements that upgrade from the *previous* version.
+_MIGRATIONS: Dict[int, List[str]] = {
+    # Example for a future v2:
+    # 2: ["ALTER TABLE history_records ADD COLUMN new_col TEXT DEFAULT '';"],
+}
 
 
 def _json_dumps(obj: Any) -> str:
@@ -146,6 +128,16 @@ class Database:
             self._local.conn = conn
         return conn
 
+    def close(self) -> None:
+        """Close the connection for the current thread (if any)."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         conn = self._get_conn()
@@ -172,13 +164,28 @@ class Database:
                 ("schema_version", str(SCHEMA_VERSION)),
             )
             conn.commit()
+        else:
+            current = int(row["value"])
+            if current < SCHEMA_VERSION:
+                for ver in range(current + 1, SCHEMA_VERSION + 1):
+                    for sql in _MIGRATIONS.get(ver, []):
+                        conn.execute(sql)
+                conn.execute(
+                    "UPDATE meta SET value=? WHERE key='schema_version'",
+                    (str(SCHEMA_VERSION),),
+                )
+                conn.commit()
 
     # ── History ────────────────────────────────────────────────────
 
     def add_history_record(self, record: Dict[str, Any]) -> None:
         safe = _to_json_safe(record)
         file_value = safe.get("file_path") or safe.get("file_name") or safe.get("sample_name") or ""
-        record_key = f"{safe.get('timestamp', '')}|{safe.get('type', '')}|{file_value}"
+        run_id = safe.get("run_id")
+        if run_id:
+            record_key = f"{safe.get('timestamp', '')}|{safe.get('type', '')}|{file_value}|{run_id}"
+        else:
+            record_key = f"{safe.get('timestamp', '')}|{safe.get('type', '')}|{file_value}"
         with self.transaction() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO history_records

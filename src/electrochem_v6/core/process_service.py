@@ -21,6 +21,8 @@ from electrochem_v6.core.system_service import register_allowed_dir
 from electrochem_v6.core.utils import as_bool as _as_bool
 from electrochem_v6.core.utils import as_float as _as_float
 from electrochem_v6.core.utils import as_int as _as_int
+from electrochem_v6.store._json_utils import atomic_write_json as _atomic_write_json
+from electrochem_v6.store._json_utils import to_json_safe as _to_json_safe
 from electrochem_v6.store.history import attach_run_outputs
 from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
 
@@ -300,34 +302,6 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
             seen.add(item)
             out.append(item)
     return out
-
-
-def _to_json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _to_json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_to_json_safe(v) for v in value]
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, (str, int, bool)) or value is None:
-        return value
-    item = getattr(value, "item", None)
-    if callable(item):
-        try:
-            return _to_json_safe(item())
-        except Exception:
-            pass
-    return str(value)
-
-
-def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
-    tmp_path = f"{path}.tmp"
-    safe_payload = _to_json_safe(payload)
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(safe_payload, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, path)
 
 
 def _collect_output_files(pipeline_result: Dict[str, Any]) -> list[str]:

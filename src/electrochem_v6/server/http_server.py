@@ -29,24 +29,7 @@ from electrochem_v6.agent import AgentService
 from electrochem_v6.core.logging_policy import get_v6_logger, log_event
 from electrochem_v6.server.routes_get import dispatch_get
 from electrochem_v6.server.routes_post import dispatch_post
-
-
-def _to_json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _to_json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_to_json_safe(v) for v in value]
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, (str, int, bool)) or value is None:
-        return value
-    item = getattr(value, "item", None)
-    if callable(item):
-        try:
-            return _to_json_safe(item())
-        except Exception:
-            pass
-    return str(value)
+from electrochem_v6.store._json_utils import to_json_safe as _to_json_safe
 
 
 def _encode_json_payload(payload: Dict[str, Any]) -> bytes:
@@ -151,7 +134,7 @@ class V6ServerManager:
                         "method": self.command,
                         "path": (self.path.split("?", 1)[0] if self.path else "/"),
                         "status_code": response_status,
-                        "payload": response_payload,
+                        "payload_keys": list(response_payload.keys()) if isinstance(response_payload, dict) else "<non-dict>",
                     },
                     level=logging.WARNING if response_status >= 400 else logging.INFO,
                 )
