@@ -299,7 +299,7 @@ def _sanitize_filename(name: str) -> str:
         return "unknown"
     # Strip directory components to prevent path traversal
     base = os.path.basename(name)
-    safe = re.sub(r"[^A-Za-z0-9_.\-]+", "_", base)
+    safe = re.sub(r"[^\w.\-]+", "_", base)
     # Prevent hidden files
     safe = safe.lstrip(".")
     return safe or "unknown"

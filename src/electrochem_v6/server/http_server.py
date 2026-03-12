@@ -206,7 +206,8 @@ class V6ServerManager:
                         if self._send_static_file(static_root / "index.html"):
                             return
                     if self.path.startswith("/ui/static/"):
-                        rel = self.path[len("/ui/static/") :].split("?", 1)[0]
+                        from urllib.parse import unquote
+                        rel = unquote(self.path[len("/ui/static/") :].split("?", 1)[0])
                         if self._send_static_file(static_root / rel):
                             return
                         self._send_json(404, {"status": "error", "message": "Static file not found"})

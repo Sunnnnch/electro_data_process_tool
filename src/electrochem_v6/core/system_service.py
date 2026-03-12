@@ -64,17 +64,17 @@ def _is_within_allowed_roots(path: str) -> bool:
     """Check that *path* is under a known data directory or a runtime-registered directory."""
     from electrochem_v6.config import project_default_dir, user_config_dir
 
-    resolved = os.path.realpath(path)
+    resolved = os.path.normcase(os.path.realpath(path))
     allowed_roots = [
-        os.path.realpath(str(user_config_dir())),
-        os.path.realpath(str(project_default_dir())),
-        os.path.realpath(os.path.join(str(project_default_dir()), "user_data")),
-        os.path.realpath(os.path.join(str(project_default_dir()), "reports")),
-        os.path.realpath(os.path.join(str(project_default_dir()), "project_reports")),
+        os.path.normcase(os.path.realpath(str(user_config_dir()))),
+        os.path.normcase(os.path.realpath(str(project_default_dir()))),
+        os.path.normcase(os.path.realpath(os.path.join(str(project_default_dir()), "user_data"))),
+        os.path.normcase(os.path.realpath(os.path.join(str(project_default_dir()), "reports"))),
+        os.path.normcase(os.path.realpath(os.path.join(str(project_default_dir()), "project_reports"))),
     ]
     # Include directories registered at runtime (from processing results)
     with _runtime_allowed_dirs_lock:
-        allowed_roots.extend(_runtime_allowed_dirs)
+        allowed_roots.extend(os.path.normcase(d) for d in _runtime_allowed_dirs)
     return any(resolved == root or resolved.startswith(root + os.sep) for root in allowed_roots)
 
 

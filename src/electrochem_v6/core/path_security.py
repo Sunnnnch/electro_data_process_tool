@@ -26,8 +26,8 @@ def sanitize_filename(name: str) -> str:
         return "unknown"
     # Take only the basename to strip any directory components
     base = os.path.basename(name)
-    # Remove anything that isn't safe
-    safe = re.sub(r"[^A-Za-z0-9_.\-]+", "_", base)
+    # Remove anything that isn't safe (allow Unicode letters/CJK)
+    safe = re.sub(r"[^\w.\-]+", "_", base)
     # Prevent hidden files or bare dots
     safe = safe.lstrip(".")
     return safe or "unknown"
