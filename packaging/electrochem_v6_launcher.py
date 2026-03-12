@@ -158,11 +158,10 @@ class DesktopShellApp:
                 text_select=True,
             )
             window.events.closed += self._on_window_closed
-            webview.start(gui="edgechromium", debug=False)
+            webview.start(debug=False)
             return True
         except Exception as exc:
             self.webview_error = f"桌面壳启动失败: {exc}"
-            self._stop_server()
             return False
 
     def _run_browser_fallback(self) -> None:

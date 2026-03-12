@@ -13,9 +13,12 @@ STATIC_DIR = SRC_DIR / "electrochem_v6" / "ui" / "static"
 
 hiddenimports = [
     "processing_core",
+    "clr_loader",
+    "pythonnet",
 ]
 hiddenimports += collect_submodules("electrochem_v6")
 hiddenimports += collect_submodules("webview")
+hiddenimports += collect_submodules("clr_loader")
 
 datas = [
     (str(STATIC_DIR), "electrochem_v6/ui/static"),
