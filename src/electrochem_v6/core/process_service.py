@@ -22,7 +22,6 @@ from electrochem_v6.core.utils import as_bool as _as_bool
 from electrochem_v6.core.utils import as_float as _as_float
 from electrochem_v6.core.utils import as_int as _as_int
 from electrochem_v6.store._json_utils import atomic_write_json as _atomic_write_json
-from electrochem_v6.store._json_utils import to_json_safe as _to_json_safe
 from electrochem_v6.store.history import attach_run_outputs
 from electrochem_v6.store.legacy_runtime import get_history_manager_v6, get_project_manager_v6
 
