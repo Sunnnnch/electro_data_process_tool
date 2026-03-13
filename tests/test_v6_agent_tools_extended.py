@@ -81,3 +81,56 @@ class TestToolFindBestCatalysts:
         from electrochem_v6.agent.tool_executor import tool_find_best_catalysts
         result = tool_find_best_catalysts()
         assert isinstance(result, dict)
+
+
+# ── execute_tool dispatcher ────────────────────────────────────────────────
+
+class TestExecuteTool:
+    def test_unknown_tool(self):
+        from electrochem_v6.agent.tool_executor import execute_tool
+        result = execute_tool("nonexistent_tool", {})
+        assert result.get("success") is False
+        assert "未知工具" in result.get("error", "")
+
+    def test_invalid_json_arguments(self):
+        from electrochem_v6.agent.tool_executor import execute_tool
+        result = execute_tool("query_lsv_summary", "not-valid-json{")
+        assert result.get("success") is False
+        assert "参数解析失败" in result.get("error", "")
+
+    def test_dict_arguments_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ELECTROCHEM_V6_PROJECTS_FILE", str(tmp_path / "p.json"))
+        monkeypatch.setenv("ELECTROCHEM_V6_HISTORY_FILE", str(tmp_path / "h.json"))
+        (tmp_path / "p.json").write_text("[]", encoding="utf-8")
+        (tmp_path / "h.json").write_text("[]", encoding="utf-8")
+
+        from electrochem_v6.agent.tool_executor import execute_tool
+        result = execute_tool("query_lsv_summary", {"top_n": 3})
+        assert isinstance(result, dict)
+
+    def test_json_string_arguments(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ELECTROCHEM_V6_PROJECTS_FILE", str(tmp_path / "p.json"))
+        monkeypatch.setenv("ELECTROCHEM_V6_HISTORY_FILE", str(tmp_path / "h.json"))
+        (tmp_path / "p.json").write_text("[]", encoding="utf-8")
+        (tmp_path / "h.json").write_text("[]", encoding="utf-8")
+
+        from electrochem_v6.agent.tool_executor import execute_tool
+        result = execute_tool("query_lsv_summary", '{"top_n": 5}')
+        assert isinstance(result, dict)
+
+    def test_tool_exception_wrapped(self, monkeypatch):
+        from electrochem_v6.agent import tool_executor
+
+        def _bomb(**kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(tool_executor, "tool_query_lsv_summary", _bomb)
+
+        result = tool_executor.execute_tool("query_lsv_summary", {})
+        assert result.get("success") is False
+        assert "boom" in result.get("error", "")
+
+    def test_get_catalyst_info_dispatched(self):
+        from electrochem_v6.agent.tool_executor import execute_tool
+        result = execute_tool("get_catalyst_info", {"name": "Pt/C"})
+        assert isinstance(result, dict)

@@ -242,3 +242,169 @@ class TestPotentialAtCurrent:
         if result is not None:
             pot_val, _ = result
             assert isinstance(pot_val, float)
+
+
+# ── _parse_tafel_range ────────────────────────────────────────────────────
+
+class TestParseTafelRange:
+    def test_normal_range(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range("1-10") == (1.0, 10.0)
+
+    def test_float_range(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range("0.5-5.0") == (0.5, 5.0)
+
+    def test_none_input(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range(None) is None
+
+    def test_empty_string(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range("") is None
+
+    def test_single_value(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        result = _parse_tafel_range("5")
+        assert result == (5.0, 5.0)
+
+    def test_invalid_text(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range("abc") is None
+
+    def test_chinese_comma_treated_as_text(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        # Chinese comma is replaced, then split on '-'
+        result = _parse_tafel_range("1，10")
+        # No '-', so lo=hi="1,10" which is invalid
+        assert result is None
+
+    def test_whitespace(self):
+        from electrochem_v6.core.processing_lsv import _parse_tafel_range
+        assert _parse_tafel_range(" 2 - 8 ") == (2.0, 8.0)
+
+
+# ── interpolate_multiple_potentials ───────────────────────────────────────
+
+class TestInterpolateMultiplePotentials:
+    def test_multiple_targets(self):
+        from electrochem_v6.core.processing_lsv import interpolate_multiple_potentials
+        potential = [0.0, 0.5, 1.0, 1.5]
+        current = [1.0, 10.0, 50.0, 100.0]
+        results = interpolate_multiple_potentials(potential, current, [10.0, 50.0])
+        assert 10.0 in results
+        assert 50.0 in results
+        assert abs(results[10.0] - 0.5) < 1e-6
+        assert abs(results[50.0] - 1.0) < 1e-6
+
+    def test_out_of_range_target_skipped(self):
+        from electrochem_v6.core.processing_lsv import interpolate_multiple_potentials
+        potential = [0.0, 0.5, 1.0]
+        current = [10.0, 20.0, 30.0]
+        results = interpolate_multiple_potentials(potential, current, [5.0, 20.0, 50.0])
+        assert 20.0 in results
+        assert 5.0 not in results
+        assert 50.0 not in results
+
+    def test_empty_targets(self):
+        from electrochem_v6.core.processing_lsv import interpolate_multiple_potentials
+        results = interpolate_multiple_potentials([0.0, 1.0], [10.0, 20.0], [])
+        assert results == {}
+
+
+# ── process_lsv advanced features ─────────────────────────────────────────
+
+class TestProcessLsvAdvanced:
+    @pytest.fixture
+    def lsv_dir(self, tmp_path):
+        """Create temp dir with a realistic LSV data file (50 points)."""
+        sample_dir = tmp_path / "sample_adv"
+        sample_dir.mkdir()
+        lines = []
+        for i in range(50):
+            v = 0.0 + i * 0.03
+            i_A = 1e-6 * np.exp(5.0 * v)
+            lines.append(f"{v:.6f}\t{i_A:.10f}")
+        (sample_dir / "LSV_adv.txt").write_text("\n".join(lines), encoding="utf-8")
+        return sample_dir
+
+    def _base_params(self, **overrides):
+        params = {
+            "start_line": "1", "offset": "0", "area": "1.0",
+            "target_current": "10", "use_abs_current": True,
+            "tafel_enabled": False, "overpotential_enabled": False,
+            "onset_enabled": False, "halfwave_enabled": False,
+            "ir_compensation_enabled": False, "lsv_line_color": "blue",
+            "font_family": "", "font_size": "12", "plot_grid": False,
+            "xlabel": "Potential (V)", "ylabel": "Current (mA/cm²)",
+            "title": "LSV - {sample}", "fontsize": "12", "font": "",
+            "line_color": "blue", "line_width": 2.0,
+        }
+        params.update(overrides)
+        return params
+
+    def test_tafel_enabled(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(tafel_enabled=True, tafel_range="1-100")
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+
+    def test_overpotential_enabled(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(overpotential_enabled=True, eq_potential="1.23")
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+
+    def test_onset_enabled(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(onset_enabled=True, onset_current="1.0")
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+
+    def test_halfwave_enabled(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(halfwave_enabled=True)
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+
+    def test_multiple_target_currents(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(target_current="10,100")
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+        row = result.get("result_row") if isinstance(result, dict) else result
+        # Multiple targets should produce a longer result row
+        assert row is not None
+
+    def test_collect_series(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        collector = []
+        params = self._base_params(collect_series=collector)
+        process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert len(collector) >= 1
+        assert "potential" in collector[0]
+        assert "current" in collector[0]
+
+    def test_all_features_combined(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(
+            tafel_enabled=True, tafel_range="1-100",
+            overpotential_enabled=True, eq_potential="1.23",
+            onset_enabled=True, onset_current="1.0",
+            halfwave_enabled=True,
+            target_current="10,50",
+        )
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+
+    def test_export_detail_excel(self, lsv_dir):
+        from electrochem_v6.core.processing_lsv import process_lsv
+        params = self._base_params(
+            export_detail=True, export_format="xlsx",
+        )
+        result = process_lsv(str(lsv_dir), "LSV_adv.txt", params)
+        assert result is not None
+        # Check xlsx file was created
+        import glob
+        xlsx_files = glob.glob(str(lsv_dir / "*.xlsx"))
+        assert len(xlsx_files) >= 1
