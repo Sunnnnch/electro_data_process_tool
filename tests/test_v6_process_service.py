@@ -46,7 +46,7 @@ def test_get_latest_quality_report_includes_app_version(tmp_path, monkeypatch):
         json.dumps({"generated_at": "2026-02-27 20:00:00", "data": {"total_files": 2}}, ensure_ascii=False),
         encoding="utf-8",
     )
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(process_service, "get_quality_report_file", lambda: report_path)
 
     payload = process_service.get_latest_quality_report()
     assert payload.get("status") == "success"
