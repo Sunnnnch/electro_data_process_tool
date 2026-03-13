@@ -161,8 +161,14 @@ class LLMConfig:
                 user_dir = Path.home() / ".electrochem"
                 user_dir.mkdir(parents=True, exist_ok=True)
                 config_path = user_dir / self.config_file
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            from electrochem_v6.store._json_utils import atomic_write_json
+            atomic_write_json(config_path, self.config)
+            # Restrict file permissions so other OS users cannot read the key
+            try:
+                import stat
+                os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass  # Windows may not support chmod; best-effort
             return True
         except Exception:
             return False

@@ -26,11 +26,12 @@ def _ecsa_read_text_lines(filepath: str):
     encodings = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1', 'cp1252']
     for enc in encodings:
         try:
-            with open(filepath, 'r', encoding=enc, errors='ignore') as f:
+            with open(filepath, 'r', encoding=enc) as f:
                 return f.readlines()
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, UnicodeError):
             continue
-    with open(filepath, 'r', encoding='latin-1', errors='ignore') as f:
+    # Last resort: lossy read with latin-1 (never fails)
+    with open(filepath, 'r', encoding='latin-1') as f:
         return f.readlines()
 
 def _ecsa_extract_v_from_content(lines):

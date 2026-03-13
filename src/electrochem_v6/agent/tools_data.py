@@ -12,6 +12,22 @@ from typing import Any, Dict
 
 import pandas as pd
 
+
+def _is_agent_path_allowed(path: str) -> bool:
+    """Check that *path* is within directories the user can reasonably access.
+
+    Reuses the same rules as the HTTP processing endpoint so that the agent
+    can access any path the user themselves could submit via the UI, but
+    cannot be tricked (e.g. via prompt-injection) into reading sensitive
+    system files like ~/.ssh/id_rsa.
+    """
+    from electrochem_v6.core.process_service import _is_allowed_process_dir
+    resolved = os.path.realpath(path)
+    # For files, check the parent directory
+    check_dir = resolved if os.path.isdir(resolved) else os.path.dirname(resolved)
+    return _is_allowed_process_dir(check_dir)
+
+
 __all__ = [
     "tool_scan_data_folder",
     "tool_preview_data_file",
@@ -27,6 +43,8 @@ def tool_scan_data_folder(folder_path: str) -> Dict:
         resolved = os.path.realpath(folder_path)
         if not os.path.isdir(resolved):
             return {"success": False, "error": f"文件夹不存在: {folder_path}"}
+        if not _is_agent_path_allowed(resolved):
+            return {"success": False, "error": "路径不在允许范围内"}
         folder_path = resolved
 
         files_info = []
@@ -90,6 +108,8 @@ def tool_preview_data_file(file_path: str, lines: int = 20) -> Dict:
         file_path = resolved
         if not os.path.exists(file_path):
             return {"success": False, "error": f"文件不存在: {file_path}"}
+        if not _is_agent_path_allowed(file_path):
+            return {"success": False, "error": "路径不在允许范围内"}
 
         encodings = ["utf-8", "gbk", "gb2312", "latin-1"]
         preview_lines = None
@@ -132,21 +152,26 @@ def tool_preview_data_file(file_path: str, lines: int = 20) -> Dict:
 def tool_analyze_data_characteristics(file_path: str, data_type: str) -> Dict:
     """分析数据特征(用于智能决定参数)。"""
     try:
+        resolved = os.path.realpath(file_path)
+        if not _is_agent_path_allowed(resolved):
+            return {"success": False, "error": "路径不在允许范围内"}
+        if not os.path.isfile(resolved):
+            return {"success": False, "error": f"文件不存在: {file_path}"}
         from electrochem_v6.core.processing_compat import auto_detect_data_start
 
-        start_line = auto_detect_data_start(file_path)
+        start_line = auto_detect_data_start(resolved)
 
         try:
             df = pd.read_csv(
-                file_path, sep=r"\s+|,", skiprows=start_line - 1, engine="python", nrows=1000, on_bad_lines="skip"
+                resolved, sep=r"\s+|,", skiprows=start_line - 1, engine="python", nrows=1000, on_bad_lines="skip"
             )
         except Exception:
             try:
                 df = pd.read_csv(
-                    file_path, delim_whitespace=True, skiprows=start_line - 1, nrows=1000, on_bad_lines="skip"
+                    resolved, delim_whitespace=True, skiprows=start_line - 1, nrows=1000, on_bad_lines="skip"
                 )
             except Exception:
-                df = pd.read_csv(file_path, sep=",", skiprows=start_line - 1, nrows=1000, on_bad_lines="skip")
+                df = pd.read_csv(resolved, sep=",", skiprows=start_line - 1, nrows=1000, on_bad_lines="skip")
 
         characteristics: Dict[str, Any] = {
             "data_start_line": start_line,

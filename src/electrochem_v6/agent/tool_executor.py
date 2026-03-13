@@ -154,6 +154,10 @@ def tool_analyze_waveform_image(image_path: str, context: str = "", max_tokens: 
     client = _get_vision_client()
     if client is None:
         return {"success": False, "error": "视觉模型未启用或未配置"}
+    # Path boundary check: only allow images under user-accessible directories
+    from electrochem_v6.agent.tools_data import _is_agent_path_allowed
+    if not _is_agent_path_allowed(image_path):
+        return {"success": False, "error": "图片路径不在允许范围内"}
     prompt = context or "请检查这条波形是否存在异常波动，并说明原因。"
     cfg = LLMConfig().get_vision_config()
     max_tokens = max_tokens or int(cfg.get("max_tokens", 800))

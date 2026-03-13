@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -393,23 +394,29 @@ def _resolve_project_id(project_name: Optional[str]) -> Optional[str]:
     return get_or_create_project_id_by_name(project_name, description="v6 process api auto-created")
 
 
+# Lock protecting the monkey-patch of module-level manager bindings.
+# Without this, concurrent HTTP requests would corrupt each other's bindings.
+_RUNTIME_BIND_LOCK = threading.Lock()
+
+
 @contextmanager
 def _bind_v6_runtime_managers():
-    original_history_flag = getattr(processing_core, "HISTORY_MANAGER_AVAILABLE", False)
-    original_project_flag = getattr(processing_core, "PROJECT_MANAGER_AVAILABLE", False)
-    original_history_getter = getattr(processing_core, "get_history_manager", None)
-    original_project_getter = getattr(processing_core, "get_project_manager", None)
-    processing_core.HISTORY_MANAGER_AVAILABLE = True
-    processing_core.PROJECT_MANAGER_AVAILABLE = True
-    processing_core.get_history_manager = get_history_manager_v6
-    processing_core.get_project_manager = get_project_manager_v6
-    try:
-        yield
-    finally:
-        processing_core.HISTORY_MANAGER_AVAILABLE = original_history_flag
-        processing_core.PROJECT_MANAGER_AVAILABLE = original_project_flag
-        processing_core.get_history_manager = original_history_getter
-        processing_core.get_project_manager = original_project_getter
+    with _RUNTIME_BIND_LOCK:
+        original_history_flag = getattr(processing_core, "HISTORY_MANAGER_AVAILABLE", False)
+        original_project_flag = getattr(processing_core, "PROJECT_MANAGER_AVAILABLE", False)
+        original_history_getter = getattr(processing_core, "get_history_manager", None)
+        original_project_getter = getattr(processing_core, "get_project_manager", None)
+        processing_core.HISTORY_MANAGER_AVAILABLE = True
+        processing_core.PROJECT_MANAGER_AVAILABLE = True
+        processing_core.get_history_manager = get_history_manager_v6
+        processing_core.get_project_manager = get_project_manager_v6
+        try:
+            yield
+        finally:
+            processing_core.HISTORY_MANAGER_AVAILABLE = original_history_flag
+            processing_core.PROJECT_MANAGER_AVAILABLE = original_project_flag
+            processing_core.get_history_manager = original_history_getter
+            processing_core.get_project_manager = original_project_getter
 
 
 # Directories under user home that should never be processed (credentials / secrets)
@@ -439,7 +446,7 @@ def _is_allowed_process_dir(folder_path: str) -> bool:
     if resolved == home_root or resolved.startswith(home_root + os.sep):
         rel = resolved[len(home_root) + len(os.sep):] if resolved != home_root else ""
         first_component = rel.split(os.sep)[0] if rel else ""
-        if first_component and first_component in {d.lower() for d in _HOME_SENSITIVE_DIRS}:
+        if first_component and first_component.lower() in {d.lower() for d in _HOME_SENSITIVE_DIRS}:
             return False
         return True
     # Fall back to the existing runtime whitelist

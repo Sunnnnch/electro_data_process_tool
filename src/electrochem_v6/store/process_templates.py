@@ -144,8 +144,8 @@ def _load_user_templates() -> List[Dict[str, Any]]:
 def _save_user_templates(items: List[Dict[str, Any]]) -> bool:
     file_path = _template_file()
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump({"version": "1.0", "templates": items}, f, ensure_ascii=False, indent=2)
+        from electrochem_v6.store._json_utils import atomic_write_json
+        atomic_write_json(file_path, {"version": "1.0", "templates": items})
         return True
     except Exception:
         return False

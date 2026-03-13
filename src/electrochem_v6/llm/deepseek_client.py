@@ -57,16 +57,21 @@ class DeepSeekClient(BaseLLMClient):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
-        response = self.session.post(
-            f"{self.base_url}/chat/completions",
-            headers=self._build_headers(),
-            data=json.dumps(payload),
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
+        try:
+            response = self.session.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._build_headers(),
+                data=json.dumps(payload),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            return {"error": str(exc)}
+        except ValueError as exc:
+            return {"error": f"Invalid JSON: {exc}"}
         if "choices" not in data or not data["choices"]:
-            raise ValueError("DeepSeek response missing choices")
+            return {"error": "DeepSeek response missing choices"}
 
         message = data["choices"][0].get("message", {})
         result: Dict[str, Any] = {

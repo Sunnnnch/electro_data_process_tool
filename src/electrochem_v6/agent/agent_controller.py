@@ -29,7 +29,12 @@ def _debug_log(tag: str, payload):
 
 
 class AgentController:
-    """AI Agent控制器"""
+    """​AI Agent控制器"""
+
+    # Maximum number of messages kept in conversation_history.
+    # When exceeded the oldest messages (after the first system turn) are
+    # dropped to keep the context within LLM token limits.
+    MAX_HISTORY_MESSAGES = 80
 
     def __init__(self, llm_client: BaseLLMClient, system_prompt: Optional[str] = None):
         """
@@ -60,6 +65,9 @@ class AgentController:
             "role": "user",
             "content": user_message
         })
+
+        # Trim old history to stay within token budget
+        self._trim_history()
 
         # 构建完整消息(系统提示 + 历史)
         messages = [
@@ -157,6 +165,23 @@ class AgentController:
     def get_history(self) -> List[Dict]:
         """获取对话历史"""
         return self.conversation_history.copy()
+
+    def _trim_history(self) -> None:
+        """Drop oldest messages when conversation_history exceeds the cap.
+
+        Keeps the most recent messages so the LLM always has fresh context.
+        After truncation, any leading ``tool`` role messages (which would
+        lack their matching ``assistant`` tool_calls entry) are stripped so
+        that the LLM API never receives dangling tool results.
+        """
+        if len(self.conversation_history) <= self.MAX_HISTORY_MESSAGES:
+            return
+        # Keep the newest MAX_HISTORY_MESSAGES entries
+        trimmed = self.conversation_history[-self.MAX_HISTORY_MESSAGES:]
+        # Strip orphaned tool-result messages at the front
+        while trimmed and trimmed[0].get("role") == "tool":
+            trimmed.pop(0)
+        self.conversation_history = trimmed
 
     def export_conversation(self, file_path: str) -> bool:
         """导出对话记录"""

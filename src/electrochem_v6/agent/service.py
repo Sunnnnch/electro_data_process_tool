@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from typing import Any, Dict, Optional
 
@@ -17,6 +18,7 @@ class AgentService:
 
     def __init__(self):
         self._sessions: Dict[str, AgentController] = {}
+        self._sessions_lock = threading.Lock()
 
     def _create_agent(
         self,
@@ -32,7 +34,8 @@ class AgentService:
         return controller, provider_key, resolved_model
 
     def delete_session(self, conversation_id: str) -> None:
-        self._sessions.pop(conversation_id, None)
+        with self._sessions_lock:
+            self._sessions.pop(conversation_id, None)
 
     def chat(
         self,
@@ -56,19 +59,20 @@ class AgentService:
         provider_key = provider or "openai"
         resolved_model = model
         cid = conversation_id or ""
-        if cid and cid in self._sessions:
-            agent = self._sessions[cid]
-            provider_key = getattr(agent, "provider", provider_key)
-            resolved_model = getattr(agent, "model_name", resolved_model)
-        else:
-            try:
-                agent, provider_key, resolved_model = self._create_agent(provider, model)
-            except Exception as exc:
-                return {"status": "error", "message": str(exc)}
-            cid = cid or uuid.uuid4().hex
-            self._sessions[cid] = agent
-            setattr(agent, "provider", provider_key)
-            setattr(agent, "model_name", resolved_model)
+        with self._sessions_lock:
+            if cid and cid in self._sessions:
+                agent = self._sessions[cid]
+                provider_key = getattr(agent, "provider", provider_key)
+                resolved_model = getattr(agent, "model_name", resolved_model)
+            else:
+                try:
+                    agent, provider_key, resolved_model = self._create_agent(provider, model)
+                except Exception as exc:
+                    return {"status": "error", "message": str(exc)}
+                cid = cid or uuid.uuid4().hex
+                self._sessions[cid] = agent
+                setattr(agent, "provider", provider_key)
+                setattr(agent, "model_name", resolved_model)
 
         try:
             prompt_text = clean_message
