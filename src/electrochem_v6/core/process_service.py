@@ -535,7 +535,11 @@ def _safe_file_part(value: str, fallback: str) -> str:
 
 
 def _compare_plot_dir(output_dir: Optional[str] = None) -> str:
-    target_dir = os.path.abspath(output_dir or os.path.join(os.getcwd(), "project_reports", "compare_plots"))
+    if output_dir:
+        target_dir = os.path.abspath(output_dir)
+    else:
+        from electrochem_v6.config import user_config_dir
+        target_dir = str(user_config_dir() / "project_reports" / "compare_plots")
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
 

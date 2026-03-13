@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Dict
+
+_logger = logging.getLogger(__name__)
 
 APP_NAME = "电化学数据处理与智能分析软件"
 APP_VERSION = "6.0.12"
@@ -85,7 +89,13 @@ def _project_path(kind: str) -> Path:
 
 
 def resolve_data_path(kind: str, *, for_write: bool = False) -> Path:
-    """Resolve path using priority: env > user dir > project default."""
+    """Resolve path using priority: env > user dir > project default.
+
+    When *for_write* is True the function always returns the user-level
+    path so that we never attempt to write into potentially read-only
+    directories (e.g. Program Files, frozen exe directory).  If an older
+    copy exists only in the project directory it is migrated automatically.
+    """
     env_path = _env_path(kind)
     if env_path is not None:
         return env_path
@@ -98,7 +108,22 @@ def resolve_data_path(kind: str, *, for_write: bool = False) -> Path:
 
     if user_path.exists():
         return user_path
+
     if project_path.exists():
+        if for_write:
+            # Auto-migrate: copy legacy file to user dir so future writes
+            # go to a known-writable location.
+            try:
+                user_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(project_path, user_path)
+                _logger.info("migrated %s -> %s", project_path, user_path)
+            except Exception:
+                _logger.warning(
+                    "failed to migrate %s to %s, using project path",
+                    project_path, user_path, exc_info=True,
+                )
+                return project_path
+            return user_path
         return project_path
 
     # When none exists, default to user dir to avoid polluting arbitrary cwd.

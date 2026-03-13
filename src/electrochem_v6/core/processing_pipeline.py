@@ -621,7 +621,8 @@ def run_pipeline(
 
         # Persist latest quality summary for HTTP access
         try:
-            latest_report_path = os.path.join(os.getcwd(), "latest_quality_report.json")
+            from electrochem_v6.config import ensure_parent_dir, get_quality_report_file
+            latest_report_path = str(ensure_parent_dir(get_quality_report_file()))
             with open(latest_report_path, 'w', encoding='utf-8') as handle:
                 json.dump({
                     "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -659,6 +660,12 @@ def run_pipeline(
             json.dump(summary, handle, ensure_ascii=False, indent=2, cls=NumpyEncoder)
         saved_msgs.append(summary_path)
         emit_stage("报告", 100)
+    except PermissionError as exc:
+        core.log(f'写入结果文件失败（权限不足）: {exc}')
+        raise PermissionError(
+            f"无法写入目录 {folder_path}，请检查该目录是否为只读、"
+            f"文件是否被其他程序占用，或更换一个可写的数据目录后重试。"
+        ) from exc
     except Exception as exc:
         core.log(f'写入 summary.json 失败: {exc}')
 
