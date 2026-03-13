@@ -11,7 +11,7 @@ from typing import Dict
 _logger = logging.getLogger(__name__)
 
 APP_NAME = "电化学数据处理与智能分析软件"
-APP_VERSION = "6.0.14"
+APP_VERSION = "6.0.15"
 
 # v6 design choice: no activation required.
 ENABLE_LICENSE = False
