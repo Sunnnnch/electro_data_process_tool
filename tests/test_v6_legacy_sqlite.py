@@ -54,7 +54,7 @@ def test_get_db_thread_safe():
 
 class TestSqliteHistoryManager:
     def test_add_and_get_records(self):
-        from electrochem_v6.store.legacy_runtime import _get_db, SqliteHistoryManager
+        from electrochem_v6.store.legacy_runtime import SqliteHistoryManager
         mgr = SqliteHistoryManager()
         mgr.add_record({
             "timestamp": "2026-03-01 12:00:00",

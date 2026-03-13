@@ -1,8 +1,6 @@
 """Tests for agent/tools_projects.py — project tools & auto-processing."""
 
-import json
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -24,8 +22,8 @@ class TestResolveV6Project:
         assert err is not None
 
     def test_by_name(self, tmp_path):
-        from electrochem_v6.store.projects import create_project
         from electrochem_v6.agent.tools_projects import _resolve_v6_project
+        from electrochem_v6.store.projects import create_project
         create_project("Alpha", description="test")
         proj, err = _resolve_v6_project(project_name="Alpha")
         assert proj is not None
@@ -33,15 +31,15 @@ class TestResolveV6Project:
         assert proj["name"] == "Alpha"
 
     def test_by_name_casefold(self, tmp_path):
-        from electrochem_v6.store.projects import create_project
         from electrochem_v6.agent.tools_projects import _resolve_v6_project
+        from electrochem_v6.store.projects import create_project
         create_project("MyProject")
         proj, err = _resolve_v6_project(project_name="myproject")
         assert proj is not None
 
     def test_by_id(self, tmp_path):
-        from electrochem_v6.store.projects import create_project
         from electrochem_v6.agent.tools_projects import _resolve_v6_project
+        from electrochem_v6.store.projects import create_project
         result = create_project("Beta")
         pid = result["project_id"]
         proj, err = _resolve_v6_project(project_id=pid)
@@ -81,8 +79,8 @@ class TestToolGetCurrentProjectSummary:
         assert result.get("success") is False
 
     def test_with_project(self):
-        from electrochem_v6.store.projects import create_project
         from electrochem_v6.agent.tools_projects import tool_get_current_project_summary
+        from electrochem_v6.store.projects import create_project
         created = create_project("SummaryProj")
         pid = created["project_id"]
         result = tool_get_current_project_summary(project_id=pid)

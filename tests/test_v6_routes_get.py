@@ -1,13 +1,8 @@
 """Tests for routes_get.py — GET endpoint dispatching and helpers."""
 
-import json
-import os
 from unittest.mock import MagicMock
 
-import pytest
-
 from electrochem_v6.server.routes_get import _safe_int
-
 
 # ── _safe_int ─────────────────────────────────────────────────────
 
