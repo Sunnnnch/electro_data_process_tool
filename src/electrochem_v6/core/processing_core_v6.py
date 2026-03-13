@@ -294,15 +294,12 @@ def _resolve_plot_font(preferred_font: Any, fallback: str = CHINESE_FONT, text: 
 
 
 def _sanitize_filename(name: str) -> str:
-    """Convert arbitrary filename to filesystem-friendly format."""
-    if not name:
-        return "unknown"
-    # Strip directory components to prevent path traversal
-    base = os.path.basename(name)
-    safe = re.sub(r"[^\w.\-]+", "_", base)
-    # Prevent hidden files
-    safe = safe.lstrip(".")
-    return safe or "unknown"
+    """Convert arbitrary filename to filesystem-friendly format.
+
+    Delegates to :func:`path_security.sanitize_filename` to avoid duplication.
+    """
+    from .path_security import sanitize_filename
+    return sanitize_filename(name)
 
 
 def save_waveform_plot(

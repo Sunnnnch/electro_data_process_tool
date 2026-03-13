@@ -4,6 +4,8 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.ruff_cache/
+*.db
 build/
 dist/
 dist_installer/

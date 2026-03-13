@@ -59,6 +59,47 @@ def _now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _aggregate_lsv_summary(records: list) -> Dict[str, Any]:
+    """Shared aggregation logic for LSV summary used by both JSON and SQLite managers."""
+    grouped: dict[str, list[Dict[str, Any]]] = {}
+    for record in records:
+        sample_name = str(record.get("sample_name") or record.get("file_name") or "Unknown").strip() or "Unknown"
+        grouped.setdefault(sample_name, []).append(record)
+
+    samples: list[Dict[str, Any]] = []
+    for sample_name, items in grouped.items():
+        potentials: list[float] = []
+        overpotentials: list[float] = []
+        tafel_slopes: list[float] = []
+        latest_time = ""
+        for item in items:
+            latest_time = max(latest_time, str(item.get("timestamp") or ""))
+            results = item.get("results") or {}
+            if not isinstance(results, dict):
+                continue
+            for key, bucket in (
+                ("potential_10", potentials),
+                ("overpotential_10", overpotentials),
+                ("tafel_slope", tafel_slopes),
+            ):
+                try:
+                    if results.get(key) is not None:
+                        bucket.append(float(results[key]))
+                except Exception:
+                    pass
+        samples.append(
+            {
+                "sample_name": sample_name,
+                "potential_10": (sum(potentials) / len(potentials)) if potentials else None,
+                "overpotential_10": (sum(overpotentials) / len(overpotentials)) if overpotentials else None,
+                "tafel_slope": (sum(tafel_slopes) / len(tafel_slopes)) if tafel_slopes else None,
+                "record_count": len(items),
+                "latest_time": latest_time,
+            }
+        )
+    return {"samples": samples, "total_count": len(records)}
+
+
 def _load_json_dict(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -142,44 +183,7 @@ class NativeHistoryManager:
             for item in self.get_all_records()
             if str(item.get("type") or "").upper() == "LSV" and (not project_id or item.get("project_id") == project_id)
         ]
-
-        grouped: dict[str, list[Dict[str, Any]]] = {}
-        for record in records:
-            sample_name = str(record.get("sample_name") or record.get("file_name") or "Unknown").strip() or "Unknown"
-            grouped.setdefault(sample_name, []).append(record)
-
-        samples: list[Dict[str, Any]] = []
-        for sample_name, items in grouped.items():
-            potentials: list[float] = []
-            overpotentials: list[float] = []
-            tafel_slopes: list[float] = []
-            latest_time = ""
-            for item in items:
-                latest_time = max(latest_time, str(item.get("timestamp") or ""))
-                results = item.get("results") or {}
-                if not isinstance(results, dict):
-                    continue
-                for key, bucket in (
-                    ("potential_10", potentials),
-                    ("overpotential_10", overpotentials),
-                    ("tafel_slope", tafel_slopes),
-                ):
-                    try:
-                        if results.get(key) is not None:
-                            bucket.append(float(results[key]))
-                    except Exception:
-                        pass
-            samples.append(
-                {
-                    "sample_name": sample_name,
-                    "potential_10": (sum(potentials) / len(potentials)) if potentials else None,
-                    "overpotential_10": (sum(overpotentials) / len(overpotentials)) if overpotentials else None,
-                    "tafel_slope": (sum(tafel_slopes) / len(tafel_slopes)) if tafel_slopes else None,
-                    "record_count": len(items),
-                    "latest_time": latest_time,
-                }
-            )
-        return {"samples": samples, "total_count": len(records)}
+        return _aggregate_lsv_summary(records)
 
 
 class NativeProjectManager:
@@ -553,44 +557,7 @@ class SqliteHistoryManager:
 
     def get_lsv_summary(self, project_id: Optional[str] = None) -> Dict[str, Any]:
         records = self.db.get_lsv_records(project_id=project_id)
-
-        grouped: dict[str, list[Dict[str, Any]]] = {}
-        for record in records:
-            sample_name = str(record.get("sample_name") or record.get("file_name") or "Unknown").strip() or "Unknown"
-            grouped.setdefault(sample_name, []).append(record)
-
-        samples: list[Dict[str, Any]] = []
-        for sample_name, items in grouped.items():
-            potentials: list[float] = []
-            overpotentials: list[float] = []
-            tafel_slopes: list[float] = []
-            latest_time = ""
-            for item in items:
-                latest_time = max(latest_time, str(item.get("timestamp") or ""))
-                results = item.get("results") or {}
-                if not isinstance(results, dict):
-                    continue
-                for key, bucket in (
-                    ("potential_10", potentials),
-                    ("overpotential_10", overpotentials),
-                    ("tafel_slope", tafel_slopes),
-                ):
-                    try:
-                        if results.get(key) is not None:
-                            bucket.append(float(results[key]))
-                    except Exception:
-                        pass
-            samples.append(
-                {
-                    "sample_name": sample_name,
-                    "potential_10": (sum(potentials) / len(potentials)) if potentials else None,
-                    "overpotential_10": (sum(overpotentials) / len(overpotentials)) if overpotentials else None,
-                    "tafel_slope": (sum(tafel_slopes) / len(tafel_slopes)) if tafel_slopes else None,
-                    "record_count": len(items),
-                    "latest_time": latest_time,
-                }
-            )
-        return {"samples": samples, "total_count": len(records)}
+        return _aggregate_lsv_summary(records)
 
     # Compatibility shims for code that reaches into manager internals
     @staticmethod

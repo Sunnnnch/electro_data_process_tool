@@ -1,6 +1,7 @@
 """LSV processing helpers extracted from the shared processing core."""
 from __future__ import annotations
 
+import math
 import os
 from datetime import datetime
 
@@ -39,8 +40,8 @@ HF_THRESHOLD_DOWN = 0.3  # lower extrapolation direction
 # Relative threshold for imaginary impedance filtering (1% of range)
 EIS_RELATIVE_IMAG_THRESHOLD = 0.01
 
-# Software version stamp embedded in detail exports
-SOFTWARE_VERSION = "2.3.2"
+# Software version stamp embedded in detail exports — derived from central config
+from electrochem_v6.config import APP_VERSION as SOFTWARE_VERSION
 
 get_logger = core.get_logger
 _resolve_plot_font = core._resolve_plot_font
@@ -197,11 +198,7 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
 
     # 目标太远：拒绝外推（避免“拍脑袋”）
     if I.max() <= 0 or target_i > I.max() * float(max_extrap_factor):
-        try:
-            import numpy as _np
-            return _np.nan, None
-        except Exception:
-            return float('nan'), None
+        return np.nan, None
 
     # 覆盖 -> 插值
     if (I.min() <= target_i) and (I.max() >= target_i):
@@ -249,11 +246,7 @@ def potential_at_current(potential_V, current_mAcm2, target_i=10.0,
 
     # 再次保护：外推幅度过大则返回 NaN
     if (max(target_i, I.max()) / max(1e-12, min(I_sel.max(), target_i))) > float(max_extrap_factor):
-        try:
-            import numpy as _np
-            return _np.nan, None
-        except Exception:
-            return float('nan'), None
+        return np.nan, None
 
     return E10, (E_ext, i_ext, method)
 
@@ -586,7 +579,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     for target_current in target_currents:
         E10, ext = potential_at_current(potential, current, target_i=target_current,
                                         min_pts=3, tafel_ratio=3.0, max_extrap_factor=2.0)
-        if E10 == E10:  # not NaN
+        if not math.isnan(E10):
             target_potentials_original[target_current] = E10
         if ext is not None:
             ext_segments_original.append(ext)
@@ -597,7 +590,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         for target_current in target_currents:
             E10c, extc = potential_at_current(potential_compensated, current, target_i=target_current,
                                               min_pts=3, tafel_ratio=3.0, max_extrap_factor=2.0)
-            if E10c == E10c:
+            if not math.isnan(E10c):
                 target_potentials_compensated[target_current] = E10c
             if extc is not None:
                 ext_segments_compensated.append(extc)
@@ -698,8 +691,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     font_to_use = _resolve_plot_font(params.get('font'))
     plt.title(title, fontname=font_to_use, fontsize=int(params['fontsize']))
     if params.get('plot_grid', True):
-        if params.get('plot_grid', True):
-            plt.grid(True, alpha=0.3)
+        plt.grid(True, alpha=0.3)
     if params.get('mark_targets', True) and target_potentials_original:
         plt.legend()
     plt.tight_layout()
@@ -790,8 +782,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         font_to_use = _resolve_plot_font(params.get('font'))
         plt.title(title_compensated, fontname=font_to_use, fontsize=int(params['fontsize']))
         if params.get('plot_grid', True):
-            if params.get('plot_grid', True):
-                plt.grid(True, alpha=0.3)
+            plt.grid(True, alpha=0.3)
         if params.get('mark_targets', True) and target_potentials_compensated:
             plt.legend()
         plt.tight_layout()

@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from electrochem_v6.config import APP_VERSION
 from electrochem_v6.core.utils import as_bool as _as_bool
 
 # ── parallel processing configuration ────────────────────────────────────
@@ -256,6 +257,7 @@ def run_pipeline(
     saved_msgs: List[str] = []
     quality_reports: List[Dict[str, Any]] = []  # 收集所有质量检测报告
     skipped_errors: List[Dict[str, str]] = []  # 收集跳过的错误文件
+    _results_lock = threading.Lock()  # protects shared lists when parallel
     out_path_lsv: Optional[str] = None
     out_ecsa: Optional[str] = None
     combined_path: Optional[str] = None
@@ -344,7 +346,8 @@ def run_pipeline(
                             result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
                     except Exception as exc:
                         core.log(f"LSV 处理跳过 {file}: {exc}")
-                        skipped_errors.append({"file": os.path.join(sub, file), "type": "LSV", "error": str(exc)})
+                        with _results_lock:
+                            skipped_errors.append({"file": os.path.join(sub, file), "type": "LSV", "error": str(exc)})
                         result = None
                     if result:
                         quality_report = None
@@ -352,13 +355,15 @@ def run_pipeline(
                         if isinstance(result, dict):
                             result_row = result.get('result_row', [])
                             if result_row:
-                                results_lsv.append(result_row)
+                                with _results_lock:
+                                    results_lsv.append(result_row)
                             quality_report = result.get('quality_report')
                             if quality_report:
                                 logger.info(f"收集到质量报告: {file} - {quality_report.get('quality_level')}")
                         else:
                             # 兼容旧格式（直接是 result_row）
-                            results_lsv.append(result)
+                            with _results_lock:
+                                results_lsv.append(result)
                             logger.warning(f"使用旧格式返回值: {file}")
 
                         if not quality_report:
@@ -372,7 +377,8 @@ def run_pipeline(
                                 'quality_level': 'normal',
                                 'recommendation': 'none',
                             }
-                        quality_reports.append(quality_report)
+                        with _results_lock:
+                            quality_reports.append(quality_report)
 
         if cv_enabled:
             match_mode = (gui_vars.get('cv_match') or 'prefix').lower()
@@ -417,12 +423,14 @@ def run_pipeline(
                                 result = core.process_cv(sub, file, params)
                     except Exception as exc:
                         core.log(f"CV 处理跳过 {file}: {exc}")
-                        skipped_errors.append({"file": os.path.join(sub, file), "type": "CV", "error": str(exc)})
+                        with _results_lock:
+                            skipped_errors.append({"file": os.path.join(sub, file), "type": "CV", "error": str(exc)})
                         result = None
                     if isinstance(result, dict):
                         quality_report = result.get('quality_report')
                         if quality_report:
-                            quality_reports.append(quality_report)
+                            with _results_lock:
+                                quality_reports.append(quality_report)
 
         if eis_enabled:
             match_mode = (gui_vars.get('eis_match') or 'prefix').lower()
@@ -457,7 +465,8 @@ def run_pipeline(
                             core.process_eis(sub, file, params)
                     except Exception as exc:
                         core.log(f"EIS 处理跳过 {file}: {exc}")
-                        skipped_errors.append({"file": os.path.join(sub, file), "type": "EIS", "error": str(exc)})
+                        with _results_lock:
+                            skipped_errors.append({"file": os.path.join(sub, file), "type": "EIS", "error": str(exc)})
 
         if ecsa_enabled:
             ecsa_params = {
@@ -486,10 +495,12 @@ def run_pipeline(
                     ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
             except Exception as exc:
                 core.log(f"ECSA 处理跳过 {sub}: {exc}")
-                skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
+                with _results_lock:
+                    skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
                 ecsa_res = None
             if ecsa_res:
-                results_ecsa.append(ecsa_res)  # type: ignore[arg-type]
+                with _results_lock:
+                    results_ecsa.append(ecsa_res)  # type: ignore[arg-type]
 
         emit_stage("分析", int(((idx + 1) / total) * 85))
         emit_progress(int(((idx + 1) / total) * 100))
@@ -657,7 +668,7 @@ def run_pipeline(
             saved_msgs.append(f"质量报告: {quality_report_path}")
 
         summary = {
-            'version': '3.0.4',
+            'version': APP_VERSION,
             'folder': folder_path,
             'timestamp': datetime.now().isoformat(timespec='seconds'),
             'lsv': {
