@@ -108,7 +108,10 @@ def extract_zip_safely(
             total_size += max(0, int(info.file_size or 0))
             if total_size > max_zip_uncompressed_bytes:
                 raise ValueError("ZIP 解压后体积过大，已超出限制")
-        archive.extractall(extract_dir)
+        # Extract entries one-by-one so the validated paths are enforced.
+        # Using extractall() would bypass the per-entry validation above.
+        for info in infos:
+            archive.extract(info, extract_dir)
 
 
 def path_parts(path: str) -> list[str]:

@@ -109,6 +109,25 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def _atomic_write(path: str, payload: Any) -> None:
+    """Write JSON atomically via temp-file + rename to prevent corruption."""
+    import tempfile
+    target = os.path.abspath(path)
+    fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=os.path.dirname(target))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2, cls=NumpyEncoder)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+
 def _is_result_file(filename: str) -> bool:
     """Check if *filename* matches common result / output file patterns."""
     lower_name = filename.lower()
@@ -634,8 +653,7 @@ def run_pipeline(
         # 保存详细质量报告
         if quality_reports:
             quality_report_path = os.path.join(folder_path, 'quality_report.json')
-            with open(quality_report_path, 'w', encoding='utf-8') as qf:
-                json.dump(quality_summary, qf, ensure_ascii=False, indent=2, cls=NumpyEncoder)
+            _atomic_write(quality_report_path, quality_summary)
             saved_msgs.append(f"质量报告: {quality_report_path}")
 
         summary = {
@@ -656,8 +674,7 @@ def run_pipeline(
             'quality_summary': quality_summary,
         }
         summary_path = os.path.join(folder_path, 'summary.json')
-        with open(summary_path, 'w', encoding='utf-8') as handle:
-            json.dump(summary, handle, ensure_ascii=False, indent=2, cls=NumpyEncoder)
+        _atomic_write(summary_path, summary)
         saved_msgs.append(summary_path)
         emit_stage("报告", 100)
     except PermissionError as exc:

@@ -480,6 +480,7 @@ class NativeConversationManager:
 # ╚══════════════════════════════════════════════════════════════════╝
 
 _db_singleton: Optional[Any] = None
+_db_init_lock = threading.Lock()
 
 
 def _get_db() -> Any:
@@ -487,32 +488,36 @@ def _get_db() -> Any:
     global _db_singleton
     if _db_singleton is not None:
         return _db_singleton
-    from .database import Database
+    with _db_init_lock:
+        # Double-checked locking: another thread may have initialised while we waited.
+        if _db_singleton is not None:
+            return _db_singleton
+        from .database import Database
 
-    db_dir = str(ensure_parent_dir(get_history_file()).parent)
-    db_path = os.path.join(db_dir, "electrochem_v6.db")
-    db = Database(db_path)
+        db_dir = str(ensure_parent_dir(get_history_file()).parent)
+        db_path = os.path.join(db_dir, "electrochem_v6.db")
+        db = Database(db_path)
 
-    if not db.is_migrated():
-        history_f = str(get_history_file())
-        projects_f = str(get_projects_file())
-        conv_f = str(get_conversation_file())
-        templates_f = None
-        try:
-            from electrochem_v6.config import get_templates_file
-            templates_f = str(get_templates_file())
-        except Exception:
-            pass
-        counts = db.migrate_from_json(
-            history_file=history_f if os.path.exists(history_f) else None,
-            projects_file=projects_f if os.path.exists(projects_f) else None,
-            conversations_file=conv_f if os.path.exists(conv_f) else None,
-            templates_file=templates_f if templates_f and os.path.exists(templates_f) else None,
-        )
-        _logger.info("Auto-migrated JSON → SQLite: %s", counts)
+        if not db.is_migrated():
+            history_f = str(get_history_file())
+            projects_f = str(get_projects_file())
+            conv_f = str(get_conversation_file())
+            templates_f = None
+            try:
+                from electrochem_v6.config import get_templates_file
+                templates_f = str(get_templates_file())
+            except Exception:
+                pass
+            counts = db.migrate_from_json(
+                history_file=history_f if os.path.exists(history_f) else None,
+                projects_file=projects_f if os.path.exists(projects_f) else None,
+                conversations_file=conv_f if os.path.exists(conv_f) else None,
+                templates_file=templates_f if templates_f and os.path.exists(templates_f) else None,
+            )
+            _logger.info("Auto-migrated JSON → SQLite: %s", counts)
 
-    _db_singleton = db
-    return db
+        _db_singleton = db
+        return db
 
 
 class SqliteHistoryManager:
