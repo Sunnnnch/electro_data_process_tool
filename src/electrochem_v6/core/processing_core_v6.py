@@ -129,7 +129,8 @@ def setup_logger(log_dir: Optional[str] = None, log_level: int = logging.INFO) -
 
     # File handler with rotation (max 10MB per file, keep 5 backups)
     if log_dir is None:
-        log_dir = os.getcwd()
+        from electrochem_v6.config import user_config_dir
+        log_dir = str(user_config_dir() / "logs")
     os.makedirs(log_dir, exist_ok=True)
 
     log_file = os.path.join(log_dir, 'electrochem.log')
