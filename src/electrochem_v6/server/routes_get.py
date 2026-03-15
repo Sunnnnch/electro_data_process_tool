@@ -158,10 +158,11 @@ def dispatch_get(handler: Any) -> bool:
             if report_payload.get("status") != "success":
                 handler._send_json(400, report_payload)
                 return True
+            from electrochem_v6.config import user_config_dir
             export_payload = export_project_report(
                 project=project,
                 report_data=report_payload.get("report") or {},
-                output_dir=os.path.join(os.getcwd(), "project_reports"),
+                output_dir=str(user_config_dir() / "project_reports"),
             )
             handler._send_json(200 if export_payload.get("status") == "success" else 400, export_payload)
             return True

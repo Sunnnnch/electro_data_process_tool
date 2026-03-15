@@ -312,7 +312,8 @@ def save_waveform_plot(
     """Save waveform figure highlighting noisy sections."""
     try:
         if base_dir is None:
-            base_dir = Path(os.getcwd()) / PLOT_OUTPUT_SUBDIR
+            from electrochem_v6.config import user_config_dir
+            base_dir = user_config_dir() / PLOT_OUTPUT_SUBDIR
         safe_name = _sanitize_filename(file_name)
         plot_path = base_dir / f"{safe_name}.png"
         counter = 1

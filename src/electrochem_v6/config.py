@@ -152,7 +152,7 @@ def get_templates_file() -> Path:
 
 
 def get_quality_report_file() -> Path:
-    return resolve_data_path("quality_report", for_write=False)
+    return resolve_data_path("quality_report", for_write=True)
 
 
 def get_llm_config_file() -> Path:
