@@ -438,6 +438,7 @@ body {
 .field-grid {
   display: grid;
   gap: 8px;
+  align-items: start;
 }
 
 .field-grid > * {
@@ -459,6 +460,10 @@ body {
 }
 
 .match-value-item {
+  align-content: start;
+}
+
+.ecsa-material-item {
   align-content: start;
 }
 

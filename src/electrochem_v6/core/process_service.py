@@ -205,7 +205,6 @@ def _validate_payload(payload: Dict[str, Any], data_types: list[str]) -> str | N
 def _build_gui_vars(data_types: list[str], payload: Dict[str, Any]) -> Dict[str, Any]:
     selected = set(data_types)
     gui_vars: Dict[str, Any] = {
-        "auto_detect_start": _as_bool(_payload_get(payload, "auto_detect_start", True), True),
         "area": _as_float(_payload_get(payload, "area", _payload_get(payload, "electrode_area", 1.0)), 1.0),
         "potential_mode": _potential_mode(payload),
         "potential_offset": _resolve_potential_offset(payload),

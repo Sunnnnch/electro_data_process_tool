@@ -1,4 +1,4 @@
-﻿let currentConversationId = null;
+let currentConversationId = null;
 let conversationItems = [];
 let hasProcessResult = false;
 let templateItems = [];
@@ -103,7 +103,7 @@ const TEMPLATE_VALUE_IDS = [
 ];
 
 const TEMPLATE_CHECK_IDS = [
-  "pro-auto-detect",
+
   "pro-plot-grid",
   "pro-use-abs-current",
   "pro-lsv-tafel-enabled",
@@ -3090,7 +3090,6 @@ function collectProcessPayload() {
   if (projectName) payload.project_name = projectName;
 
   const params = {
-    auto_detect_start: boolValue("pro-auto-detect"),
     plot_grid: boolValue("pro-plot-grid"),
     use_abs_current: boolValue("pro-use-abs-current"),
   };

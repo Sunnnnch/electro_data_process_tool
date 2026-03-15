@@ -30,7 +30,6 @@ BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
                 "pro-lsv-ir-points": "10",
             },
             "checks": {
-                "pro-auto-detect": True,
                 "pro-plot-grid": True,
                 "pro-use-abs-current": True,
                 "pro-lsv-mark-targets": True,
@@ -56,7 +55,6 @@ BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
                 "pro-cv-peaks-max": "2",
             },
             "checks": {
-                "pro-auto-detect": True,
                 "pro-plot-grid": True,
                 "pro-use-abs-current": True,
                 "pro-cv-peaks-enabled": True,
@@ -74,7 +72,6 @@ BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
                 "pro-eis-prefix": "EIS",
             },
             "checks": {
-                "pro-auto-detect": True,
                 "pro-plot-grid": True,
                 "pro-eis-plot-nyquist": True,
                 "pro-eis-plot-bode": False,
@@ -96,7 +93,6 @@ BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
                 "pro-ecsa-cs-unit": "uF/cm2",
             },
             "checks": {
-                "pro-auto-detect": True,
                 "pro-plot-grid": True,
                 "pro-ecsa-avg-last-n": False,
                 "pro-ecsa-use-abs": True,

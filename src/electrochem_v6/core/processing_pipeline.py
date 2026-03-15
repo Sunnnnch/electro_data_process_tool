@@ -43,9 +43,47 @@ def natural_sort_key(s):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', str(s))]
 
 
+def _detect_delimiter(lines: List[str], max_probe: int = 50) -> Optional[str]:
+    """Probe the first *max_probe* non-empty, non-comment lines and return the
+    most likely field delimiter (``\\t``, ``,``, ``;``), or ``None`` when
+    whitespace splitting should be used."""
+    candidates = {'\t': 0, ',': 0, ';': 0}
+    comment_prefixes = ('#', '//', '%', "'", '!', ':')
+    probed = 0
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith(comment_prefixes):
+            continue
+        for sep in candidates:
+            if sep in line:
+                candidates[sep] += 1
+        probed += 1
+        if probed >= max_probe:
+            break
+    if not probed:
+        return None
+    # Pick the separator that appears in the most lines (must appear in >=40%)
+    best_sep, best_count = max(candidates.items(), key=lambda kv: kv[1])
+    if best_count >= probed * 0.4:
+        return best_sep
+    return None
+
+
+def _split_line(line: str, delimiter: Optional[str]) -> List[str]:
+    """Split a line using the detected delimiter."""
+    if delimiter:
+        return [p.strip() for p in line.split(delimiter)]
+    return line.split()
+
+
 def auto_detect_data_start(file_path: str, encodings: Optional[Sequence[str]] = None) -> int:
-    """Auto-detect the first data line (1-based) in a text file."""
-    encodings = encodings or ['utf-8', 'gbk', 'latin-1']
+    """Auto-detect the first data line (1-based) in a text file.
+
+    Supports whitespace-, tab-, comma-, and semicolon-delimited formats.
+    Handles BOM markers and various comment styles commonly seen in
+    electrochemical instrument exports.
+    """
+    encodings = encodings or ['utf-8', 'utf-8-sig', 'gbk', 'latin-1']
     lines: List[str] = []
     for encoding in encodings:
         try:
@@ -55,8 +93,16 @@ def auto_detect_data_start(file_path: str, encodings: Optional[Sequence[str]] = 
         except UnicodeDecodeError:
             continue
     if not lines:
-        return 22
+        return 1
 
+    # Strip BOM if present on first line
+    if lines and lines[0].startswith('\ufeff'):
+        lines[0] = lines[0][1:]
+
+    # Detect the field delimiter used in this file
+    delimiter = _detect_delimiter(lines)
+
+    comment_prefixes = ('#', '//', '%', "'", '!', ':')
     min_consecutive = 3
     consecutive = 0
     data_start = None
@@ -65,10 +111,10 @@ def auto_detect_data_start(file_path: str, encodings: Optional[Sequence[str]] = 
         if not line:
             consecutive = 0
             continue
-        if line.startswith(('#', '//', '%')):
+        if line.startswith(comment_prefixes):
             consecutive = 0
             continue
-        parts = line.split()
+        parts = _split_line(line, delimiter)
         if len(parts) < 2:
             consecutive = 0
             continue
@@ -77,25 +123,18 @@ def auto_detect_data_start(file_path: str, encodings: Optional[Sequence[str]] = 
             float(parts[1])
             consecutive += 1
             if consecutive >= min_consecutive:
-                data_start = idx - consecutive + 1 + 1
+                data_start = idx - consecutive + 1 + 1  # 1-based
                 break
         except ValueError:
             consecutive = 0
     if data_start is None:
-        return 22
+        return 1
     return max(1, data_start)
 
 
-def resolve_data_start_line(file_path: str, params: Dict[str, Any]) -> int:
-    if _as_bool(params.get('auto_detect_start', True)):
-        return auto_detect_data_start(file_path)
-    manual = params.get('manual_start_line')
-    if manual is not None:
-        try:
-            return max(1, int(manual))
-        except (TypeError, ValueError):
-            pass
-    return 22
+def resolve_data_start_line(file_path: str, params: Optional[Dict[str, Any]] = None) -> int:
+    """Always auto-detect the data start line."""
+    return auto_detect_data_start(file_path)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -308,7 +347,7 @@ def run_pipeline(
                         'ir_compensation_enabled': _as_bool(gui_vars.get('ir_compensation_enabled', False)),
                         'eis_match': gui_vars.get('eis_match', 'prefix'),
                         'eis_prefix': gui_vars.get('eis_prefix', 'EIS'),
-                        'eis_start_line': gui_vars.get('eis_start_line', '22'),
+                        'eis_start_line': gui_vars.get('eis_start_line', str(dynamic_start_line)),
                         'tafel_enabled': _as_bool(gui_vars.get('tafel_enabled', False)),
                         'tafel_range': gui_vars.get('tafel_range', '1-10'),
                         'export_tafel_plot': _as_bool(gui_vars.get('export_tafel_plot', False)),

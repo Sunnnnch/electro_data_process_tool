@@ -264,7 +264,6 @@ def tool_auto_process_with_smart_params(
         gui_vars: Dict[str, Any] = {
             "area": electrode_area if electrode_area is not None else 1.0,
             "potential_offset": potential_offset if potential_offset is not None else 0.0,
-            "auto_detect_start": True,
         }
 
         if data_type == "LSV":
