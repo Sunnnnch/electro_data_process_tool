@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.0.19
+
+### 前端
+
+- 移除"自动识别起点"复选框（`pro-auto-detect`），自动检测数据起始行现为默认且唯一行为
+- ECSA 参数面板布局优化：7 个字段从单一 3 列网格拆分为 3 列 + 2 列两组，消除"材料预设"被撑高和"Cs 单位"孤立的问题
+- CSS：`.field-grid` 添加 `align-items: start`，防止子项被相邻 param-tip 纵向拉伸
+- 删除 i18n 中 `auto_detect` 翻译键（中/英）
+
+### 后端
+
+- `process_service._build_gui_vars()` 移除无用的 `auto_detect_start` 字段
+- `processing_pipeline.resolve_data_start_line()` 签名简化：`params` 改为可选参数
+- `auto_detect_data_start()` 增强：BOM 标记处理、多分隔符检测（tab/comma/semicolon）、更多注释样式支持（`'`、`!`、`:`）
+- Agent `tools_projects.py` 移除硬编码 `auto_detect_start: True`
+- 内置模板 `process_templates.py` 移除 `pro-auto-detect` 条目
+
+### 测试
+
+- 修复 `test_v6_auto_detect_start.py` lint 错误（移除未使用的 `os`/`pytest` 导入，删除冗余 `sys.path` 设置）
+- 修正 `test_numeric_header_different_col_count` 预期值以匹配实际检测逻辑
+- `test_resolve_always_auto_detects` 适配 `resolve_data_start_line` 新签名
+
 ## 6.0.7
 
 ### 代码质量 & 安全加固
