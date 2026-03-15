@@ -5,23 +5,12 @@ comment styles, header rows, edge cases, and resolve_data_start_line().
 """
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
-
-import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-for _p in (str(ROOT), str(SRC)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from electrochem_v6.core.processing_pipeline import (
     auto_detect_data_start,
     resolve_data_start_line,
 )
-
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
