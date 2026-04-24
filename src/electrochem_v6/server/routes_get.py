@@ -50,8 +50,10 @@ def dispatch_get(handler: Any) -> bool:
                 "/api/v1/llm/config",
                 "/api/v1/agent/messages",
                 "/api/v1/process",
+                "/api/v1/process/preflight",
                 "/api/v1/process-zip",
                 "/api/v1/process/templates",
+                "/api/v1/diagnostics/export",
             ],
         }
         handler._send_json(200, payload)

@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -131,15 +132,25 @@ def setup_logger(log_dir: Optional[str] = None, log_level: int = logging.INFO) -
     if log_dir is None:
         from electrochem_v6.config import user_config_dir
         log_dir = str(user_config_dir() / "logs")
-    os.makedirs(log_dir, exist_ok=True)
-
-    log_file = os.path.join(log_dir, 'electrochem.log')
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5,
-        encoding='utf-8'
-    )
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, 'electrochem.log')
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+    except OSError:
+        fallback_dir = os.path.join(tempfile.gettempdir(), "electrochem_v6", "logs")
+        os.makedirs(fallback_dir, exist_ok=True)
+        log_file = os.path.join(fallback_dir, 'electrochem.log')
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding='utf-8'
+        )
     file_handler.setLevel(logging.INFO)
     file_formatter = logging.Formatter(
         '%(asctime)s [%(levelname)s] %(name)s.%(funcName)s: %(message)s',

@@ -7,17 +7,21 @@ import json
 import math
 import os
 import re
+import tempfile
 import threading
 import uuid
+import zipfile
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import matplotlib.pyplot as plt
 
-from electrochem_v6.config import APP_NAME, APP_VERSION, get_quality_report_file
+from electrochem_v6.config import APP_NAME, APP_VERSION, get_quality_report_file, user_config_dir
 from electrochem_v6.core import processing_core_v6 as processing_core
 from electrochem_v6.core.processing_compat import run_pipeline
+from electrochem_v6.core.processing_pipeline import scan_process_inputs as _scan_pipeline_inputs
 from electrochem_v6.core.system_service import register_allowed_dir
 from electrochem_v6.core.utils import as_bool as _as_bool
 from electrochem_v6.core.utils import as_float as _as_float
@@ -309,6 +313,12 @@ def _collect_output_files(pipeline_result: Dict[str, Any]) -> list[str]:
         value = pipeline_result.get(key)
         if isinstance(value, str) and value.strip():
             candidates.append(value.strip())
+    for key in ("artifact_paths", "output_files"):
+        values = pipeline_result.get(key)
+        if isinstance(values, list):
+            for value in values:
+                if isinstance(value, str) and value.strip():
+                    candidates.append(value.strip())
     for msg in pipeline_result.get("messages", []):
         if isinstance(msg, str):
             text = msg.strip()
@@ -319,6 +329,54 @@ def _collect_output_files(pipeline_result: Dict[str, Any]) -> list[str]:
         return unique
     # Fallback to raw messages for compatibility with old readers.
     return [str(msg) for msg in pipeline_result.get("messages", []) if str(msg).strip()]
+
+
+def _has_data_output_file(output_files: list[str]) -> bool:
+    report_names = {"summary.json", "quality_report.json", "latest_quality_report.json"}
+    for item in output_files:
+        name = os.path.basename(str(item or "").strip()).lower()
+        if not name:
+            continue
+        if name in report_names or name.endswith("_summary.json") or name.endswith("_quality_report.json"):
+            continue
+        return True
+    return False
+
+
+def _build_no_data_output_message(data_types: list[str], pipeline_result: Dict[str, Any]) -> str:
+    matched_counts = pipeline_result.get("matched_counts") if isinstance(pipeline_result, dict) else {}
+    matched_total = 0
+    if isinstance(matched_counts, dict):
+        for value in matched_counts.values():
+            try:
+                matched_total += int(value)
+            except Exception:
+                continue
+
+    skipped = pipeline_result.get("skipped_errors", []) if isinstance(pipeline_result, dict) else []
+    skipped_count = len(skipped) if isinstance(skipped, list) else 0
+    prefix = "没有生成任何 CSV/PNG/XLSX 数据结果文件"
+    selected = ", ".join(data_types) if data_types else "-"
+
+    if matched_total <= 0:
+        return (
+            f"{prefix}。已选择数据类型: {selected}，但没有匹配到可处理的 .txt/.csv 文件。"
+            "请检查数据类型勾选、匹配方式/前缀后缀、文件扩展名，以及数据文件是否在所选目录或一级子目录中。"
+        )
+
+    if skipped_count:
+        first = skipped[0] if isinstance(skipped[0], dict) else {}
+        first_file = os.path.basename(str(first.get("file") or "")) if isinstance(first, dict) else ""
+        first_error = str(first.get("error") or "") if isinstance(first, dict) else ""
+        detail = f"首个跳过文件: {first_file}" if first_file else "存在被跳过的文件"
+        if first_error:
+            detail = f"{detail}，原因: {first_error}"
+        return f"{prefix}。匹配到 {matched_total} 个文件，但有 {skipped_count} 个文件处理失败或被跳过。{detail}"
+
+    return (
+        f"{prefix}。匹配到 {matched_total} 个文件，但没有产出有效结果。"
+        "请检查文件内容是否为数值列、自动识别起始行是否能定位到数据区；ECSA 至少需要同一样品下两个以上扫速文件。"
+    )
 
 
 def _rewrite_summary_for_v6(
@@ -356,6 +414,10 @@ def _rewrite_summary_for_v6(
     summary_obj["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
     summary_obj["mode"] = "v6_no_license"
     summary_obj["folder"] = folder_path
+    if pipeline_result.get("output_dir"):
+        summary_obj["output_dir"] = pipeline_result.get("output_dir")
+    if pipeline_result.get("recursive_scan") is not None:
+        summary_obj["recursive_scan"] = bool(pipeline_result.get("recursive_scan"))
     summary_obj["generated_at"] = str(summary_obj.get("generated_at") or summary_obj.get("timestamp") or now_text)
     summary_obj["timestamp"] = str(summary_obj.get("timestamp") or summary_obj["generated_at"])
     summary_obj["data_type"] = data_types[0] if data_types else str(summary_obj.get("data_type") or "LSV")
@@ -391,6 +453,75 @@ def _resolve_project_id(project_name: Optional[str]) -> Optional[str]:
     from electrochem_v6.store.projects import get_or_create_project_id_by_name
 
     return get_or_create_project_id_by_name(project_name, description="v6 process api auto-created")
+
+
+def _run_output_dir(folder_path: str, run_id: str) -> str:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_run = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(run_id or ""))[:8] or uuid.uuid4().hex[:8]
+    target = os.path.join(folder_path, "electrochem_outputs", f"{stamp}_{safe_run}")
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
+def _path_is_within(path_value: str, root_value: str) -> bool:
+    try:
+        path = os.path.normcase(os.path.realpath(os.path.abspath(path_value)))
+        root = os.path.normcase(os.path.realpath(os.path.abspath(root_value)))
+        return os.path.commonpath([path, root]) == root
+    except Exception:
+        return False
+
+
+def _resolve_explicit_output_dir(folder_path: str, output_dir_value: Any) -> str | None:
+    raw = str(output_dir_value or "").strip()
+    if not raw:
+        return None
+    target = os.path.abspath(os.path.expanduser(raw))
+    allowed_roots = [
+        os.path.abspath(folder_path),
+        os.path.abspath(str(user_config_dir())),
+        os.path.abspath(os.path.join(tempfile.gettempdir(), "electrochem_v6")),
+    ]
+    if not any(_path_is_within(target, root) for root in allowed_roots):
+        raise ValueError("输出目录不在允许范围内")
+    return target
+
+
+def _processing_stats(result: Dict[str, Any], output_files: list[str]) -> Dict[str, Any]:
+    skipped = result.get("skipped_errors", [])
+    skipped_count = len(skipped) if isinstance(skipped, list) else 0
+    matched_counts = result.get("matched_counts") if isinstance(result.get("matched_counts"), dict) else {}
+    generated_files = [item for item in output_files if _has_data_output_file([item])]
+    return {
+        "matched_counts": matched_counts,
+        "matched_files": sum(int(v or 0) for v in matched_counts.values()) if isinstance(matched_counts, dict) else 0,
+        "generated_files": len(generated_files),
+        "skipped_files": skipped_count,
+        "result_state": "partial_success" if skipped_count else "success",
+    }
+
+
+def preflight_process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {"status": "error", "message": "request payload must be a JSON object"}
+    folder_path = str(payload.get("folder_path") or "").strip()
+    if not folder_path:
+        return {"status": "error", "message": "folder_path 不能为空"}
+    if not os.path.isdir(folder_path):
+        return {"status": "error", "message": f"文件夹不存在: {folder_path}"}
+    if not _is_allowed_process_dir(folder_path):
+        return {"status": "error", "message": "路径不在允许范围内，拒绝扫描"}
+    try:
+        data_types = _normalize_data_types(payload)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    validation_error = _validate_payload(payload, data_types)
+    if validation_error:
+        return {"status": "error", "message": validation_error}
+    gui_vars = _build_gui_vars(data_types, payload)
+    gui_vars["recursive_scan"] = _as_bool(_payload_get(payload, "recursive_scan", gui_vars.get("recursive_scan", False)), False)
+    scan = _scan_pipeline_inputs(folder_path, gui_vars)
+    return {"status": "success", "data_types": data_types, "preflight": scan}
 
 
 # Lock protecting the monkey-patch of module-level manager bindings.
@@ -482,8 +613,35 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
     project_id = _resolve_project_id(project_name)
     run_id = uuid.uuid4().hex
     gui_vars["run_id"] = run_id
+    gui_vars["recursive_scan"] = _as_bool(_payload_get(payload, "recursive_scan", gui_vars.get("recursive_scan", False)), False)
+    isolated_output = _as_bool(
+        _payload_get(payload, "output_run_dir_enabled", _payload_get(payload, "isolated_output_dir", False)),
+        False,
+    )
+    try:
+        output_dir = _resolve_explicit_output_dir(folder_path, _payload_get(payload, "output_dir"))
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    if not output_dir and isolated_output:
+        output_dir = _run_output_dir(folder_path, run_id)
+    if output_dir:
+        gui_vars["output_dir"] = output_dir
     if project_id:
         gui_vars["project_id"] = project_id
+
+    preflight_payload = _scan_pipeline_inputs(folder_path, gui_vars)
+    if int(preflight_payload.get("selected_matched") or 0) <= 0:
+        return {
+            "status": "error",
+            "message": _build_no_data_output_message(
+                data_types,
+                {"matched_counts": {k: v.get("matched", 0) for k, v in (preflight_payload.get("by_type") or {}).items()}},
+            ),
+            "result": {
+                "preflight": preflight_payload,
+                "processing": {"output_files": []},
+            },
+        }
 
     try:
         with _bind_v6_runtime_managers():
@@ -503,15 +661,43 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
         pipeline_result=result,
     )
     output_files = _collect_output_files(result)
-    attach_run_outputs(
-        run_id=run_id,
-        output_files=output_files,
-        summary_path=normalized_summary_path or result.get("summary_path"),
-        quality_summary=result.get("quality_summary", {}),
-    )
+    if not _has_data_output_file(output_files):
+        return {
+            "status": "error",
+            "message": _build_no_data_output_message(data_types, result),
+            "result": {
+                "summary_path": normalized_summary_path or result.get("summary_path"),
+                "processing": {"output_files": output_files},
+                "quality_summary": result.get("quality_summary", {}),
+                "skipped_errors": result.get("skipped_errors", []),
+                "preflight": preflight_payload,
+                "raw": result,
+            },
+        }
+    processing_stats = _processing_stats(result, output_files)
+    try:
+        from electrochem_v6.config import get_history_file
+
+        history_file_exists = os.path.exists(get_history_file())
+    except Exception:
+        history_file_exists = False
+    if history_file_exists:
+        try:
+            attach_run_outputs(
+                run_id=run_id,
+                output_files=output_files,
+                summary_path=normalized_summary_path or result.get("summary_path"),
+                quality_summary=result.get("quality_summary", {}),
+            )
+        except Exception:
+            # Processing already succeeded; history attachment must not turn a
+            # valid result into a failed run when local storage is unavailable.
+            pass
 
     # Register the data folder so that "open file / open dir" works in the UI
     register_allowed_dir(folder_path)
+    if output_dir:
+        register_allowed_dir(output_dir)
 
     return {
         "status": "success",
@@ -525,7 +711,10 @@ def process_folder(payload: Dict[str, Any]) -> Dict[str, Any]:
             "summary_path": normalized_summary_path or result.get("summary_path"),
             "processing": {
                 "output_files": output_files,
+                "output_dir": output_dir,
+                **processing_stats,
             },
+            "preflight": preflight_payload,
             "quality_summary": result.get("quality_summary", {}),
             "skipped_errors": result.get("skipped_errors", []),
             "summary_json": normalized_summary,
@@ -1037,6 +1226,75 @@ def get_latest_quality_report() -> Dict[str, Any]:
         "app_version": APP_VERSION,
         "generated_at": data.get("generated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         "data": data.get("data"),
+    }
+
+
+def export_diagnostics() -> Dict[str, Any]:
+    from electrochem_v6.config import (
+        get_conversation_file,
+        get_history_file,
+        get_log_file,
+        get_projects_file,
+        get_templates_file,
+        project_default_dir,
+    )
+
+    try:
+        diag_dir = user_config_dir() / "diagnostics"
+        diag_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        diag_dir = Path(tempfile.gettempdir()) / "electrochem_v6" / "diagnostics"
+        try:
+            diag_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return {"status": "error", "message": f"导出诊断包失败: {exc}"}
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_path = diag_dir / f"electrochem_diagnostics_{timestamp}.zip"
+    manifest = {
+        "app_name": APP_NAME,
+        "app_version": APP_VERSION,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "cwd": os.getcwd(),
+        "user_config_dir": str(user_config_dir()),
+        "project_default_dir": str(project_default_dir()),
+        "env": {
+            "ELECTROCHEM_V6_DATA_DIR": os.environ.get("ELECTROCHEM_V6_DATA_DIR", ""),
+            "ELECTROCHEM_V6_STORAGE": os.environ.get("ELECTROCHEM_V6_STORAGE", ""),
+        },
+    }
+    candidates = [
+        get_quality_report_file(),
+        get_projects_file(),
+        get_history_file(),
+        get_templates_file(),
+        get_conversation_file(),
+        get_log_file(),
+        user_config_dir() / "runtime_info.json",
+        user_config_dir() / "logs" / "electrochem.log",
+        Path(tempfile.gettempdir()) / "electrochem_v6" / "logs" / "v6_server.log",
+        Path(tempfile.gettempdir()) / "electrochem_v6" / "logs" / "electrochem.log",
+    ]
+    added: list[str] = []
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            for path in candidates:
+                try:
+                    p = Path(path)
+                    if p.exists() and p.is_file():
+                        arcname = f"runtime/{p.name}"
+                        zf.write(p, arcname)
+                        added.append(str(p))
+                except Exception:
+                    continue
+    except Exception as exc:
+        return {"status": "error", "message": f"导出诊断包失败: {exc}"}
+    register_allowed_dir(str(diag_dir))
+    return {
+        "status": "success",
+        "path": str(zip_path),
+        "file_name": zip_path.name,
+        "included_files": added,
     }
 
 

@@ -179,8 +179,133 @@ def _is_result_file(filename: str) -> bool:
         '_quality_report',
         'quality_report',
         '_summary',
+        '_lsv.png',
+        '_lsv_ir_compensated.png',
+        '_cv.png',
+        '_eis_nyquist.png',
+        '_eis_bode.png',
+        '_ecsa.png',
+        '_tafel_fit.png',
+        '_tafel_fit_ir.png',
     ]
     return any(pattern in lower_name for pattern in result_patterns)
+
+
+def _is_skipped_scan_dir(dirname: str) -> bool:
+    return str(dirname or "").strip().lower() in {
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        "electrochem_outputs",
+        "user_data",
+    }
+
+
+def _build_work_units(folder_path: str, recursive: bool = False) -> List[Tuple[str, List[str]]]:
+    folder_path = os.path.abspath(folder_path)
+    work_units: List[Tuple[str, List[str]]] = []
+    if recursive:
+        for root, dirs, files in os.walk(folder_path):
+            dirs[:] = [d for d in dirs if not _is_skipped_scan_dir(d)]
+            files = [f for f in files if os.path.isfile(os.path.join(root, f))]
+            files.sort(key=natural_sort_key)
+            work_units.append((root, files))
+        return work_units
+
+    entries = os.listdir(folder_path)
+    dirs = [
+        d for d in entries
+        if os.path.isdir(os.path.join(folder_path, d)) and not _is_skipped_scan_dir(d)
+    ]
+    dirs.sort(key=natural_sort_key)
+    root_files = [f for f in entries if os.path.isfile(os.path.join(folder_path, f))]
+    root_files.sort(key=natural_sort_key)
+    work_units.append((folder_path, root_files))
+    for d in dirs:
+        sub = os.path.join(folder_path, d)
+        files = [f for f in os.listdir(sub) if os.path.isfile(os.path.join(sub, f))]
+        files.sort(key=natural_sort_key)
+        work_units.append((sub, files))
+    return work_units
+
+
+def _processable_files(files: Sequence[str], preview_mode: bool = False, preview_limit: int = 2) -> List[str]:
+    file_list = list(files)
+    if preview_mode:
+        file_list = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))][:preview_limit]
+    return [f for f in file_list if not _is_result_file(f)]
+
+
+def scan_process_inputs(folder_path: str, gui_vars: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Scan a processing folder and report how many files each data type would process."""
+    from . import processing_core_v6 as core
+
+    gui_vars = dict(gui_vars or {})
+    folder_path = os.path.abspath(folder_path)
+    recursive = _as_bool(gui_vars.get("recursive_scan", False), False)
+    preview_mode = _as_bool(gui_vars.get('preview_mode', False))
+    try:
+        preview_limit = max(1, int(gui_vars.get('preview_limit', 2) or 2))
+    except Exception:
+        preview_limit = 2
+
+    work_units = _build_work_units(folder_path, recursive=recursive)
+    selected = {
+        "LSV": _as_bool(gui_vars.get('lsv_enabled', False)),
+        "CV": _as_bool(gui_vars.get('cv_enabled', False)),
+        "EIS": _as_bool(gui_vars.get('eis_enabled', False)),
+        "ECSA": _as_bool(gui_vars.get('ecsa_enabled', False)),
+    }
+    match_config = {
+        "LSV": (gui_vars.get('lsv_match', 'prefix'), gui_vars.get('lsv_prefix', 'LSV')),
+        "CV": (gui_vars.get('cv_match', 'prefix'), gui_vars.get('cv_prefix', 'CV')),
+        "EIS": (gui_vars.get('eis_match', 'prefix'), gui_vars.get('eis_prefix', 'EIS')),
+        "ECSA": (gui_vars.get('ecsa_match', 'prefix'), gui_vars.get('ecsa_prefix', 'ECSA')),
+    }
+    by_type: Dict[str, Dict[str, Any]] = {
+        dtype: {"matched": 0, "examples": [], "match": match_config[dtype][0], "pattern": match_config[dtype][1]}
+        for dtype in selected
+    }
+    workunit_items: List[Dict[str, Any]] = []
+    total_text_files = 0
+
+    for sub, files in work_units:
+        file_list = _processable_files(files, preview_mode=preview_mode, preview_limit=preview_limit)
+        text_files = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))]
+        total_text_files += len(text_files)
+        unit_counts = {dtype: 0 for dtype in selected}
+        for file in text_files:
+            for dtype, enabled in selected.items():
+                if not enabled:
+                    continue
+                mode, pattern = match_config[dtype]
+                if core._matches_named_file(file, mode, pattern):
+                    unit_counts[dtype] += 1
+                    info = by_type[dtype]
+                    info["matched"] += 1
+                    if len(info["examples"]) < 5:
+                        info["examples"].append(os.path.join(sub, file))
+        workunit_items.append({
+            "folder": sub,
+            "text_files": len(text_files),
+            "matched": {k: v for k, v in unit_counts.items() if v},
+        })
+
+    selected_total = sum(info["matched"] for dtype, info in by_type.items() if selected.get(dtype))
+    warnings = []
+    for dtype, enabled in selected.items():
+        if enabled and by_type[dtype]["matched"] == 0:
+            warnings.append(f"{dtype} 未匹配到文件")
+    return {
+        "folder_path": folder_path,
+        "recursive": recursive,
+        "work_units": len(work_units),
+        "text_files": total_text_files,
+        "selected_matched": selected_total,
+        "by_type": by_type,
+        "workunit_items": workunit_items[:100],
+        "warnings": warnings,
+    }
 
 
 def run_pipeline(
@@ -262,18 +387,8 @@ def run_pipeline(
     emit_status("初始化...")
     emit_stage("读取", 0)
 
-    entries = os.listdir(folder_path)
-    dirs = [d for d in entries if os.path.isdir(os.path.join(folder_path, d))]
-    dirs.sort(key=natural_sort_key)
-    work_units: List[Tuple[str, List[str]]] = []
-    root_files = [f for f in entries if os.path.isfile(os.path.join(folder_path, f))]
-    root_files.sort(key=natural_sort_key)
-    work_units.append((folder_path, root_files))
-    for d in dirs:
-        sub = os.path.join(folder_path, d)
-        files = os.listdir(sub)
-        files.sort(key=natural_sort_key)
-        work_units.append((sub, files))
+    recursive_scan = _as_bool(gui_vars.get("recursive_scan", False), False)
+    work_units = _build_work_units(folder_path, recursive=recursive_scan)
 
     total = max(1, len(work_units))
 
@@ -289,11 +404,32 @@ def run_pipeline(
         preview_limit = 2
     preview_limit = max(1, preview_limit)
 
+    output_root = str(gui_vars.get("output_dir") or "").strip()
+    if output_root:
+        output_root = os.path.abspath(output_root)
+        os.makedirs(output_root, exist_ok=True)
+
+    def output_dir_for(sub: str) -> str:
+        if not output_root:
+            return sub
+        try:
+            rel = os.path.relpath(sub, folder_path)
+        except ValueError:
+            rel = "."
+        if rel in (".", ""):
+            target = output_root
+        else:
+            target = os.path.join(output_root, rel)
+        os.makedirs(target, exist_ok=True)
+        return target
+
     collect_series = [] if (lsv_enabled and (_as_bool(gui_vars.get('lsv_combine_all', False)) or _as_bool(gui_vars.get('lsv_export_data', False)))) else None
 
     results_lsv: List[List[Any]] = []
     results_ecsa: List[List[Any]] = []
     saved_msgs: List[str] = []
+    artifact_paths: List[str] = []
+    matched_counts: Dict[str, int] = {"LSV": 0, "CV": 0, "EIS": 0, "ECSA": 0}
     quality_reports: List[Dict[str, Any]] = []  # 收集所有质量检测报告
     skipped_errors: List[Dict[str, str]] = []  # 收集跳过的错误文件
     _results_lock = threading.Lock()  # protects shared lists when parallel
@@ -301,15 +437,40 @@ def run_pipeline(
     out_ecsa: Optional[str] = None
     combined_path: Optional[str] = None
 
+    def snapshot_artifacts(paths: Sequence[Optional[str]]) -> Dict[str, Optional[Tuple[int, int]]]:
+        snapshot: Dict[str, Optional[Tuple[int, int]]] = {}
+        for raw_path in paths:
+            if not raw_path:
+                continue
+            path = str(raw_path)
+            try:
+                stat = os.stat(path)
+                snapshot[path] = (int(stat.st_mtime_ns), int(stat.st_size))
+            except OSError:
+                snapshot[path] = None
+        return snapshot
+
+    def remember_changed_artifacts(before: Dict[str, Optional[Tuple[int, int]]]) -> None:
+        changed: List[str] = []
+        for path, previous in before.items():
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            current = (int(stat.st_mtime_ns), int(stat.st_size))
+            if previous is None or current != previous:
+                changed.append(path)
+        if changed:
+            with _results_lock:
+                artifact_paths.extend(changed)
+
     # ── define per-workunit processor (closure captures outer vars) ────
     def _process_one_workunit(
         idx: int, sub: str, files: List[str],
     ) -> None:
         """Process a single work-unit (sub-directory)."""
-        file_list = list(files)
-        if preview_mode:
-            file_list = [f for f in file_list if f.lower().endswith(('.txt', '.csv'))][:preview_limit]
-        file_list = [f for f in file_list if not _is_result_file(f)]
+        file_list = _processable_files(files, preview_mode=preview_mode, preview_limit=preview_limit)
+        current_output_dir = output_dir_for(sub)
 
         emit_status(f"正在处理: {os.path.basename(sub) or os.path.basename(folder_path)}")
         emit_stage("读取", int((idx / total) * 60))
@@ -326,12 +487,15 @@ def run_pipeline(
                 if not fl.endswith(('.txt', '.csv')):
                     continue
                 if core._matches_named_file(file, match_mode, prefix):
+                    with _results_lock:
+                        matched_counts["LSV"] += 1
                     file_path = os.path.join(sub, file)
                     dynamic_start_line = _resolver(file_path)
                     params = {
                         'start_line': str(dynamic_start_line),
                         'offset': gui_vars.get('potential_offset', 0.0),
                         'area': gui_vars.get('area', area),
+                        'output_dir': current_output_dir,
                         'project_id': project_id,
                         'run_id': gui_vars.get('run_id'),
                         'xlabel': gui_vars.get('lsv_xlabel', 'Potential (V)'),
@@ -380,6 +544,18 @@ def run_pipeline(
                     enable_qc = _as_bool(gui_vars.get('lsv_quality_check', True), True)
                     processed_in_sub += 1
                     emit_status(f"LSV ({processed_in_sub}/{file_count}): {file}")
+                    subname = os.path.basename(sub)
+                    file_stem = os.path.splitext(os.path.basename(file))[0]
+                    expected_paths = [
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_LSV.png"),
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_LSV_IR_compensated.png"),
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_Tafel_fit.png"),
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_Tafel_fit_IR.png"),
+                        os.path.join(current_output_dir, f"{file_stem}.xlsx"),
+                        os.path.join(current_output_dir, f"{file_stem}_raw.csv"),
+                        os.path.join(current_output_dir, f"{file_stem}_targets.csv"),
+                    ]
+                    before_artifacts = snapshot_artifacts(expected_paths)
                     try:
                         with _PIPELINE_LOCK:
                             result = core.process_lsv(sub, file, params, project_id=project_id, enable_quality_check=enable_qc)
@@ -389,6 +565,7 @@ def run_pipeline(
                             skipped_errors.append({"file": os.path.join(sub, file), "type": "LSV", "error": str(exc)})
                         result = None
                     if result:
+                        remember_changed_artifacts(before_artifacts)
                         quality_report = None
                         # 新格式：result 是字典，包含 result_row 和 quality_report
                         if isinstance(result, dict):
@@ -427,10 +604,13 @@ def run_pipeline(
                 if not fl.endswith(('.txt', '.csv')):
                     continue
                 if core._matches_named_file(file, match_mode, prefix):
+                    with _results_lock:
+                        matched_counts["CV"] += 1
                     file_path = os.path.join(sub, file)
                     dynamic_start_line = _resolver(file_path)
                     params = {
                         'start_line': str(dynamic_start_line),
+                        'output_dir': current_output_dir,
                         'project_id': project_id,
                         'run_id': gui_vars.get('run_id'),
                         'xlabel': gui_vars.get('cv_xlabel', 'Potential (V)'),
@@ -454,6 +634,11 @@ def run_pipeline(
                     enable_qc = _as_bool(gui_vars.get('cv_quality_check', True), True)
                     processed_in_sub += 1
                     emit_status(f"CV ({processed_in_sub}/{file_count}): {file}")
+                    subname = os.path.basename(sub)
+                    file_stem = os.path.splitext(os.path.basename(file))[0]
+                    before_artifacts = snapshot_artifacts([
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_CV.png"),
+                    ])
                     try:
                         with _PIPELINE_LOCK:
                             try:
@@ -466,6 +651,7 @@ def run_pipeline(
                             skipped_errors.append({"file": os.path.join(sub, file), "type": "CV", "error": str(exc)})
                         result = None
                     if isinstance(result, dict):
+                        remember_changed_artifacts(before_artifacts)
                         quality_report = result.get('quality_report')
                         if quality_report:
                             with _results_lock:
@@ -479,10 +665,13 @@ def run_pipeline(
                 if not fl.endswith(('.txt', '.csv')):
                     continue
                 if core._matches_named_file(file, match_mode, prefix):
+                    with _results_lock:
+                        matched_counts["EIS"] += 1
                     file_path = os.path.join(sub, file)
                     dynamic_start_line = _resolver(file_path)
                     params = {
                         'start_line': str(dynamic_start_line),
+                        'output_dir': current_output_dir,
                         'project_id': project_id,
                         'run_id': gui_vars.get('run_id'),
                         'xlabel': gui_vars.get('eis_xlabel', "Z' (Ω)"),
@@ -497,20 +686,38 @@ def run_pipeline(
                         'plot_bode': _as_bool(gui_vars.get('plot_bode', False)),
                         'randles_fit': _as_bool(gui_vars.get('eis_randles_fit', False)),
                     }
+                    subname = os.path.basename(sub)
+                    file_stem = os.path.splitext(os.path.basename(file))[0]
+                    before_artifacts = snapshot_artifacts([
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_EIS_Nyquist.png"),
+                        os.path.join(current_output_dir, f"{subname}_{file_stem}_EIS_Bode.png"),
+                    ])
                     try:
                         processed_in_sub += 1
                         emit_status(f"EIS ({processed_in_sub}/{file_count}): {file}")
                         with _PIPELINE_LOCK:
                             core.process_eis(sub, file, params)
+                        remember_changed_artifacts(before_artifacts)
                     except Exception as exc:
                         core.log(f"EIS 处理跳过 {file}: {exc}")
                         with _results_lock:
                             skipped_errors.append({"file": os.path.join(sub, file), "type": "EIS", "error": str(exc)})
 
         if ecsa_enabled:
+            ecsa_match_mode = gui_vars.get('ecsa_match', 'prefix')
+            ecsa_prefix = gui_vars.get('ecsa_prefix', 'ECSA')
+            ecsa_matches = [
+                item for item in file_list
+                if item.lower().endswith(('.txt', '.csv'))
+                and core._matches_named_file(item, ecsa_match_mode, ecsa_prefix)
+            ]
+            if ecsa_matches:
+                with _results_lock:
+                    matched_counts["ECSA"] += len(ecsa_matches)
             ecsa_params = {
-                'match': gui_vars.get('ecsa_match', 'prefix'),
-                'match_prefix': gui_vars.get('ecsa_prefix', 'ECSA'),
+                'match': ecsa_match_mode,
+                'match_prefix': ecsa_prefix,
+                'output_dir': current_output_dir,
                 'project_id': project_id,
                 'run_id': gui_vars.get('run_id'),
                 'ev': gui_vars.get('ecsa_ev', 0.10),
@@ -529,6 +736,9 @@ def run_pipeline(
                 'font': gui_vars.get('font_family', font_family),
                 'fontsize': gui_vars.get('font_size', 12),
             }
+            before_artifacts = snapshot_artifacts([
+                os.path.join(current_output_dir, f"{os.path.basename(sub)}_ECSA.png"),
+            ])
             try:
                 with _PIPELINE_LOCK:
                     ecsa_res = core.process_ecsa_for_subfolder(sub, file_list, ecsa_params, common)
@@ -538,6 +748,16 @@ def run_pipeline(
                     skipped_errors.append({"file": sub, "type": "ECSA", "error": str(exc)})
                 ecsa_res = None
             if ecsa_res:
+                if isinstance(ecsa_res, dict):
+                    png_path = ecsa_res.get('png')
+                    if png_path and str(png_path) not in before_artifacts:
+                        try:
+                            if os.path.isfile(str(png_path)):
+                                with _results_lock:
+                                    artifact_paths.append(str(png_path))
+                        except OSError:
+                            pass
+                    remember_changed_artifacts(before_artifacts)
                 with _results_lock:
                     results_ecsa.append(ecsa_res)  # type: ignore[arg-type]
 
@@ -557,6 +777,9 @@ def run_pipeline(
     else:
         for idx, (sub, files) in enumerate(work_units):
             _process_one_workunit(idx, sub, list(files))
+
+    report_dir = output_root or folder_path
+    os.makedirs(report_dir, exist_ok=True)
 
     if lsv_enabled and results_lsv:
         emit_status("正在汇总导出 LSV 结果...")
@@ -609,7 +832,7 @@ def run_pipeline(
         if preview_mode:
             base, ext = os.path.splitext(name_lsv)
             name_lsv = f"{base}_preview{ext or '.csv'}"
-        out_path_lsv = os.path.join(folder_path, name_lsv)
+        out_path_lsv = os.path.join(report_dir, name_lsv)
         df.to_csv(out_path_lsv, index=False, encoding='utf-8-sig')
         saved_msgs.append(f"LSV结果: {out_path_lsv}")
 
@@ -628,7 +851,7 @@ def run_pipeline(
                     _plt.grid(True, alpha=0.3)
                 _plt.legend(fontsize=8, ncol=2)
                 _plt.tight_layout()
-                combined_path = os.path.join(folder_path, 'LSV_combined.png')
+                combined_path = os.path.join(report_dir, 'LSV_combined.png')
                 _plt.savefig(combined_path, dpi=300, bbox_inches='tight')
                 _plt.close()
                 saved_msgs.append(f"LSV汇总图: {combined_path}")
@@ -651,7 +874,7 @@ def run_pipeline(
         if preview_mode:
             base, ext = os.path.splitext(ecsa_name)
             ecsa_name = f"{base}_preview{ext or '.csv'}"
-        out_ecsa = os.path.join(folder_path, ecsa_name)
+        out_ecsa = os.path.join(report_dir, ecsa_name)
         df_ecsa.to_csv(out_ecsa, index=False, encoding='utf-8-sig')
         saved_msgs.append(f"ECSA结果: {out_ecsa}")
 
@@ -702,13 +925,15 @@ def run_pipeline(
 
         # 保存详细质量报告
         if quality_reports:
-            quality_report_path = os.path.join(folder_path, 'quality_report.json')
+            quality_report_path = os.path.join(report_dir, 'quality_report.json')
             _atomic_write(quality_report_path, quality_summary)
             saved_msgs.append(f"质量报告: {quality_report_path}")
 
         summary = {
             'version': APP_VERSION,
             'folder': folder_path,
+            'output_dir': report_dir,
+            'recursive_scan': recursive_scan,
             'timestamp': datetime.now().isoformat(timespec='seconds'),
             'lsv': {
                 'csv': out_path_lsv,
@@ -723,7 +948,7 @@ def run_pipeline(
             'quality_report': quality_report_path,
             'quality_summary': quality_summary,
         }
-        summary_path = os.path.join(folder_path, 'summary.json')
+        summary_path = os.path.join(report_dir, 'summary.json')
         _atomic_write(summary_path, summary)
         saved_msgs.append(summary_path)
         emit_stage("报告", 100)
@@ -744,9 +969,13 @@ def run_pipeline(
         'combined_lsv_png': combined_path,
         'summary_path': summary_path,
         'quality_report_path': quality_report_path,
+        'output_dir': report_dir,
+        'recursive_scan': recursive_scan,
+        'artifact_paths': artifact_paths,
         'quality_reports': quality_reports,
         'quality_summary': quality_summary if 'quality_summary' in locals() else {},
         'skipped_errors': skipped_errors,
+        'matched_counts': matched_counts,
         'results_lsv': results_lsv,
         'results_ecsa': results_ecsa,
     }

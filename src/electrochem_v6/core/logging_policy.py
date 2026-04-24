@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
@@ -109,13 +110,23 @@ def get_v6_logger(name: str = "electrochem_v6") -> logging.Logger:
     logger.propagate = False
 
     if not logger.handlers:
-        path = ensure_parent_dir(get_log_file())
-        handler = RotatingFileHandler(
-            filename=str(path),
-            maxBytes=5 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        )
+        try:
+            path = ensure_parent_dir(get_log_file())
+            handler = RotatingFileHandler(
+                filename=str(path),
+                maxBytes=5 * 1024 * 1024,
+                backupCount=3,
+                encoding="utf-8",
+            )
+        except OSError:
+            fallback_dir = os.path.join(tempfile.gettempdir(), "electrochem_v6", "logs")
+            os.makedirs(fallback_dir, exist_ok=True)
+            handler = RotatingFileHandler(
+                filename=os.path.join(fallback_dir, "v6_server.log"),
+                maxBytes=5 * 1024 * 1024,
+                backupCount=3,
+                encoding="utf-8",
+            )
         formatter = logging.Formatter(
             fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",

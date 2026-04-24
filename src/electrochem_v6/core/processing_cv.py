@@ -24,6 +24,8 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     filepath = os.path.join(subfolder, file)
     subname = os.path.basename(subfolder)
     file_stem = os.path.splitext(os.path.basename(file))[0]
+    output_dir = str(params.get("output_dir") or subfolder)
+    os.makedirs(output_dir, exist_ok=True)
 
     lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
@@ -165,7 +167,7 @@ def process_cv(subfolder, file, params, enable_quality_check=True):
     plt.tight_layout()
     # 避免覆盖：包含源文件名
     try:
-        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_CV.png"), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_CV.png"), dpi=300, bbox_inches='tight')
     finally:
         plt.close()
 

@@ -93,6 +93,12 @@
               </div>
             </div>
 
+            <div class="check-grid">
+              <label><input id="pro-recursive-scan" type="checkbox"><span data-i18n="recursive_scan">递归扫描子目录</span></label>
+              <label><input id="pro-output-run-dir" type="checkbox"><span data-i18n="output_run_dir">输出到独立批次目录</span></label>
+            </div>
+            <div id="proc-preflight" class="send-status"></div>
+
             <section id="proc-pro-panel" class="proc-subpanel">
               <h4 data-i18n="pro_params">高级参数</h4>
               <div class="check-grid" style="margin-bottom:0.5em;">
@@ -567,7 +573,11 @@
               </section>
             </section>
 
-            <button id="proc-run" class="btn primary" type="button" data-i18n="btn_run">运行处理</button>
+            <div class="mini-actions">
+              <button id="proc-preflight-btn" class="btn" type="button" data-i18n="btn_preflight">预检</button>
+              <button id="proc-run" class="btn primary" type="button" data-i18n="btn_run">运行处理</button>
+              <button id="proc-diagnostics" class="btn" type="button" data-i18n="btn_diagnostics">导出诊断包</button>
+            </div>
           </div>
 
           <div id="proc-status" class="send-status"></div>

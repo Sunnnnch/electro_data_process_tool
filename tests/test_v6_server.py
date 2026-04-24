@@ -291,14 +291,18 @@ def test_v6_process_route_requires_eq_potential_when_overpotential_enabled(tmp_p
 def test_v6_process_folder_calculates_rhe_offset_from_formula(tmp_path, monkeypatch):
     data_dir = tmp_path / "rhe_case"
     data_dir.mkdir()
+    (data_dir / "LSV_demo.txt").write_text("Potential Current\n0 0\n1 0.001\n2 0.002\n", encoding="utf-8")
+    output_csv = data_dir / "LSV_results.csv"
+    output_csv.write_text("sample,file\nsample,LSV_demo\n", encoding="utf-8")
     captured = {}
 
     def _fake_run_pipeline(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
         captured["folder_path"] = folder_path
         captured["gui_vars"] = dict(gui_vars)
-        return {"summary_path": "", "messages": [], "quality_summary": {}}
+        return {"lsv_csv": str(output_csv), "summary_path": "", "messages": [], "quality_summary": {}}
 
     monkeypatch.setattr(process_service, "run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr(process_service, "attach_run_outputs", lambda **_kwargs: {"status": "success", "updated": 0})
     payload = process_service.process_folder(
         {
             "folder_path": str(data_dir),
@@ -511,6 +515,7 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
 
         data_dir = tmp_path / "demo_data"
         data_dir.mkdir()
+        (data_dir / "LSV-1.txt").write_text("Potential Current\n0 0\n1 0.001\n2 0.002\n", encoding="utf-8")
         output_csv = data_dir / "LSV_results.csv"
         output_csv.write_text("a,b\n1,2\n", encoding="utf-8")
         summary_path = data_dir / "summary.json"
@@ -697,6 +702,7 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
 
         data_dir = tmp_path / "demo_bind_data"
         data_dir.mkdir()
+        (data_dir / "LSV-bind.txt").write_text("Potential Current\n0 0\n1 0.001\n2 0.002\n", encoding="utf-8")
         output_csv = data_dir / "LSV_results.csv"
         output_csv.write_text("a,b\n1,2\n", encoding="utf-8")
         summary_path = data_dir / "summary.json"

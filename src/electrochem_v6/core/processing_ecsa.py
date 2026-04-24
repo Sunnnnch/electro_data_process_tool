@@ -194,6 +194,8 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
     if cs_mFcm2 <= 0: cs_mFcm2 = 40.0/1000.0
     ecsa_cm2 = cdl_mFcm2 / cs_mFcm2
     rf = ecsa_cm2 / max(area,1e-9)
+    output_dir = str(params.get("output_dir") or subfolder)
+    os.makedirs(output_dir, exist_ok=True)
 
     # 绘图（与现有风格保持一致）
     plt.figure(figsize=(7.5,5.8))
@@ -217,7 +219,7 @@ def process_ecsa_for_subfolder(subfolder: str, files: list, params: dict, common
     plt.annotate(txt, xy=(0.02,0.98), xycoords='axes fraction', va='top',
                  bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
     plt.tight_layout()
-    out_png = os.path.join(subfolder, f"{subname}_ECSA.png")
+    out_png = os.path.join(output_dir, f"{subname}_ECSA.png")
     plt.savefig(out_png, dpi=300, bbox_inches='tight')
     plt.close()
 

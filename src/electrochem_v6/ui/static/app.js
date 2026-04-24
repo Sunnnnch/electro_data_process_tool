@@ -1078,6 +1078,11 @@ function renderProcessResult(result) {
   const quality = (result && result.quality_summary) || {};
   const qItems = [];
   const consumed = new Set();
+  const processing = (result && result.processing) || {};
+  if (processing.matched_files !== undefined) qItems.push(`${t("result_matched_files")}: ${processing.matched_files}`);
+  if (processing.generated_files !== undefined) qItems.push(`${t("result_generated_files")}: ${processing.generated_files}`);
+  if (processing.skipped_files !== undefined) qItems.push(`${t("result_skipped_count")}: ${processing.skipped_files}`);
+  if (processing.output_dir) qItems.push(`${t("result_output_dir")}: ${processing.output_dir}`);
   if (quality.total_files !== undefined) qItems.push(`${t("result_quality_total")}: ${quality.total_files}`);
   if (quality.total_files !== undefined) consumed.add("total_files");
   if (quality.passed !== undefined) qItems.push(`${t("result_quality_passed")}: ${quality.passed}`);
@@ -3084,6 +3089,8 @@ function collectProcessPayload() {
     folder_path: folder,
     data_type: dataTypes[0],
     data_types: dataTypes,
+    recursive_scan: boolValue("pro-recursive-scan"),
+    output_run_dir_enabled: boolValue("pro-output-run-dir"),
   };
 
   const projectName = textValue("proc-project");
@@ -3092,6 +3099,8 @@ function collectProcessPayload() {
   const params = {
     plot_grid: boolValue("pro-plot-grid"),
     use_abs_current: boolValue("pro-use-abs-current"),
+    recursive_scan: payload.recursive_scan,
+    output_run_dir_enabled: payload.output_run_dir_enabled,
   };
   const potentialMode = getPotentialMode();
   params.potential_mode = potentialMode;
@@ -3219,6 +3228,74 @@ function collectProcessPayload() {
   return payload;
 }
 
+function formatPreflightSummary(preflight) {
+  const scan = preflight && typeof preflight === "object" ? preflight : {};
+  const byType = scan.by_type && typeof scan.by_type === "object" ? scan.by_type : {};
+  const parts = ["LSV", "CV", "EIS", "ECSA"].map((dtype) => {
+    const item = byType[dtype] || {};
+    return `${dtype}: ${Number(item.matched || 0)}`;
+  });
+  const warnings = Array.isArray(scan.warnings) && scan.warnings.length
+    ? ` | ${scan.warnings.join("; ")}`
+    : "";
+  return `${t("preflight_summary")}: ${parts.join(", ")} | ${t("preflight_text_files")}: ${Number(scan.text_files || 0)} | ${t("preflight_work_units")}: ${Number(scan.work_units || 0)}${warnings}`;
+}
+
+async function runPreflight(silent = false) {
+  let payload;
+  try {
+    payload = collectProcessPayload();
+  } catch (err) {
+    if (!silent) setProcStatus(err.message);
+    renderProcessError(err.message);
+    return null;
+  }
+  const target = byId("proc-preflight");
+  if (target && !silent) target.textContent = t("preflight_running");
+  try {
+    const resp = await fetch("/api/v1/process/preflight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.status !== "success") {
+      throw new Error(data.message || t("preflight_failed"));
+    }
+    const text = formatPreflightSummary(data.preflight || {});
+    if (target) target.textContent = text;
+    if (!silent) setProcStatus(text);
+    return data.preflight || null;
+  } catch (err) {
+    const msg = `${t("preflight_failed")}: ${err.message}`;
+    if (target) target.textContent = msg;
+    if (!silent) setProcStatus(msg);
+    return null;
+  }
+}
+
+async function exportDiagnostics() {
+  setProcStatus(t("diagnostics_running"));
+  try {
+    const resp = await fetch("/api/v1/diagnostics/export", { method: "POST" });
+    const data = await resp.json();
+    if (!resp.ok || data.status !== "success") {
+      throw new Error(data.message || t("diagnostics_failed"));
+    }
+    setProcStatus(`${t("diagnostics_done")}: ${data.path || data.file_name || "-"}`);
+    if (data.path) {
+      renderProcessResult({
+        summary: t("diagnostics_done"),
+        data_types: [],
+        processing: { output_files: [data.path] },
+        quality_summary: { included_files: Array.isArray(data.included_files) ? data.included_files.length : 0 },
+      });
+    }
+  } catch (err) {
+    setProcStatus(`${t("diagnostics_failed")}: ${err.message}`);
+  }
+}
+
 async function runProcess() {
   let payload;
   try {
@@ -3230,6 +3307,7 @@ async function runProcess() {
   }
 
   setProcStatus(t("proc_running"));
+  await runPreflight(true);
   try {
     const resp = await fetch("/api/v1/process", {
       method: "POST",
@@ -3400,6 +3478,8 @@ function bindEvents() {
 
   byId("send-btn").addEventListener("click", sendMessage);
   byId("proc-run").addEventListener("click", runProcess);
+  byId("proc-preflight-btn").addEventListener("click", () => runPreflight(false));
+  byId("proc-diagnostics").addEventListener("click", exportDiagnostics);
   byId("proc-folder-pick").addEventListener("click", pickFolder);
   byId("tmpl-load").addEventListener("click", loadSelectedTemplate);
   byId("tmpl-save").addEventListener("click", () => {

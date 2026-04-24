@@ -88,6 +88,8 @@ def process_eis(subfolder, file, params):
     filepath = os.path.join(subfolder, file)
     subname = os.path.basename(subfolder)
     file_stem = os.path.splitext(os.path.basename(file))[0]
+    output_dir = str(params.get("output_dir") or subfolder)
+    os.makedirs(output_dir, exist_ok=True)
 
     lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
 
@@ -165,7 +167,7 @@ def process_eis(subfolder, file, params):
         plt.axis('equal')  # 等比例坐标轴，更好地显示圆弧
         plt.tight_layout()
         try:
-            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
         finally:
             plt.close()
 
@@ -206,7 +208,7 @@ def process_eis(subfolder, file, params):
 
         plt.tight_layout()
         try:
-            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
         finally:
             plt.close()
 

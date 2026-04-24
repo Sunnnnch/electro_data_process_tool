@@ -396,6 +396,8 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     filepath = os.path.join(subfolder, file)
     subname = os.path.basename(subfolder)
     file_stem = os.path.splitext(os.path.basename(file))[0]
+    output_dir = str(params.get("output_dir") or subfolder)
+    os.makedirs(output_dir, exist_ok=True)
 
     logger.info(f"开始处理LSV文件: {file} (样品: {subname})")
 
@@ -697,7 +699,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
     plt.tight_layout()
     # 避免同一文件夹内多文件相互覆盖：在文件名中加入源文件名
     try:
-        plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV.png"), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_LSV.png"), dpi=300, bbox_inches='tight')
     finally:
         plt.close()
 
@@ -787,7 +789,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             plt.legend()
         plt.tight_layout()
         try:
-            plt.savefig(os.path.join(subfolder, f"{subname}_{file_stem}_LSV_IR_compensated.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_LSV_IR_compensated.png"), dpi=300, bbox_inches='tight')
         finally:
             plt.close()
 
@@ -906,7 +908,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         'IR_Ohm': ir_compensation
                     }
                     tgt_records.append(rec)
-                out_xlsx = os.path.join(subfolder, f"{file_stem}.xlsx")
+                out_xlsx = os.path.join(output_dir, f"{file_stem}.xlsx")
                 try:
                     with pd.ExcelWriter(out_xlsx, engine='openpyxl') as writer:
                         pd.DataFrame(raw_records).to_excel(writer, sheet_name='raw', index=False)
@@ -925,8 +927,8 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         pd.DataFrame(info_rows).to_excel(writer, sheet_name='info', index=False)
                 except Exception:
                     # fallback csv
-                    pd.DataFrame(raw_records).to_csv(os.path.join(subfolder, f"{file_stem}_raw.csv"), index=False, encoding='utf-8-sig')
-                    pd.DataFrame(tgt_records).to_csv(os.path.join(subfolder, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
+                    pd.DataFrame(raw_records).to_csv(os.path.join(output_dir, f"{file_stem}_raw.csv"), index=False, encoding='utf-8-sig')
+                    pd.DataFrame(tgt_records).to_csv(os.path.join(output_dir, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
             except Exception:
                 pass
 
@@ -963,7 +965,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         plt.grid(True, alpha=0.3)
                     plt.legend()
                     plt.tight_layout()
-                    tafel_ir_path = os.path.join(subfolder, f"{subname}_{file_stem}_Tafel_fit_IR.png")
+                    tafel_ir_path = os.path.join(output_dir, f"{subname}_{file_stem}_Tafel_fit_IR.png")
                     plt.savefig(tafel_ir_path, dpi=300, bbox_inches='tight')
                     plt.close()
                     log(f"IR补偿Tafel拟合图已保存: {tafel_ir_path}")
@@ -995,7 +997,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         plt.grid(True, alpha=0.3)
                     plt.legend()
                     plt.tight_layout()
-                    tafel_path = os.path.join(subfolder, f"{subname}_{file_stem}_Tafel_fit.png")
+                    tafel_path = os.path.join(output_dir, f"{subname}_{file_stem}_Tafel_fit.png")
                     plt.savefig(tafel_path, dpi=300, bbox_inches='tight')
                     plt.close()
                     log(f"原始数据Tafel拟合图已保存: {tafel_path}")
@@ -1192,7 +1194,7 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         'Potential_IRComp(V)': None,
                         'IR_Ohm': None
                     })
-                out_xlsx = os.path.join(subfolder, f"{file_stem}.xlsx")
+                out_xlsx = os.path.join(output_dir, f"{file_stem}.xlsx")
                 try:
                     with pd.ExcelWriter(out_xlsx, engine='openpyxl') as writer:
                         pd.DataFrame(raw_records).to_excel(writer, sheet_name='raw', index=False)
@@ -1209,8 +1211,8 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
                         ]
                         pd.DataFrame(info_rows).to_excel(writer, sheet_name='info', index=False)
                 except Exception:
-                    pd.DataFrame(raw_records).to_csv(os.path.join(subfolder, f"{file_stem}_raw.csv"), index=False, encoding='utf-8-sig')
-                    pd.DataFrame(tgt_records).to_csv(os.path.join(subfolder, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
+                    pd.DataFrame(raw_records).to_csv(os.path.join(output_dir, f"{file_stem}_raw.csv"), index=False, encoding='utf-8-sig')
+                    pd.DataFrame(tgt_records).to_csv(os.path.join(output_dir, f"{file_stem}_targets.csv"), index=False, encoding='utf-8-sig')
             except Exception:
                 pass
 

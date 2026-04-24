@@ -7,10 +7,20 @@ import logging
 import os
 import shutil
 import tempfile
+import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from electrochem_v6.core import open_path_target, process_folder, select_folder_dialog
+from electrochem_v6.config import user_config_dir
+from electrochem_v6.core import (
+    export_diagnostics,
+    open_path_target,
+    preflight_process_folder,
+    process_folder,
+    select_folder_dialog,
+)
 from electrochem_v6.core.logging_policy import get_v6_logger, log_event
 from electrochem_v6.llm import update_provider
 from electrochem_v6.server.request_utils import (
@@ -44,6 +54,20 @@ def _parse_params_value(params_value: Any):
     return parsed
 
 
+def _uploaded_zip_output_dir() -> str:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_token = uuid.uuid4().hex[:8]
+    try:
+        root = user_config_dir() / "runs" / "uploads"
+        root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        root = Path(tempfile.gettempdir()) / "electrochem_v6" / "runs" / "uploads"
+        root.mkdir(parents=True, exist_ok=True)
+    target = root / f"{stamp}_{run_token}"
+    target.mkdir(parents=True, exist_ok=True)
+    return str(target)
+
+
 def _process_uploaded_zip(handler: Any, fields: dict[str, Any], files: dict[str, Any]) -> dict[str, Any]:
     file_item = files.get("file")
     if file_item is None:
@@ -71,6 +95,10 @@ def _process_uploaded_zip(handler: Any, fields: dict[str, Any], files: dict[str,
             max_zip_files=handler.MAX_ZIP_FILES,
             max_zip_uncompressed_bytes=handler.MAX_ZIP_UNCOMPRESSED_BYTES,
         )
+        output_dir = _uploaded_zip_output_dir()
+        if isinstance(params_obj, dict):
+            params_obj = dict(params_obj)
+            params_obj["output_dir"] = output_dir
         return process_folder(
             {
                 "folder_path": extract_dir,
@@ -80,6 +108,7 @@ def _process_uploaded_zip(handler: Any, fields: dict[str, Any], files: dict[str,
                 "electrode_area": electrode_area,
                 "target_current": target_current,
                 "tafel_range": tafel_range,
+                "output_dir": output_dir,
                 "params": params_obj,
             }
         )
@@ -281,6 +310,21 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
             return True
         result = process_folder(payload)
         handler._send_json(200 if result.get("status") == "success" else 400, result)
+        return True
+
+    if path == "/api/v1/process/preflight":
+        try:
+            payload = read_json(handler, handler.MAX_JSON_BODY_BYTES)
+        except ValueError as exc:
+            handler._send_json(400, {"status": "error", "message": str(exc)})
+            return True
+        result = preflight_process_folder(payload)
+        handler._send_json(200 if result.get("status") == "success" else 400, result)
+        return True
+
+    if path == "/api/v1/diagnostics/export":
+        result = export_diagnostics()
+        handler._send_json(200 if result.get("status") == "success" else 500, result)
         return True
 
     if path == "/api/v1/process/templates":
