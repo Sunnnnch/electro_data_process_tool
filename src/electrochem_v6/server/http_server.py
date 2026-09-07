@@ -1,14 +1,11 @@
-"""Embedded HTTP server host for v6 API-first refactor.
+"""Embedded HTTP server host for the ElectroChem V6 local API.
 
 Security design notes
 ---------------------
-* The server only binds to 127.0.0.1 (localhost) — it is **not** reachable
-  from the network.  This is intentional: the application is a local desktop
-  tool, so CORS headers and authentication are deliberately omitted.
-* If a future version needs network access, add:
-  - ``Access-Control-Allow-Origin`` gating
-  - Bearer-token or session-cookie authentication
-  - TLS termination (or run behind a reverse proxy)
+* The server only binds to 127.0.0.1 and validates Host/Origin headers.
+* Browser writes require a per-launch session token injected into the bundled
+  UI. Non-browser local clients remain supported when they send no Origin or
+  Fetch Metadata headers.
 * ``Content-Security-Policy`` uses ``'unsafe-inline'`` because the bundled
   single-page UI injects small inline scripts during hydration.
 """
@@ -19,12 +16,15 @@ import json
 import logging
 import mimetypes
 import os
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 from electrochem_v6.agent import AgentService
+from electrochem_v6.core.job_service import ProcessingJobManager
 from electrochem_v6.core.logging_policy import get_v6_logger, log_event
 from electrochem_v6.server.routes_get import dispatch_get
 from electrochem_v6.server.routes_post import dispatch_post
@@ -37,7 +37,7 @@ def _encode_json_payload(payload: Dict[str, Any]) -> bytes:
 
 
 class V6ServerManager:
-    """Minimal embedded HTTP server for v6 refactor stage."""
+    """Embedded HTTP server manager for ElectroChem V6."""
 
     def __init__(self, port: int = 8010):
         self.port = int(port)
@@ -45,14 +45,105 @@ class V6ServerManager:
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self._agent_service = AgentService()
+        self._job_manager: Optional[ProcessingJobManager] = None
+        self.session_token = secrets.token_urlsafe(32)
+        self._desktop_request_lock = threading.RLock()
+        self._desktop_draining = False
+        self._active_writes = 0
+
+    def close_desktop_admission(self) -> None:
+        """Block new writes while already admitted native-client requests finish."""
+        with self._desktop_request_lock:
+            self._desktop_draining = True
+
+    def desktop_active_writes(self) -> int:
+        with self._desktop_request_lock:
+            return self._active_writes
+
+    def desktop_is_closing(self) -> bool:
+        with self._desktop_request_lock:
+            return self._desktop_draining
+
+    def _admit_write(self) -> bool:
+        with self._desktop_request_lock:
+            if self._desktop_draining:
+                return False
+            self._active_writes += 1
+            return True
+
+    def _finish_write(self) -> None:
+        with self._desktop_request_lock:
+            self._active_writes -= 1
+
+    def _run_agent_job(
+        self,
+        payload: Dict[str, Any],
+        *,
+        progress_callback,
+        cancel_check,
+    ) -> Dict[str, Any]:
+        prepared_upload = payload.get("_prepared_upload")
+        processing_result = payload.get("processing_result")
+        attachments = list(payload.get("attachments") or []) if isinstance(payload.get("attachments"), list) else []
+        if isinstance(prepared_upload, dict):
+            from electrochem_v6.server.routes_post import _process_prepared_uploaded_zip
+
+            processed = _process_prepared_uploaded_zip(
+                prepared_upload,
+                cancel_check=cancel_check,
+                progress_callback=lambda current, total, item: progress_callback(
+                    f"processing {current}/{total}: {item or ''}".strip()
+                ),
+            )
+            if processed.get("status") != "success":
+                return processed
+            processing_result = processed.get("result")
+            attachments.append(
+                {
+                    "type": "processing_result",
+                    "file_name": prepared_upload.get("original_filename") or "upload.zip",
+                    "project_name": prepared_upload.get("project_name"),
+                    "data_type": prepared_upload.get("data_type"),
+                    "summary": (processing_result or {}).get("summary"),
+                    "output_files": ((processing_result or {}).get("processing") or {}).get("output_files"),
+                }
+            )
+        return self._agent_service.chat(
+            message=payload.get("message", ""),
+            conversation_id=payload.get("conversation_id"),
+            provider=payload.get("provider"),
+            model=payload.get("model"),
+            project_name=payload.get("project_name"),
+            data_type=payload.get("data_type"),
+            processing_result=processing_result,
+            attachments=attachments or None,
+            prompt_prefix=payload.get("prompt_prefix"),
+            professional_context=(
+                payload.get("professional_context")
+                if isinstance(payload.get("professional_context"), dict)
+                else None
+            ),
+            approval_id=payload.get("approval_id"),
+            approval_action=payload.get("approval_action"),
+            progress_callback=progress_callback,
+            cancel_check=cancel_check,
+        )
 
     def start(self) -> tuple[bool, str]:
         if self.is_running:
             return False, "v6 服务器已在运行中"
+        with self._desktop_request_lock:
+            self._desktop_draining = False
         try:
+            if self._job_manager is None:
+                self._job_manager = ProcessingJobManager(agent_runner=self._run_agent_job)
+            self.session_token = secrets.token_urlsafe(32)
             handler_cls = self._make_handler()
             self._server = ThreadingHTTPServer(("127.0.0.1", self.port), handler_cls)
         except OSError as exc:
+            if self._job_manager is not None:
+                self._job_manager.shutdown()
+                self._job_manager = None
             self._server = None
             return False, f"启动失败: {exc}"
 
@@ -68,6 +159,9 @@ class V6ServerManager:
             self._server.shutdown()
             self._server.server_close()
         finally:
+            if self._job_manager is not None:
+                self._job_manager.shutdown()
+                self._job_manager = None
             self._server = None
             self.is_running = False
         return True, "v6 服务器已停止"
@@ -110,6 +204,48 @@ class V6ServerManager:
                         "client": self.client_address[0] if self.client_address else None,
                     },
                 )
+
+            def _host_is_allowed(self) -> bool:
+                raw_host = str(self.headers.get("Host") or "").strip()
+                if not raw_host:
+                    return False
+                try:
+                    parsed = urlsplit(f"//{raw_host}")
+                    host = str(parsed.hostname or "").lower()
+                    port = parsed.port
+                except ValueError:
+                    return False
+                if host not in {"127.0.0.1", "localhost", "::1"}:
+                    return False
+                return port in {None, manager.port}
+
+            def _browser_write_is_allowed(self) -> bool:
+                token = str(self.headers.get("X-Electrochem-Session") or "")
+                if token and secrets.compare_digest(token, manager.session_token):
+                    return True
+                origin = str(self.headers.get("Origin") or "").strip()
+                fetch_site = str(self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+                return not origin and fetch_site in {"", "none"}
+
+            def _request_context_is_allowed(self, *, write: bool = False) -> bool:
+                if not self._host_is_allowed():
+                    return False
+                origin = str(self.headers.get("Origin") or "").strip()
+                if origin:
+                    try:
+                        parsed = urlsplit(origin)
+                        origin_host = str(parsed.hostname or "").lower()
+                        origin_port = parsed.port
+                    except ValueError:
+                        return False
+                    if parsed.scheme != "http" or origin_host not in {"127.0.0.1", "localhost", "::1"}:
+                        return False
+                    if origin_port not in {None, manager.port}:
+                        return False
+                fetch_site = str(self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+                if fetch_site == "cross-site":
+                    return False
+                return not write or self._browser_write_is_allowed()
 
             def _send_json(self, status_code: int, payload: Dict[str, Any]) -> None:
                 response_status = int(status_code)
@@ -158,16 +294,23 @@ class V6ServerManager:
                 content_type, _ = mimetypes.guess_type(str(resolved))
                 if not content_type:
                     content_type = "application/octet-stream"
+                content = resolved.read_bytes()
+                if content_type == "text/html":
+                    content = content.replace(
+                        b"__ELECTROCHEM_SESSION_TOKEN__",
+                        manager.session_token.encode("ascii"),
+                    )
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("X-Content-Type-Options", "nosniff")
                 if content_type == "text/html":
+                    self.send_header("Cache-Control", "no-store")
                     self.send_header(
                         "Content-Security-Policy",
-                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;",
+                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' blob:;",
                     )
                 self.end_headers()
-                self.wfile.write(resolved.read_bytes())
+                self.wfile.write(content)
                 log_event(
                     self._logger,
                     "http.response.static",
@@ -184,7 +327,10 @@ class V6ServerManager:
             def do_GET(self):
                 self._log_request()
                 try:
-                    if self.path == "/ui" or self.path == "/ui/":
+                    if not self._request_context_is_allowed():
+                        self._send_json(403, {"status": "error", "message": "Request origin is not allowed"})
+                        return
+                    if self.path.split("?", 1)[0] in {"/ui", "/ui/"}:
                         if self._send_static_file(static_root / "index.html"):
                             return
                     if self.path.startswith("/ui/static/"):
@@ -194,7 +340,7 @@ class V6ServerManager:
                             return
                         self._send_json(404, {"status": "error", "message": "Static file not found"})
                         return
-                    handled = dispatch_get(self)
+                    handled = dispatch_get(self, manager)
                     if not handled:
                         self._send_json(404, {"status": "error", "message": "Not Found"})
                 except Exception as exc:  # pragma: no cover - defensive boundary
@@ -214,7 +360,18 @@ class V6ServerManager:
 
             def do_POST(self):
                 self._log_request()
+                admitted = False
                 try:
+                    if not self._request_context_is_allowed(write=True):
+                        self._send_json(
+                            403,
+                            {"status": "error", "message": "Request origin or session is not allowed"},
+                        )
+                        return
+                    admitted = manager._admit_write()
+                    if not admitted:
+                        self._send_json(503, {"status": "error", "message": "客户端正在安全退出，已暂停接收新操作。 / The desktop client is exiting."})
+                        return
                     handled = dispatch_post(self, manager)
                     if not handled:
                         self._send_json(404, {"status": "error", "message": "Not Found"})
@@ -232,5 +389,8 @@ class V6ServerManager:
                     if not getattr(self, "wfile", None):
                         return
                     self._send_json(500, {"status": "error", "message": "Internal Server Error"})
+                finally:
+                    if admitted:
+                        manager._finish_write()
 
         return Handler

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from electrochem_v6.core.processing_pipeline import (
+from electrochem_v6.core.processing_scan import (
     auto_detect_data_start,
     resolve_data_start_line,
 )
@@ -259,4 +259,3 @@ def test_short_file_no_verification(tmp_path):
         "Header\n0.1 0.002\n0.2 0.003\n0.3 0.004\n",
     )
     assert auto_detect_data_start(fp) == 2
-

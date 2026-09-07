@@ -6,10 +6,13 @@ import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 __all__ = [
     "register_allowed_dir",
+    "select_file_dialog",
+    "select_files_dialog",
     "select_folder_dialog",
     "open_path_target",
 ]
@@ -60,6 +63,129 @@ def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
             pass
 
 
+def select_file_dialog(
+    initial_path: Optional[str] = None,
+    extensions: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        return {"status": "error", "message": f"当前环境不支持文件选择对话框: {exc}"}
+
+    normalized_extensions = []
+    for item in extensions or [".txt", ".csv"]:
+        suffix = str(item or "").strip().lower()
+        if suffix and not suffix.startswith("."):
+            suffix = "." + suffix
+        if suffix and suffix not in normalized_extensions:
+            normalized_extensions.append(suffix)
+    if not normalized_extensions:
+        normalized_extensions = [".txt", ".csv"]
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        initial = os.path.abspath(os.path.expanduser(str(initial_path or os.getcwd())))
+        default_dir = initial if os.path.isdir(initial) else os.path.dirname(initial)
+        if not os.path.isdir(default_dir):
+            default_dir = os.getcwd()
+        patterns = " ".join(f"*{suffix}" for suffix in normalized_extensions)
+        selected = filedialog.askopenfilename(
+            initialdir=default_dir,
+            title="选择 EIS 数据文件",
+            filetypes=[("EIS data", patterns), ("All files", "*.*")],
+        )
+        if not selected:
+            return {"status": "error", "message": "未选择文件"}
+        selected = os.path.abspath(selected)
+        if Path(selected).suffix.lower() not in set(normalized_extensions):
+            return {"status": "error", "message": "所选文件格式不受支持"}
+        register_allowed_dir(os.path.dirname(selected))
+        return {"status": "success", "file_path": selected}
+    except Exception as exc:
+        return {"status": "error", "message": f"打开文件选择器失败: {exc}"}
+    finally:
+        try:
+            if root is not None:
+                root.destroy()
+        except Exception:
+            pass
+
+
+def select_files_dialog(
+    initial_path: Optional[str] = None,
+    extensions: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    """Open the native picker for one or more primary data files."""
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        return {"status": "error", "message": f"当前环境不支持文件选择对话框: {exc}"}
+
+    normalized_extensions: list[str] = []
+    for item in extensions or [".txt", ".csv"]:
+        suffix = str(item or "").strip().lower()
+        if suffix and not suffix.startswith("."):
+            suffix = "." + suffix
+        if suffix and suffix not in normalized_extensions:
+            normalized_extensions.append(suffix)
+    if not normalized_extensions:
+        normalized_extensions = [".txt", ".csv"]
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        initial = os.path.abspath(os.path.expanduser(str(initial_path or os.getcwd())))
+        default_dir = initial if os.path.isdir(initial) else os.path.dirname(initial)
+        if not os.path.isdir(default_dir):
+            default_dir = os.getcwd()
+        patterns = " ".join(f"*{suffix}" for suffix in normalized_extensions)
+        selected_items = filedialog.askopenfilenames(
+            initialdir=default_dir,
+            title="选择电化学数据文件（可多选）",
+            filetypes=[("Electrochemical data", patterns), ("All files", "*.*")],
+        )
+        if not selected_items:
+            return {"status": "error", "message": "未选择文件"}
+
+        allowed_suffixes = set(normalized_extensions)
+        selected_paths: list[str] = []
+        seen: set[str] = set()
+        for raw_path in selected_items:
+            selected = os.path.abspath(str(raw_path))
+            if Path(selected).suffix.lower() not in allowed_suffixes:
+                return {
+                    "status": "error",
+                    "message": f"所选文件格式不受支持: {os.path.basename(selected)}",
+                }
+            key = os.path.normcase(os.path.realpath(selected))
+            if key in seen:
+                continue
+            seen.add(key)
+            selected_paths.append(selected)
+            register_allowed_dir(os.path.dirname(selected))
+        return {
+            "status": "success",
+            "file_paths": selected_paths,
+            "count": len(selected_paths),
+        }
+    except Exception as exc:
+        return {"status": "error", "message": f"打开文件选择器失败: {exc}"}
+    finally:
+        try:
+            if root is not None:
+                root.destroy()
+        except Exception:
+            pass
+
+
 def _is_within_allowed_roots(path: str) -> bool:
     """Check that *path* is under a known data directory or a runtime-registered directory."""
     from electrochem_v6.config import project_default_dir, user_config_dir
@@ -81,28 +207,10 @@ def _is_within_allowed_roots(path: str) -> bool:
 def _is_path_in_history_outputs(path: str) -> bool:
     """Check if *path* belongs to a directory that contains known output files from processing history."""
     try:
-        from electrochem_v6.store.legacy_runtime import _USE_SQLITE
-        resolved = os.path.realpath(path)
+        from electrochem_v6.store.runtime import get_database
 
-        if _USE_SQLITE:
-            from electrochem_v6.store.legacy_runtime import _get_db
-            db = _get_db()
-            known_dirs = set(db.get_history_output_dirs())
-        else:
-            from electrochem_v6.store.legacy_runtime import get_history_manager_v6
-            hist_mgr = get_history_manager_v6()
-            records = hist_mgr.get_all_records()
-            known_dirs: set[str] = set()
-            for record in records:
-                if not isinstance(record, dict):
-                    continue
-                for output_file in (record.get("output_files") or []):
-                    output_path = str(output_file).strip()
-                    if output_path:
-                        known_dirs.add(os.path.realpath(os.path.dirname(output_path)))
-                folder = str(record.get("folder_path") or "").strip()
-                if folder:
-                    known_dirs.add(os.path.realpath(folder))
+        resolved = os.path.realpath(path)
+        known_dirs = set(get_database().get_history_output_dirs())
 
         # Register them for future fast lookups
         for d in known_dirs:

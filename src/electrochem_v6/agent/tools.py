@@ -8,6 +8,22 @@ BASIC_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_professional_mode_context",
+            "description": (
+                "按需读取用户当前界面的专业模式摘要，包括已选数据文件名和类型、模板、处理参数、"
+                "预检状态及结果摘要，不包含原始文件内容。仅当用户询问当前设置、当前参数、当前预检、"
+                "当前处理结果，或明确指代专业模式界面时调用；一般知识问答和纯数据库查询不要调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_lsv_summary",
             "description": "查询LSV数据汇总,获取所有样品的性能数据",
             "parameters": {
@@ -108,7 +124,7 @@ BASIC_TOOLS = [
                     },
                     "record_type": {
                         "type": "string",
-                        "enum": ["LSV", "CV", "EIS", "ECSA"],
+                        "enum": ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
                         "description": "可选的数据类型过滤。"
                     },
                     "limit": {
@@ -196,7 +212,7 @@ ENHANCED_TOOLS = [
         "type": "function",
         "function": {
             "name": "analyze_data_characteristics",
-            "description": "深度分析数据文件特征(电流范围、电位窗口等),用于智能决定处理参数",
+            "description": "按明确实验条件分析数据并提供候选参数及限制。缺少条件时先补全；候选不代表最优参数。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -204,9 +220,11 @@ ENHANCED_TOOLS = [
                         "type": "string",
                         "description": "文件路径"
                     },
+                    "params": {"type": "object", "description": "已确认的正式处理参数，含单位、面积、列映射和补偿条件，不推测缺失实验条件"},
+                    "run_id": {"type": "string", "description": "可选，读取指定已保存运行的有效参数"},
                     "data_type": {
                         "type": "string",
-                        "enum": ["LSV", "CV", "EIS", "ECSA"],
+                        "enum": ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
                         "description": "数据类型"
                     }
                 },
@@ -218,7 +236,7 @@ ENHANCED_TOOLS = [
         "type": "function",
         "function": {
             "name": "auto_process_with_smart_params",
-            "description": "AI自主决定参数并处理数据。会先分析数据特征,然后自动选择最优参数执行处理。用户可以指定关键参数如电位偏移、电极面积等",
+            "description": "按用户明确的实验条件和处理参数准备处理确认。仅在用户确认后执行；不会自动推断缺失实验条件或保证最优参数。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -228,7 +246,7 @@ ENHANCED_TOOLS = [
                     },
                     "data_type": {
                         "type": "string",
-                        "enum": ["LSV", "CV", "EIS", "ECSA"],
+                        "enum": ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
                         "description": "数据类型"
                     },
                     "project_name": {
@@ -250,6 +268,18 @@ ENHANCED_TOOLS = [
                     "tafel_range": {
                         "type": "string",
                         "description": "Tafel拟合范围(mA/cm²),例如'1-10'"
+                    },
+                    "coupled_products_file": {
+                        "type": "string",
+                        "description": "Product quantification table path for COUPLED/FE calculation"
+                    },
+                    "coupled_products_sheet": {
+                        "type": "string",
+                        "description": "Excel sheet name or index for the product quantification table"
+                    },
+                    "coupled_results_csv_filename": {
+                        "type": "string",
+                        "description": "Output CSV file name for COUPLED/FE results"
                     }
                 },
                 "required": ["folder_path", "data_type"]
@@ -291,7 +321,7 @@ ENHANCED_TOOLS = [
                     },
                     "record_type": {
                         "type": "string",
-                        "enum": ["LSV", "CV", "EIS", "ECSA"],
+                        "enum": ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
                         "description": "记录类型筛选"
                     },
                     "limit": {
@@ -357,6 +387,7 @@ CATALYST_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "project_id": {"type": "string", "description": "明确的项目ID；同名样品跨项目时必须指定，复算版本不当作独立重复实验。"},
                     "sample_name": {
                         "type": "string",
                         "description": "样品名称,例如:Sample_A"
@@ -397,9 +428,30 @@ VISION_TOOLS = [
     }
 ]
 
+ACTION_TOOLS = [
+    {"type": "function", "function": {
+        "name": "propose_parameter_changes",
+        "description": "生成当前专业模式参数建议卡，显示当前值、建议值和理由；不修改界面或处理数据。Tafel区间必须来自本轮已验证候选；缺实验条件时先补全。用户随后预览并确认应用，保留输入来源。",
+        "parameters": {"type": "object", "properties": {"changes": {"type": "array", "items": {
+            "type": "object", "properties": {"key": {"type": "string"}, "value": {}, "reason": {"type": "string"}},
+            "required": ["key", "value", "reason"], "additionalProperties": False,
+        }}}, "required": ["changes"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "prepare_record_comparison", "description": "为恰好两条明确历史记录生成比较预览卡。必须使用当前项目与所选record_keys，不以样品名称或最新记录替代。用户点击后打开比较视图。",
+        "parameters": {"type": "object", "properties": {"project_id": {"type": "string"}, "record_keys": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}}, "required": ["record_keys"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "prepare_run_replay", "description": "为明确运行或其单条记录生成复算计划卡，检查原来源与参数差异，不启动任务。用户打开既有复算对话框重新预检并确认，新结果保留旧版本。",
+        "parameters": {"type": "object", "properties": {"project_id": {"type": "string"}, "run_id": {"type": "string"}, "record_key": {"type": "string"}, "params": {"type": "object"}}, "required": ["run_id"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "prepare_result_report", "description": "为当前项目明确勾选的历史record_keys生成报告范围卡。仅这些结果，不能扩大为整批次或整项目；用户点击后在报告界面确认导出。",
+        "parameters": {"type": "object", "properties": {"project_id": {"type": "string"}, "record_keys": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 200}}, "required": ["record_keys"], "additionalProperties": False},
+    }},
+]
+
 # 合并所有工具
-ALL_TOOLS = BASIC_TOOLS + ENHANCED_TOOLS + ANALYSIS_TOOLS + CATALYST_TOOLS + VISION_TOOLS
+ALL_TOOLS = BASIC_TOOLS + ENHANCED_TOOLS + ANALYSIS_TOOLS + CATALYST_TOOLS + VISION_TOOLS + ACTION_TOOLS
 
 __all__ = ["BASIC_TOOLS", "ENHANCED_TOOLS", "ANALYSIS_TOOLS", "CATALYST_TOOLS", "VISION_TOOLS", "ALL_TOOLS"]
-
-

@@ -4,11 +4,13 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.test_runtime/
 .ruff_cache/
 *.db
 build/
 dist/
 dist_installer/
+/dist_*/
 tmp_pack_fix_verify/
 project_reports/
 electrochem.log
@@ -51,6 +53,21 @@ Desktop.ini
 *.whl
 artifacts/
 
+# Runtime output directories
+electrochem_outputs/
+uploads/
+runtime/
+logs/
+tmp/
+temp/
+*.tmp
+*.log
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+
 # Sensitive / user-specific config (NEVER commit)
 .env
 .env.*
@@ -68,3 +85,6 @@ V5_V6_BASELINE_ACCEPTANCE.md
 reports/CHANGELOG_V6_0_1.md
 reports/PACKAGING_PLAN_V6_0_1.md
 reports/RELEASE_CHECKLIST_V6_0_1.md
+
+# Local reference measurements used for method development
+/其他相关资料/

@@ -12,6 +12,14 @@ from typing import Any, Dict, Optional
 from electrochem_v6.llm.config import LLMConfig
 from electrochem_v6.llm.vision_client import VisionClient
 
+from .actions import (
+    prepare_record_comparison,
+    prepare_result_report,
+    prepare_run_replay,
+    propose_parameter_changes,
+    remember_recommendation,
+)
+from .request_context import register_pending_mutation, tool_get_professional_mode_context
 from .tools_analysis import tool_analyze_processing_results, tool_read_quality_report
 from .tools_catalyst import tool_get_catalyst_info
 from .tools_data import (
@@ -30,15 +38,20 @@ from .tools_projects import (
 
 _logger = logging.getLogger(__name__)
 
+MUTATING_AGENT_TOOLS = {
+    "auto_process_with_smart_params",
+    "create_project",
+}
+
 
 # ── LSV query tools (kept here – small, tightly coupled to history) ────────
 
 def tool_query_lsv_summary(project_id: Optional[str] = None, sort_by: str = "eta", top_n: Optional[int] = None) -> Dict:
     """查询LSV数据汇总。"""
     try:
-        from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+        from electrochem_v6.store.runtime import get_history_store
 
-        hist_mgr = get_history_manager_v6()
+        hist_mgr = get_history_store()
 
         if project_id and project_id.lower() in ("all", "none", ""):
             project_id = None
@@ -48,10 +61,13 @@ def tool_query_lsv_summary(project_id: Optional[str] = None, sort_by: str = "eta
 
         _logger.debug("tool_query_lsv_summary: project_id=%s, 原始samples数量 = %d", project_id, len(samples))
 
-        if sort_by == "tafel":
-            samples = sorted(samples, key=lambda x: x.get("tafel_slope", 999))
-        else:
-            samples = sorted(samples, key=lambda x: x.get("overpotential_10", 999))
+        from electrochem_v6.core.agent_scientific import finite_number
+
+        metric = "tafel_slope" if sort_by == "tafel" else "overpotential_10"
+        samples = sorted(samples, key=lambda item: (
+            finite_number(item.get(metric)) is None,
+            finite_number(item.get(metric)) if finite_number(item.get(metric)) is not None else 0,
+        ))
 
         if top_n:
             samples = samples[:top_n]
@@ -61,6 +77,8 @@ def tool_query_lsv_summary(project_id: Optional[str] = None, sort_by: str = "eta
             "total_samples": len(summary.get("samples", [])),
             "returned_samples": len(samples),
             "samples": samples,
+            "ranking_metric": metric,
+            "unranked_samples": sum(finite_number(item.get(metric)) is None for item in samples),
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -72,11 +90,13 @@ def tool_find_best_catalysts(project_id: Optional[str] = None, count: int = 5) -
     _logger.debug("tool_find_best_catalysts: result=%s", result)
 
     if result.get("success"):
-        samples = result.get("samples", [])
+        from electrochem_v6.core.agent_scientific import finite_number
+
+        samples = [item for item in result.get("samples", []) if finite_number(item.get("overpotential_10")) is not None]
         if len(samples) == 0:
             return {
                 "success": False,
-                "message": "数据库中没有找到LSV记录。可能原因:1) 尚未处理任何LSV数据 2) 数据未正确保存到历史记录",
+                "message": "没有具有有效 η@10 指标的 LSV 记录，无法据此排名；请检查结果与过电位计算设置。",
                 "suggestion": "Please check data processing tab for LSV data",
             }
         return {
@@ -91,9 +111,9 @@ def tool_find_best_catalysts(project_id: Optional[str] = None, count: int = 5) -
 def tool_compare_catalysts(sample_names: list[str]) -> Dict:
     """对比催化剂性能。"""
     try:
-        from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+        from electrochem_v6.store.runtime import get_history_store
 
-        hist_mgr = get_history_manager_v6()
+        hist_mgr = get_history_store()
         all_records = hist_mgr.get_all_records()
 
         comparison = []
@@ -166,7 +186,12 @@ def tool_analyze_waveform_image(image_path: str, context: str = "", max_tokens: 
 
 # ── Main dispatcher ────────────────────────────────────────────────────────
 
-def execute_tool(tool_name: str, arguments: str | Dict[str, Any]) -> Dict:
+def execute_tool(
+    tool_name: str,
+    arguments: str | Dict[str, Any],
+    *,
+    approved: bool = False,
+) -> Dict:
     """Execute a named tool function with given arguments."""
     if isinstance(arguments, str):
         try:
@@ -175,8 +200,19 @@ def execute_tool(tool_name: str, arguments: str | Dict[str, Any]) -> Dict:
             return {"success": False, "error": "参数解析失败"}
     else:
         args = arguments
+    if not isinstance(args, dict):
+        return {"success": False, "error": "工具参数必须是对象"}
+
+    if tool_name in MUTATING_AGENT_TOOLS and not approved:
+        return register_pending_mutation(tool_name, args)
 
     tool_map = {
+        "propose_parameter_changes": propose_parameter_changes,
+        "prepare_record_comparison": prepare_record_comparison,
+        "prepare_run_replay": prepare_run_replay,
+        "prepare_result_report": prepare_result_report,
+        # Request-scoped UI context
+        "get_professional_mode_context": tool_get_professional_mode_context,
         # LSV query
         "query_lsv_summary": tool_query_lsv_summary,
         "find_best_catalysts": tool_find_best_catalysts,
@@ -203,11 +239,14 @@ def execute_tool(tool_name: str, arguments: str | Dict[str, Any]) -> Dict:
 
     if tool_name in tool_map:
         try:
-            return tool_map[tool_name](**args)
+            result = tool_map[tool_name](**args)
+            if tool_name == "analyze_data_characteristics":
+                remember_recommendation(result)
+            return result
         except Exception as e:
             _logger.warning("工具 %s 执行失败: %s", tool_name, e, exc_info=True)
             return {"success": False, "error": f"工具执行失败: {str(e)}"}
     return {"success": False, "error": f"未知工具: {tool_name}"}
 
 
-__all__ = ["execute_tool"]
+__all__ = ["MUTATING_AGENT_TOOLS", "execute_tool"]

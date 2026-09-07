@@ -1,198 +1,77 @@
-"""
-Catalyst-centric tools - Query all data types for a specific sample.
-以催化剂为中心的工具 - 查询特定样品的所有数据类型。
-"""
+"""Return traceable sample measurements without condition-free performance grades."""
 
-from typing import Dict
+from __future__ import annotations
+
+from typing import Any, Dict
+
+from electrochem_v6.core.agent_scientific import finite_number, metric_value
+from electrochem_v6.core.history_compare import _json_value, history_metrics_for_display
+
+_FIELDS = {
+    "LSV": {"overpotential_10": ("overpotential_at_10", "mV"), "tafel_slope": ("tafel_slope", "mV/dec")},
+    "EIS": {"Rs": ("Rs", "Ω"), "Rct": ("Rct", "Ω")},
+    "ECSA": {"Cdl": ("Cdl", "mF/cm²"), "ECSA": ("ECSA", "cm²"), "RF": ("RF", "")},
+}
 
 
-def tool_get_catalyst_info(sample_name: str, include_details: bool = True) -> Dict:
-    """
-    获取催化剂的完整信息
-
-    自动查询该样品的所有可用数据:LSV, CV, EIS, ECSA
-
-    Args:
-        sample_name: 样品名称
-        include_details: 是否包含详细数据
-
-    Returns:
-        包含所有数据类型的完整信息
-    """
+def tool_get_catalyst_info(sample_name: str, include_details: bool = True, project_id: str | None = None) -> Dict:
+    """Read saved measurements, preserving versions instead of treating them as replicates."""
     try:
-        from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+        from electrochem_v6.store.runtime import get_history_store
 
-        hist_mgr = get_history_manager_v6()
-        all_records = hist_mgr.get_all_records()
-
-        # 筛选该样品的所有记录
-        sample_records = [r for r in all_records if r.get('sample_name') == sample_name]
-
-        if not sample_records:
-            return {
-                "success": False,
-                "message": f"未找到样品'{sample_name}'的任何数据",
-                "suggestion": "请检查样品名称是否正确,或该样品是否已处理"
-            }
-
-        # 按数据类型分类
-        lsv_records = [r for r in sample_records if r.get('type') == 'LSV']
-        cv_records = [r for r in sample_records if r.get('type') == 'CV']
-        eis_records = [r for r in sample_records if r.get('type') == 'EIS']
-        ecsa_records = [r for r in sample_records if r.get('type') == 'ECSA']
-
-        # 构建完整信息
-        catalyst_info = {
-            "success": True,
-            "sample_name": sample_name,
-            "total_records": len(sample_records),
-            "data_types_available": []
-        }
-
-        # LSV数据
-        if lsv_records:
-            catalyst_info["data_types_available"].append("LSV")
-            lsv_results = [r.get('results', {}) for r in lsv_records]
-
-            # 计算平均值(如果有多次测量)
-            eta_values = [res.get('overpotential_10') for res in lsv_results if res.get('overpotential_10')]
-            tafel_values = [res.get('tafel_slope') for res in lsv_results if res.get('tafel_slope')]
-
-            catalyst_info["lsv"] = {
-                "record_count": len(lsv_records),
-                "overpotential_10": sum(eta_values) / len(eta_values) if eta_values else None,
-                "tafel_slope": sum(tafel_values) / len(tafel_values) if tafel_values else None,
-                "latest_time": lsv_records[-1].get('timestamp'),
-                "performance_level": _evaluate_lsv_performance(
-                    sum(eta_values) / len(eta_values) if eta_values else None,
-                    sum(tafel_values) / len(tafel_values) if tafel_values else None
-                )
-            }
-
+        records = [record for record in get_history_store().get_all_records()
+                   if record.get("sample_name") == sample_name and not record.get("archived")
+                   and (project_id is None or record.get("project_id") == project_id)]
+        if not records:
+            return {"success": False, "message": f"未找到样品'{sample_name}'的任何数据"}
+        projects = {record.get("project_id") for record in records}
+        identities = {record.get("sample_id") for record in records if record.get("sample_id")}
+        if len(projects) > 1 or len(identities) > 1:
+            return {"success": False, "status": "needs_scope", "message": "同名样品属于多个项目或批次，请选择明确的样品记录。",
+                    "candidates": [{"project_id": record.get("project_id"), "sample_id": record.get("sample_id"),
+                                    "record_key": record.get("record_key"), "run_id": record.get("run_id")} for record in records]}
+        records.sort(key=lambda record: (str(record.get("timestamp") or ""), str(record.get("record_key") or "")), reverse=True)
+        info: dict[str, Any] = {"success": True, "sample_name": sample_name, "project_id": project_id,
+                                "total_records": len(records), "data_types_available": [],
+                                "limitations": ["记录数不是独立重复实验数；同一数据的复算版本未合并为实验均值。", "数值未经过实验条件可比性确认，不据此评定材料等级。"]}
+        for dtype in ("LSV", "CV", "EIS", "ECSA", "COUPLED"):
+            selected = [record for record in records if str(record.get("type", "")).upper() == dtype]
+            if not selected:
+                continue
+            info["data_types_available"].append(dtype)
+            latest = selected[0]
+            fields = _FIELDS.get(dtype, {})
+            section = {"record_count": len(selected), "latest_time": latest.get("timestamp"),
+                       "record_key": latest.get("record_key"), "run_id": latest.get("run_id"),
+                       "aggregation_method": "latest_record_no_replicate_aggregation",
+                       "metrics": history_metrics_for_display(latest),
+                       "units": {name: unit for name, (_key, unit) in fields.items()},
+                       **{name: metric_value(latest, key, unit) for name, (key, unit) in fields.items()}}
+            if dtype == "CV":
+                section.update({key: (latest.get("results") or {}).get(key) for key in ("potential_range", "current_range", "data_points")})
             if include_details:
-                catalyst_info["lsv"]["all_measurements"] = [
-                    {
-                        "time": r.get('timestamp'),
-                        "eta_10": r.get('results', {}).get('overpotential_10'),
-                        "tafel": r.get('results', {}).get('tafel_slope')
-                    } for r in lsv_records
-                ]
-
-        # CV数据
-        if cv_records:
-            catalyst_info["data_types_available"].append("CV")
-            cv_results = cv_records[-1].get('results', {})  # 使用最新记录
-
-            catalyst_info["cv"] = {
-                "record_count": len(cv_records),
-                "potential_range": cv_results.get('potential_range'),
-                "current_range": cv_results.get('current_range'),
-                "data_points": cv_results.get('data_points'),
-                "latest_time": cv_records[-1].get('timestamp')
-            }
-
-        # EIS数据
-        if eis_records:
-            catalyst_info["data_types_available"].append("EIS")
-            eis_results = [r.get('results', {}) for r in eis_records]
-
-            # 平均Rs和Rct
-            rs_values = [res.get('Rs') for res in eis_results if res.get('Rs')]
-            rct_values = [res.get('Rct') for res in eis_results if res.get('Rct')]
-
-            catalyst_info["eis"] = {
-                "record_count": len(eis_records),
-                "Rs": sum(rs_values) / len(rs_values) if rs_values else None,
-                "Rct": sum(rct_values) / len(rct_values) if rct_values else None,
-                "latest_time": eis_records[-1].get('timestamp')
-            }
-
-        # ECSA数据
-        if ecsa_records:
-            catalyst_info["data_types_available"].append("ECSA")
-            ecsa_results = [r.get('results', {}) for r in ecsa_records]
-
-            # 平均Cdl和ECSA
-            cdl_values = [res.get('Cdl') for res in ecsa_results if res.get('Cdl')]
-            ecsa_values = [res.get('ECSA') for res in ecsa_results if res.get('ECSA')]
-            rf_values = [res.get('RF') for res in ecsa_results if res.get('RF')]
-
-            catalyst_info["ecsa"] = {
-                "record_count": len(ecsa_records),
-                "Cdl": sum(cdl_values) / len(cdl_values) if cdl_values else None,
-                "ECSA": sum(ecsa_values) / len(ecsa_values) if ecsa_values else None,
-                "RF": sum(rf_values) / len(rf_values) if rf_values else None,
-                "latest_time": ecsa_records[-1].get('timestamp')
-            }
-
-        # 生成综合评价
-        catalyst_info["overall_assessment"] = _generate_overall_assessment(catalyst_info)
-
-        return catalyst_info
-
-    except Exception as e:
-        import traceback
-        return {
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
+                section["all_measurements"] = [{"time": item.get("timestamp"), "record_key": item.get("record_key"),
+                    "run_id": item.get("run_id"), "metrics": history_metrics_for_display(item),
+                    **({"eta_10": metric_value(item, "overpotential_at_10", "mV"), "tafel": metric_value(item, "tafel_slope", "mV/dec")} if dtype == "LSV" else {})}
+                    for item in selected]
+            info[dtype.lower()] = section
+        info["overall_assessment"] = _generate_overall_assessment(info)
+        return _json_value(info)
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 def _evaluate_lsv_performance(eta: float | None = None, tafel: float | None = None) -> str:
-    """评估LSV性能等级"""
-    if eta is None:
-        return "未知"
-
-    if eta < 0.10:
-        return "⭐⭐⭐⭐⭐ 卓越(商业Pt/C级别)"
-    elif eta < 0.30:
-        return "⭐⭐⭐⭐ 优秀"
-    elif eta < 0.40:
-        return "⭐⭐⭐ 良好"
-    elif eta < 0.50:
-        return "⭐⭐ 一般"
-    else:
-        return "⭐ 需要改进"
+    """Compatibility helper: an isolated value cannot establish a catalyst grade."""
+    del tafel
+    return "未知" if finite_number(eta) is None else "未评级：需要明确反应、归一化方式、补偿和可比实验条件。"
 
 
 def _generate_overall_assessment(info: Dict) -> str:
-    """生成综合评价"""
-    available_types = info.get('data_types_available', [])
-
-    if not available_types:
+    types = info.get("data_types_available") or []
+    if not types:
         return "无可用数据"
-
-    assessments = []
-
-    # LSV评价
-    if 'LSV' in available_types and info.get('lsv'):
-        lsv = info['lsv']
-        assessments.append(f"LSV性能:{lsv.get('performance_level', '未评估')}")
-
-    # EIS评价
-    if 'EIS' in available_types and info.get('eis'):
-        eis = info['eis']
-        if eis.get('Rs'):
-            if eis['Rs'] < 10:
-                assessments.append("EIS:溶液阻抗低(良好)")
-            else:
-                assessments.append("EIS:溶液阻抗较高")
-
-    # ECSA评价
-    if 'ECSA' in available_types and info.get('ecsa'):
-        ecsa = info['ecsa']
-        if ecsa.get('ECSA'):
-            if ecsa['ECSA'] > 1.0:
-                assessments.append("ECSA:活性面积大(优秀)")
-            else:
-                assessments.append("ECSA:活性面积一般")
-
-    if assessments:
-        return "; ".join(assessments)
-    else:
-        return f"有{len(available_types)}种类型的数据"
+    return f"有{len(types)}种类型的数据（{', '.join(types)}）；已展示明确记录的数值，尚未确认实验条件可比性，不生成综合性能等级。"
 
 
 __all__ = ["tool_get_catalyst_info"]
-

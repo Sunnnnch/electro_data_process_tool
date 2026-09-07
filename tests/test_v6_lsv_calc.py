@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from electrochem_v6.core.processing_lsv import (
+from electrochem_v6.core.processing_lsv_calc import (
     _filter_outliers,
     _parse_tafel_range,
     interpolate_multiple_potentials,

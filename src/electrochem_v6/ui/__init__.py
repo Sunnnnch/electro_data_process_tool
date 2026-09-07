@@ -1,1 +1,1 @@
-"""UI package placeholder for v6 web frontend assets."""
+"""Static web frontend assets for ElectroChem V6."""

@@ -4,7 +4,7 @@ Provides unified interface for multiple LLM providers.
 """
 
 from .base_client import BaseLLMClient
-from .config_adapter import get_masked_config, update_provider
+from .config_adapter import check_provider_connection, get_masked_config, update_provider
 from .deepseek_client import DeepSeekClient
 from .factory import create_llm_client
 from .kimi_client import KimiClient
@@ -22,10 +22,9 @@ __all__ = [
     "QwenClient",
     "KimiClient",
     "get_masked_config",
+    "check_provider_connection",
     "update_provider",
     "create_llm_client",
 ]
-
-
 
 

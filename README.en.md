@@ -1,6 +1,6 @@
 <h1>
   <img src="docs/logo.png" width="36" height="36" align="absmiddle" />
-  ElectroChem V6
+  ElectroChem | Intelligent Electrochemical Data Processing Software
 </h1>
 
 [![CI](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml/badge.svg)](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/ci.yml)
@@ -9,47 +9,73 @@
 
 [中文](README.md) | [English](README.en.md)
 
-A local electrochemical data processing and analysis toolkit for batch `LSV`, `CV`, `EIS`, and `ECSA` workflows, with a local Web UI, project/history management, and optional AI-assisted analysis.
+Data processing · Project management · Result review · AI-assisted analysis
+
+ElectroChem processes local electrochemical data for batch `LSV`, `CV`, `EIS`, `ECSA`, and `COUPLED/FE` workflows, with project history, reproducible reports, and optional AI-assisted analysis. Core data processing works without configuring AI.
+
+Current version: **7.0.1** · [Release notes and upgrade guidance](docs/release_7.0.1.md) · [Changelog](CHANGELOG.md)
+
+Version 7.0.1 retains existing data locations and internal compatibility identifiers. Back up application data and original/output files, finish tasks, exit the tray application, and disconnect MCP clients before upgrading. Do not rename data folders merely because their names still contain `v6`.
+
+[User guide](src/electrochem_v6/ui/static/help_manual.en.md) · [Synthetic CV example](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [Developer API guide](docs/api_guide.en.md)
 
 ## Overview
 
-`ElectroChem V6` consolidates common electrochemical data-processing workflows into a single workspace, reducing repetitive manual exports, scattered scripts, and fragmented result tracking.
+`ElectroChem` consolidates common electrochemical data-processing workflows into a single workspace, reducing repetitive manual exports, scattered scripts, and fragmented result tracking.
 
 Typical use cases:
 
 - Batch-process multiple experimental samples
-- Generate unified outputs for `LSV`, `CV`, `EIS`, and `ECSA`
+- Generate unified outputs for `LSV`, `CV`, `EIS`, `ECSA`, and `COUPLED`
 - Keep projects, histories, and quality reports for later review
 - Use a local Web UI instead of manual script execution
 
 ## Features
 
-- Supports `LSV`, `CV`, `EIS`, and `ECSA` processing
+- Supports `LSV`, `CV`, `EIS`, `ECSA`, and `COUPLED` processing
 - Supports batch file matching by prefix, contains, or regex
 - Supports `LSV` target-current interpolation, potential conversion, `iR` compensation, `Tafel`, `Onset`, and `Halfwave`
 - Supports `LSV` Tafel fit R² validation (warns in quality report when R² < 0.99)
 - Supports `CV` peak detection, `ΔEp` calculation, and charge integration
-- Supports `EIS` `Nyquist` / `Bode` plots and **Randles equivalent circuit fitting** (Rs + Rct‖Cdl)
+- Supports `EIS` `Nyquist` / `Bode` plots, `Rs + (Rct || Cdl)` / `Rs + (Rct || CPE)` fitting, and residual diagnostics
 - Supports `ECSA`, `Cdl`, and `RF` calculation with built-in material Cs presets (Pt, Carbon, IrO₂, RuO₂, etc.)
-- Supports reference electrode presets (Ag/AgCl, SCE, Hg/HgO, Hg/Hg₂SO₄, MSE, RHE)
+- Supports COUPLED/FE metrics from product quantification tables, including Faradaic efficiency and selectivity
+- Supports reference electrode presets (Ag/AgCl, SCE, Hg/HgO, Hg/Hg₂SO₄, MSE, RHE) and temperature-aware Nernst conversion
 - Skip-on-error mode: individual file failures do not abort the batch, errors are summarized in results
-- Per-file progress feedback (N/M files processed) during LSV/CV/EIS processing
+- Processing and AI requests use persistent background jobs with per-file/stage progress and cooperative cancellation. Interrupted processing can restart as a new job after preflight; AI conversations are not automatically resent
 - UI supports basic/advanced mode toggle to simplify operation for beginners
-- Includes project management, history tracking (filterable by metric range and data type), quality summaries, and quality reports
+- Includes a project recycle bin, restore/permanent delete, cursor-paginated history with on-demand detail, and managed-storage cleanup
+- Project results, comparisons, and reports have separate views. Replay historical runs with original or edited parameters, compare two exact records, and export scoped HTML/Markdown reports. New runs retain parameters and input/dependency fingerprints; stored uploads can restore missing ZIP inputs. See the [workspace guide (Chinese)](docs/project_workspace.md).
+- Search all project history by sample or file name and filter by type or date. Choose a project color from swatches or a color picker. Link an existing parameter template, preview its changes, and apply it explicitly before processing; selected data and auxiliary files are preserved.
 - Supports project result ZIP export (`GET /api/v1/projects/{id}/export-zip`)
 - Includes a local HTTP service and Web UI
 - Includes optional LLM / Agent integration
+- Assistant action cards preview parameter changes, exact comparisons, replay plans and scoped reports. LSV recommendations use the production calculation pipeline and expose candidate fit diagnostics; missing experimental conditions must be supplied.
+- Save independent replicate groups with effective n, mean, sample SD, individual points and error bars. Retain chosen versions and exclusion reasons, and export CSV/SVG.
+- A shared task panel lists processing and AI jobs with status filters, cancellation, failure details and links to their results or conversations.
+- Appearance settings offer four themes or system following, independent text size and comfortable/compact density, and an optional grid. Assistant reading surfaces and vector chart previews adapt to the theme while scientific exports stay on white paper. See the [appearance guide (Chinese)](docs/appearance.md).
 
 ## Quick Start
 
 ### Windows
 
-1. Double-click `setup.bat`
-2. After installation, double-click `start.bat`
+- Installed application: open the “智能电化学数据处理软件” shortcut after installation.
+- Source checkout: run `setup.bat` to install dependencies, then `start.bat` to launch.
 
-Default UI:
+`start.bat` opens the native desktop window and starts the local service automatically. Launching it again activates the existing window for the same data directory. For browser mode, use `start_browser.bat`; its default address is:
 
 - `http://127.0.0.1:8010/ui`
+
+The desktop client adds a system tray, task-aware exit, window and appearance persistence, native file selection and saving, and update checks. The title bar and scrollbars follow the selected theme. **Desktop → AI connection (MCP)** provides local configuration for external AI clients to query projects, preflight inputs, run calculations and export reports; see the [MCP guide](docs/mcp.md). See the [desktop guide](docs/desktop_client.md) for installation, portable mode and legacy data.
+
+### Process your first file
+
+1. In Professional Mode, click Select Data and choose TXT/CSV files or a folder. Review the listed types and enabled files.
+2. Optionally link a project and apply a parameter template. Confirm the data columns, units, electrode area, and potential reference against the experiment.
+3. Run Preflight and check recognition, parameters, and auxiliary file pairing. Then click Run Processing.
+4. Review metrics and quality in Processing Results. Use the project's Results, Compare, and Report views to archive, replay, and export.
+
+For a first walkthrough, save the synthetic example above as `CV_demo.csv`. It is demonstration data, not an experiment. Its settings and expected outputs are in the [user guide](src/electrochem_v6/ui/static/help_manual.en.md); the [data generation notes](docs/demo_data.md) give the synthetic formulas and verified outputs.
 
 ### Command Line
 
@@ -85,11 +111,21 @@ python run_v6.py version
 
 ## Supported Data Types
 
+### Input compatibility scope
+
+The application directly reads exported numeric text tables with tab, comma,
+semicolon, or whitespace delimiters. Columns, units, and the EIS imaginary sign
+convention can be configured per processing method. Proprietary vendor project
+files must first be exported to text. The repository fixtures validate generic
+text layouts; they are not CH Instruments, Gamry, Autolab, BioLogic, or other
+vendor certification files. See
+[`docs/input_format_compatibility.md`](docs/input_format_compatibility.md).
+
 ### `LSV`
 
 - Target-current interpolation
 - `Tafel` fitting
-- `iR` compensation
+- `iR` compensation with manual Rs, same-folder/root-fallback/recursive/specified-file EIS pairing, plus preflight and report provenance
 - Overpotential calculation
 - `Onset` / `Halfwave`
 - Configurable quality-check toggle and thresholds
@@ -99,14 +135,14 @@ python run_v6.py version
 - Curve plotting
 - Peak detection (optional)
 - `ΔEp` peak potential separation (requires peak detection enabled)
-- Charge integration (`∫|I|dE`)
+- Charge integration (`Q = ∫|I|dt`, using the experimental scan rate; charge is omitted when the scan rate is missing)
 - Configurable quality-check toggle and thresholds
 
 ### `EIS`
 
 - `Nyquist` plot
 - `Bode` plot (magnitude + phase)
-- **Randles equivalent circuit fitting** (simplified Rs + Rct‖Cdl model, auto-annotated on Nyquist plot)
+- **Equivalent-circuit fitting**: ideal `Rs + (Rct || Cdl)` or non-ideal `Rs + (Rct || CPE[Q,n])`, with R², RMSE, acceptance threshold, and model limitations
 - History persistence and result export
 
 ### `ECSA`
@@ -115,17 +151,43 @@ python run_v6.py version
 - `Cdl`
 - `ECSA`
 - `RF`
-- Built-in material Cs presets (Pt=20, Carbon=20, IrO₂=40, RuO₂=35, NiFeOOH=60, MnO₂=40, CoOₓ=50 µF/cm²)
-- `RF`
+- Built-in material Cs presets, with the selected Cs, geometric area, formulas, and material/electrolyte limitations persisted in results
+
+### `COUPLED / FE`
+
+- Calculates Faradaic efficiency directly from an existing product quantification table
+- Can locate raw one-dimensional signal peaks, align them to an internal standard, quantify products, and calculate FE
+- Calculates mole-based product selectivity and FE-share selectivity per sample
+- Supports `CSV` / `TSV` / `TXT` / `XLSX` / `XLS` product tables
+- Writes `coupled_results.csv` and appends normalized metrics to `processing_results.csv`
+
+The product table must provide at least these fields. English aliases are accepted:
+
+```csv
+sample,product,product_moles,n,charge
+sample-a,H2,0.000002,2,1.0
+sample-a,CO,0.000001,2,1.0
+```
+
+`product_moles` is the product amount in mol, `n` is the electron-transfer count, and `charge` is total charge in C.
+
+Neutral column names may declare units, for example `Product Moles (mmol)`, `Charge (mC)`, `Current (mA)`, and `Time (min)`. Values are normalized to mol, C, A, and s before calculation. Columns without unit declarations retain the documented defaults. Unsupported units, conflicting declarations, and competing columns are rejected. The runtime includes xlrd for legacy `.xls` files.
+
+ECSA requires at least two distinct valid scan rates; same-rate replicates alone cannot determine a slope. Last-N averaging uses paired forward/reverse crossings. CV cycle plots support starting inside the potential window; incomplete trailing cycles are reported and remain in the full curve.
+
+Peak-analysis mode uses a measurement table plus a method JSON. The table links samples, signal files, and charge; the method defines the internal standard, expected product positions, quantitative nuclei, electron counts, and search/quantification windows. Auto-location, reference-shift alignment, and constrained pseudo-Voigt fitting are independently optional. A fixed relative quantification window is applied across the batch, with `fe_peak_diagnostics.csv` and `fe_peak_results.json` exported for review.
+
+The bundled method file is a structural example only. Validate `electron_count`, `nuclei_count`, internal-standard concentration/volume, response factors, and peak windows for the actual reaction and analytical method.
 
 ## Quality Checks
 
-Quality checking currently focuses on `LSV` and `CV`. After processing, the app can generate quality summaries and, when needed, full quality reports.
+Quality checking currently covers `LSV`, `CV`, and peak-based FE analysis. After processing, the app can generate quality summaries and, when needed, full quality reports.
 
 Current configurable coverage:
 
 - `LSV`: enable/disable quality checking and tune thresholds for minimum points, outlier ratio, scan span, noise, jump ratio, and local fluctuation
 - `CV`: enable/disable quality checking and tune thresholds for minimum points and cycle-closure tolerance
+- `COUPLED/FE peak analysis`: checks detection/quantification SNR, ambiguous candidates, fit R², reference shift, and total FE above 100%
 
 Implementation:
 
@@ -140,6 +202,8 @@ Typical outputs include:
 - Per-type plots
 - `LSV_results.csv`
 - `ECSA_results.csv`
+- `coupled_results.csv`
+- `processing_results.csv`
 - `quality_report.json`
 - `latest_quality_report.json`
 - Project and history records
@@ -182,13 +246,32 @@ Default: `~/.electrochem/v6/`. Override with environment variables (see below).
 | `ELECTROCHEM_V6_TEMPLATE_FILE` | Processing templates file | `<data_dir>/process_templates.json` |
 | `ELECTROCHEM_V6_QUALITY_REPORT_FILE` | Quality report file | `latest_quality_report.json` |
 | `ELECTROCHEM_V6_LLM_CONFIG_FILE` | LLM config file | `~/.electrochem/llm_config.json` |
-| `ELECTROCHEM_V6_STORAGE` | Storage backend: `sqlite` (default) or `json` | `sqlite` |
 | `OPENAI_API_KEY` | OpenAI API key (takes priority over config file) | — |
 | `DEEPSEEK_API_KEY` | DeepSeek API key | — |
 | `QWEN_API_KEY` | Qwen API key | — |
 | `KIMI_API_KEY` | Kimi API key | — |
 
 > **Security note**: The server binds to `127.0.0.1` only (localhost). No CORS or authentication is needed.
+
+Projects, processing history, conversations, and templates are stored in `<data_dir>/electrochem_v6.db`. Legacy JSON files are used only for a validated, atomic first-run import. Failed validation does not set the completion marker, so import is retried at the next startup.
+
+### Database maintenance
+
+```powershell
+# Integrity, schema, record counts, and orphan project references
+python run_v6.py db-check
+
+# Create a verified rolling backup
+python run_v6.py db-backup
+
+# Preview likely test-generated projects without changing data
+python run_v6.py db-cleanup-preview
+
+# A safety backup is created first; explicit confirmation is required
+python run_v6.py db-restore "backup.db" --yes
+```
+
+At most one automatic backup is created every 24 hours. The latest five backups are kept in `<data_dir>/backups/`.
 
 ## Troubleshooting
 
@@ -239,13 +322,19 @@ python run_v6.py
 
 ### Core Modules
 
-- `src/electrochem_v6/core/processing_core_v6.py`: compatibility entrypoint, shared utilities, and unified exports
-- `src/electrochem_v6/core/processing_pipeline.py`: batch orchestration and directory scanning
+- `src/electrochem_v6/core/processing_core_v6.py`: shared logging, plotting, exceptions, and processing utilities
+- `src/electrochem_v6/core/processing_scan.py`: folder scanning, filename matching, and data-start detection
+- `src/electrochem_v6/core/processing_registry.py`: single source of truth for modules and parameter schemas
+- `src/electrochem_v6/core/processing_module_runtime.py`: processing-module registry and runtime contract
+- `src/electrochem_v6/core/processing_module_orchestrator.py`: primary modular batch orchestrator
 - `src/electrochem_v6/core/processing_quality.py`: quality checks and reports
 - `src/electrochem_v6/core/processing_lsv.py`: `LSV` processing and `IR/Tafel` logic
 - `src/electrochem_v6/core/processing_cv.py`: `CV` processing
 - `src/electrochem_v6/core/processing_eis.py`: `EIS` processing
 - `src/electrochem_v6/core/processing_ecsa.py`: `ECSA` processing and sample-matching helpers
+- `src/electrochem_v6/core/processing_coupled*.py`: product quantification, Faradaic efficiency, and selectivity calculation
+- `src/electrochem_v6/core/processing_result_*.py`: normalized result models, collection, and export
+- `src/electrochem_v6/core/processing_metric_registry.py`: metric definitions and aliases
 
 ### Other Modules
 
@@ -269,13 +358,12 @@ Common checks:
 python run_v6.py check
 python run_v6.py smoke --port 8011
 python -m pytest -q
+python -m pytest -q tests/test_v6_numerical_reference.py
 ```
 
-Current validation status:
-
-- `110 passed, 1 skipped`
-- `python run_v6.py check` passed
-- `python run_v6.py smoke --port 8011` passed
+Versioned electrochemical numerical references live in `tests/reference_data/`.
+Changes to formulas, unit conversions, or fitting methods must run the reference
+suite; expected values must be derived independently from the implementation.
 
 ## Packaging and Release
 
@@ -297,9 +385,8 @@ This project is released under the `MIT` License. See `LICENSE`.
 
 Reasonable next improvements:
 
-- Add finer quality checks for `EIS` / `ECSA`
+- Add multi-time-constant, Warburg, and inductive `EIS` models
 - Add screenshots or workflow diagrams to the README
 - Validate the `PyInstaller` packaging pipeline end-to-end
-- `EIS` Randles fitting with CPE instead of Cdl for a more general model
 - `CV` multi-cycle auto-segmentation and cyclic voltammetry parameter extraction
 - Display skipped-error file details in the frontend result view

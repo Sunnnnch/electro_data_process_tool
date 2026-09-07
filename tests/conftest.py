@@ -1,11 +1,9 @@
-"""Shared test configuration & fixtures.
-
-Force JSON storage backend for all tests – the existing test suite was
-designed around JSON-file persistence and should not hit the SQLite path.
-"""
+"""Shared test configuration and fixtures using an isolated SQLite data root."""
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -16,12 +14,14 @@ matplotlib.use("Agg")  # noqa: E402 – must precede any pyplot import
 import numpy as np
 import pytest
 
-# ── environment -----------------------------------------------------------
-os.environ.setdefault("ELECTROCHEM_V6_STORAGE", "json")
-
-# ── path setup (importable from every test module) -------------------------
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+TEST_RUNTIME_DIR = ROOT / ".test_runtime" / "pytest"
+
+# ── environment -----------------------------------------------------------
+os.environ.setdefault("ELECTROCHEM_V6_DATA_DIR", str(TEST_RUNTIME_DIR))
+
+# ── path setup (importable from every test module) -------------------------
 for _p in (str(ROOT), str(SRC)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -91,3 +91,15 @@ def tmp_data_dir(tmp_path: Path) -> Path:
     """Return *tmp_path* directly — a thin alias so every test starts from a
     known-clean temporary directory."""
     return tmp_path
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Remove repository-local test runtime files after pytest exits."""
+    if os.environ.get("ELECTROCHEM_V6_KEEP_TEST_RUNTIME"):
+        return
+    logging.shutdown()
+    shutil.rmtree(TEST_RUNTIME_DIR, ignore_errors=True)
+    try:
+        TEST_RUNTIME_DIR.parent.rmdir()
+    except OSError:
+        pass

@@ -10,8 +10,6 @@ import logging
 import os
 from typing import Any, Dict
 
-import pandas as pd
-
 
 def _is_agent_path_allowed(path: str) -> bool:
     """Check that *path* is within directories the user can reasonably access.
@@ -149,65 +147,23 @@ def tool_preview_data_file(file_path: str, lines: int = 20) -> Dict:
         return {"success": False, "error": str(e)}
 
 
-def tool_analyze_data_characteristics(file_path: str, data_type: str) -> Dict:
-    """分析数据特征(用于智能决定参数)。"""
+def tool_analyze_data_characteristics(file_path: str, data_type: str, params: Dict[str, Any] | None = None, run_id: str | None = None) -> Dict:
+    """Analyze complete inputs under explicitly supplied or recorded scientific settings."""
     try:
         resolved = os.path.realpath(file_path)
         if not _is_agent_path_allowed(resolved):
             return {"success": False, "error": "路径不在允许范围内"}
         if not os.path.isfile(resolved):
             return {"success": False, "error": f"文件不存在: {file_path}"}
-        from electrochem_v6.core.processing_compat import auto_detect_data_start
-
-        start_line = auto_detect_data_start(resolved)
-
-        try:
-            df = pd.read_csv(
-                resolved, sep=r"\s+|,", skiprows=start_line - 1, engine="python", nrows=1000, on_bad_lines="skip"
-            )
-        except Exception:
-            try:
-                df = pd.read_csv(
-                    resolved, delim_whitespace=True, skiprows=start_line - 1, nrows=1000, on_bad_lines="skip"
-                )
-            except Exception:
-                df = pd.read_csv(resolved, sep=",", skiprows=start_line - 1, nrows=1000, on_bad_lines="skip")
-
-        characteristics: Dict[str, Any] = {
-            "data_start_line": start_line,
-            "data_points": len(df),
-        }
-
-        if data_type == "LSV":
-            current_col = next((col for col in df.columns if "current" in col.lower()), None)
-            if current_col:
-                currents_mA = df[current_col].abs() * 1000
-
-                characteristics.update(
-                    {
-                        "current_range_mA": {
-                            "min": float(currents_mA.min()),
-                            "max": float(currents_mA.max()),
-                        },
-                        "suggested_tafel_range": "1-10",
-                    }
-                )
-
-                max_current = currents_mA.max()
-                if max_current > 50:
-                    characteristics["suggested_tafel_range"] = "5-50"
-                    characteristics["reasoning"] = "电流较大,推荐使用5-50 mA/cm²范围"
-                elif max_current < 5:
-                    characteristics["suggested_tafel_range"] = "0.5-5"
-                    characteristics["reasoning"] = "电流较小,推荐使用0.5-5 mA/cm²范围"
-                else:
-                    characteristics["reasoning"] = "电流范围正常,使用标准1-10 mA/cm²范围"
-
-        return {
-            "success": True,
-            "file_path": file_path,
-            "data_type": data_type,
-            "characteristics": characteristics,
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        if os.path.splitext(resolved)[1].lower() not in {".txt", ".csv"}:
+            return {"success": False, "error": "特征分析仅支持正式解析器可读取的 TXT/CSV 文件"}
+        if params is not None and not isinstance(params, dict):
+            return {"success": False, "error": "params 必须是对象"}
+        if str(data_type).upper() != "LSV":
+            return {"success": True, "schema_version": "1.0", "file_path": resolved, "data_type": data_type,
+                    "recommendation_status": "not_supported", "characteristics": {}, "candidate_tafel_ranges": [],
+                    "missing_parameters": [], "limitations": ["目前候选参数分析仅支持 LSV；其他类型请使用正式处理预检，不能套用 LSV 建议。"]}
+        from electrochem_v6.core.agent_scientific import analyze_lsv_source
+        return analyze_lsv_source(resolved, params, run_id)
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "candidate_tafel_ranges": []}

@@ -1,0 +1,243 @@
+/* Assistant reading surfaces use the same theme and reading preferences as the workbench. */
+.assistant-drawer .chat-log,
+.chat-log {
+  min-width: 0;
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--chat-text);
+}
+
+.assistant-drawer .msg,
+.msg {
+  min-width: 0;
+  padding: 12px;
+  color: var(--chat-text);
+  border-color: var(--line);
+  border-radius: var(--control-radius);
+  box-shadow: none;
+}
+
+.assistant-drawer .msg.agent,
+.msg.agent {
+  width: 100%;
+  max-width: 100%;
+  margin-right: 0;
+  background: var(--chat-agent-bg);
+}
+
+.assistant-drawer .msg.user,
+.msg.user {
+  width: fit-content;
+  max-width: 88%;
+  margin-left: auto;
+  background: var(--chat-user-bg);
+}
+
+.msg .content {
+  min-width: 0;
+  max-width: 100%;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  overflow-wrap: anywhere;
+  word-break: normal;
+  color: var(--chat-text);
+}
+
+.msg .content p { margin: 0 0 0.8em; }
+.msg .content p:last-child { margin-bottom: 0; }
+.msg .content :is(ul, ol) { margin: 0.6em 0 0.9em; padding-inline-start: 1.6em; }
+.msg .content li + li { margin-top: 0.3em; }
+.msg .content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 0.5em;
+  line-height: 1.4;
+  color: var(--chat-text);
+}
+.msg .content :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+.msg .content h1 { font-size: 1.45em; }
+.msg .content h2 { font-size: 1.3em; }
+.msg .content h3 { font-size: 1.15em; }
+.msg .content :is(h4, h5, h6) { font-size: 1em; }
+
+.msg .content blockquote {
+  margin: 0.8em 0;
+  padding: 0.6em 0.8em;
+  border-left: 3px solid var(--notice-border);
+  background: var(--notice-bg);
+  color: var(--notice-text);
+}
+
+.msg .content pre,
+.assistant-context-details pre {
+  max-width: 100%;
+  margin: 0.8em 0;
+  padding: 0.8em;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: calc(var(--ui-font-size) - 1px);
+  line-height: 1.6;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.msg .content pre {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.msg .content code {
+  padding: 0.1em 0.3em;
+  border-radius: calc(var(--control-radius) / 2);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.msg .content pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  white-space: inherit;
+  overflow-wrap: normal;
+}
+
+/* Wide scientific expressions and data tables scroll locally, never crop the message. */
+.msg .content :is(table, .math-display, .katex-display) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+.assistant-table-scroll { max-width: 100%; overflow-x: auto; margin: 0.8em 0; }
+.msg .content .assistant-table-scroll table {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+}
+.msg .content .assistant-table-scroll :is(th, td) { min-width: 6ch; max-width: 36ch; }
+.msg .content :is(.math-display, .katex-display) { padding-block: 0.25em; }
+.msg .content math[display="block"] { max-width: 100%; overflow-x: auto; }
+.msg .content table { border-collapse: collapse; font-size: 0.95em; }
+.msg .content :is(th, td) {
+  padding: 0.55em 0.75em;
+  border: 1px solid var(--line);
+  color: var(--chat-text);
+  text-align: start;
+  vertical-align: top;
+}
+.msg .content th { background: var(--panel-soft); font-weight: 700; }
+.msg .content :is(img, svg) { max-width: 100%; height: auto; }
+.msg .content a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.15em; }
+
+.msg .meta,
+.msg-sources-label,
+.msg-approval-warning,
+.msg-approval-detail-row,
+.assistant-context-summary,
+.assistant-auto-description,
+.assistant-context-details {
+  font-size: calc(var(--ui-font-size) - 1px);
+  line-height: 1.6;
+}
+.msg .meta,
+.msg-sources-label,
+.assistant-context-summary { color: var(--muted); }
+.msg-sources { border-color: var(--line); }
+.msg-source-badge,
+.assistant-auto-badge {
+  background: var(--panel-soft);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-size: calc(var(--ui-font-size) - 2px);
+  border-radius: var(--control-radius);
+}
+.assistant-auto-badge { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+.assistant-context-card,
+.assistant-action-card {
+  background: var(--panel-soft);
+  color: var(--text);
+  border-color: var(--line);
+  border-radius: var(--control-radius);
+  font-size: var(--ui-font-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.assistant-auto-description { color: var(--text); }
+.assistant-auto-mode strong { font-size: var(--ui-font-size); }
+.assistant-context-details summary,
+.assistant-quick-btn { color: var(--primary); }
+.assistant-quick-btn {
+  background: var(--panel-solid);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  font-size: calc(13px * var(--ui-font-scale));
+  line-height: 20px;
+  min-height: calc(var(--control-size) + var(--font-space));
+}
+.assistant-quick-btn:hover:not(:disabled) { background: var(--chat-user-bg); }
+
+.msg-approval {
+  background: var(--notice-bg);
+  border-color: var(--notice-border);
+  border-radius: var(--control-radius);
+  color: var(--notice-text);
+}
+.msg-approval-title,
+.msg-approval-summary,
+.msg-approval-detail-row strong,
+.msg-approval-warning,
+.msg-approval-detail-row span { color: var(--notice-text); }
+.msg-approval-title,
+.msg-approval-summary { font-size: var(--ui-font-size); line-height: 1.6; }
+.msg-approval-details {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+}
+.msg-approval-detail-row :is(span, strong) { color: var(--text); }
+.msg-approval.expired { background: var(--panel-soft); border-color: var(--line); color: var(--muted); }
+.msg-approval.expired :is(.msg-approval-title, .msg-approval-summary, .msg-approval-warning) { color: var(--muted); }
+.assistant-approval-btn {
+  border-radius: var(--control-radius);
+  font-size: calc(13px * var(--ui-font-scale));
+  line-height: 20px;
+  min-height: calc(var(--control-size) + var(--font-space));
+}
+.assistant-approval-btn.approve { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.assistant-approval-btn.approve:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); }
+.assistant-approval-btn.decline { background: var(--panel-soft); color: var(--text); border-color: var(--control-border); }
+.assistant-approval-btn.decline:hover:not(:disabled) { background: var(--panel-soft); }
+.assistant-approval-btn:disabled,
+.assistant-quick-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.assistant-drawer :is(button, summary, a):focus-visible,
+.msg .content :is(pre, table, .assistant-table-scroll, .math-display, .katex-display, math):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.assistant-drawer .chat-input-row:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.assistant-drawer .chat-input-row textarea { font-size: var(--reading-font-size); line-height: 1.55; }
+.assistant-drawer .typing-dots span { background: var(--primary); }
+.assistant-drawer .send-status { color: var(--muted); font-size: calc(var(--ui-font-size) - 1px); }
+#assistant-action-content { font-size: var(--ui-font-size); line-height: 1.6; }
+#assistant-action-content .project-table-scroll { max-width: 100%; overflow-x: auto; }
+
+body[data-density="compact"] .assistant-drawer .msg { padding: 9px; margin-bottom: 8px; }
+body[data-density="compact"] .assistant-drawer .assistant-context-card { padding: 8px; margin-top: 8px; }
+body[data-density="compact"] .assistant-drawer .assistant-action-card { padding: 9px; }
+
+@media (max-width: 600px) {
+  .assistant-drawer .msg { padding: 10px; }
+  .assistant-drawer .msg.user { max-width: 92%; }
+  .msg-approval-detail-row { grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr); }
+}

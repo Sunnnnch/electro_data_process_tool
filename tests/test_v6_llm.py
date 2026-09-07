@@ -42,6 +42,22 @@ class TestLLMConfig:
         cfg = LLMConfig(config_file="nope.json")
         assert cfg.get_api_key("openai") == "env-key-123"
 
+    def test_empty_env_api_key_falls_back_to_saved_key(self, tmp_path, monkeypatch):
+        custom = {
+            "models": {
+                "openai": {
+                    "api_key": "sk-saved",
+                    "model": "gpt-4",
+                }
+            }
+        }
+        cfg_path = tmp_path / "custom_llm.json"
+        cfg_path.write_text(json.dumps(custom), encoding="utf-8")
+        monkeypatch.setenv("ELECTROCHEM_V6_LLM_CONFIG_FILE", str(cfg_path))
+        monkeypatch.setenv("OPENAI_API_KEY", "")
+        cfg = LLMConfig()
+        assert cfg.get_api_key("openai") == "sk-saved"
+
     def test_normalize_provider_aliases(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("ELECTROCHEM_V6_LLM_CONFIG_FILE", raising=False)
@@ -72,6 +88,30 @@ class TestLLMConfig:
         cfg = LLMConfig()
         assert cfg.save_config() is True
         assert cfg_path.exists()
+
+    def test_save_config_protects_api_key_at_rest(self, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "protected_llm.json"
+        monkeypatch.setenv("ELECTROCHEM_V6_LLM_CONFIG_FILE", str(cfg_path))
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "electrochem_v6.llm.config.protect_secret",
+            lambda value: f"dpapi:protected-{len(value)}",
+        )
+        cfg = LLMConfig()
+
+        cfg.set_api_key("openai", "sk-plain-secret")
+
+        raw = cfg_path.read_text(encoding="utf-8")
+        stored = json.loads(raw)
+        assert "sk-plain-secret" not in raw
+        assert stored["models"]["openai"]["api_key_protected"].startswith("dpapi:")
+
+        monkeypatch.setattr(
+            "electrochem_v6.llm.config.unprotect_secret",
+            lambda value: "sk-plain-secret" if value.startswith("dpapi:") else None,
+        )
+        reloaded = LLMConfig()
+        assert reloaded.get_api_key("openai") == "sk-plain-secret"
 
     def test_update_model_entry(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "update_test.json"
@@ -107,6 +147,11 @@ class ConcreteClient(BaseLLMClient):
         return self._model
 
 
+class ErrorClient(ConcreteClient):
+    def chat(self, messages, tools=None, temperature=0.7, max_tokens=4000):
+        return {"error": "invalid key"}
+
+
 class TestBaseLLMClient:
     def test_concrete_chat(self):
         c = ConcreteClient()
@@ -125,6 +170,36 @@ class TestBaseLLMClient:
     def test_test_connection(self):
         c = ConcreteClient()
         assert c.test_connection() is True
+
+    def test_test_connection_false_on_error_response(self):
+        c = ErrorClient()
+        assert c.test_connection() is False
+
+
+def test_sanitize_llm_error_masks_api_keys():
+    from electrochem_v6.llm.error_utils import sanitize_llm_error
+
+    raw = "Incorrect API key provided: sk-proj-secretvalue1234567890"
+    safe = sanitize_llm_error(raw)
+    assert "secretvalue" not in safe
+    assert "sk-proj-secretvalue1234567890" not in safe
+
+
+def test_openai_client_sanitizes_sdk_errors(monkeypatch):
+    from electrochem_v6.llm.openai_client import OpenAIClient
+
+    raw_key = "sk-proj-secretvalue1234567890"
+    mock_sdk = MagicMock()
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = RuntimeError(f"invalid key: {raw_key}")
+    mock_sdk.OpenAI.return_value = mock_client
+    monkeypatch.setitem(sys.modules, "openai", mock_sdk)
+
+    client = OpenAIClient(api_key="sk-test", model="gpt-test")
+    result = client.chat([{"role": "user", "content": "hi"}])
+
+    assert raw_key not in result["error"]
+    assert "secretvalue" not in result["error"]
 
 
 # ── factory.create_llm_client ─────────────────────────────────────────────

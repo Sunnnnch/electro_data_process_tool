@@ -16,20 +16,11 @@ from electrochem_v6.agent.tools_catalyst import (
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 class TestEvaluateLsvPerformance:
-    @pytest.mark.parametrize(
-        "eta, expected_stars",
-        [
-            (0.05, "⭐⭐⭐⭐⭐"),    # < 0.10 → 卓越
-            (0.09, "⭐⭐⭐⭐⭐"),
-            (0.20, "⭐⭐⭐⭐"),       # < 0.30 → 优秀
-            (0.35, "⭐⭐⭐"),          # < 0.40 → 良好
-            (0.45, "⭐⭐"),             # < 0.50 → 一般
-            (0.60, "⭐"),               # ≥ 0.50 → 需要改进
-        ],
-    )
-    def test_rating_levels(self, eta: float, expected_stars: str):
+    @pytest.mark.parametrize("eta", [0, 0.05, 0.09, 0.20, 0.35, 0.45, 0.60, 250])
+    def test_isolated_metric_has_no_rating(self, eta: float):
         result = _evaluate_lsv_performance(eta=eta)
-        assert result.startswith(expected_stars)
+        assert "未评级" in result
+        assert "⭐" not in result and "Pt/C" not in result
 
     def test_none_eta(self):
         assert _evaluate_lsv_performance() == "未知"
@@ -57,7 +48,8 @@ class TestGenerateOverallAssessment:
         }
         result = _generate_overall_assessment(info)
         assert "LSV" in result
-        assert "优秀" in result
+        assert "优秀" not in result
+        assert "可比性" in result
 
     def test_eis_low_rs(self):
         info = {
@@ -65,7 +57,7 @@ class TestGenerateOverallAssessment:
             "eis": {"Rs": 5.0},
         }
         result = _generate_overall_assessment(info)
-        assert "良好" in result
+        assert "良好" not in result and "EIS" in result
 
     def test_eis_high_rs(self):
         info = {
@@ -73,7 +65,7 @@ class TestGenerateOverallAssessment:
             "eis": {"Rs": 20.0},
         }
         result = _generate_overall_assessment(info)
-        assert "较高" in result
+        assert "较高" not in result and "EIS" in result
 
     def test_ecsa_large(self):
         info = {
@@ -81,7 +73,7 @@ class TestGenerateOverallAssessment:
             "ecsa": {"ECSA": 5.0},
         }
         result = _generate_overall_assessment(info)
-        assert "优秀" in result
+        assert "优秀" not in result and "ECSA" in result
 
     def test_ecsa_small(self):
         info = {
@@ -89,7 +81,7 @@ class TestGenerateOverallAssessment:
             "ecsa": {"ECSA": 0.5},
         }
         result = _generate_overall_assessment(info)
-        assert "一般" in result
+        assert "一般" not in result and "ECSA" in result
 
     def test_combined_types(self):
         info = {
@@ -134,7 +126,7 @@ def _make_record(sample: str, dtype: str, **results) -> dict:
     return {
         "sample_name": sample,
         "type": dtype,
-        "timestamp": "2026-01-01 12:00:00",
+        "timestamp": results.pop("_timestamp", "2026-01-01 12:00:00"),
         "results": results,
     }
 
@@ -142,7 +134,7 @@ def _make_record(sample: str, dtype: str, **results) -> dict:
 class TestToolGetCatalystInfo:
     """Integration tests for tool_get_catalyst_info using mocked storage."""
 
-    PATCH_TARGET = "electrochem_v6.store.legacy_runtime.get_history_manager_v6"
+    PATCH_TARGET = "electrochem_v6.store.runtime.get_history_store"
 
     @patch(PATCH_TARGET)
     def test_no_records_found(self, mock_hist):
@@ -159,7 +151,7 @@ class TestToolGetCatalystInfo:
         mgr = MagicMock()
         mgr.get_all_records.return_value = [
             _make_record("Cat-A", "LSV", overpotential_10=0.28, tafel_slope=68),
-            _make_record("Cat-A", "LSV", overpotential_10=0.30, tafel_slope=72),
+            _make_record("Cat-A", "LSV", overpotential_10=0.30, tafel_slope=72, _timestamp="2026-01-02 12:00:00"),
         ]
         mock_hist.return_value = mgr
 
@@ -169,8 +161,9 @@ class TestToolGetCatalystInfo:
         assert "LSV" in result["data_types_available"]
         lsv = result["lsv"]
         assert lsv["record_count"] == 2
-        assert lsv["overpotential_10"] == pytest.approx(0.29)
-        assert lsv["tafel_slope"] == pytest.approx(70.0)
+        assert lsv["overpotential_10"] == pytest.approx(0.30)
+        assert lsv["tafel_slope"] == pytest.approx(72.0)
+        assert lsv["aggregation_method"] == "latest_record_no_replicate_aggregation"
         assert "all_measurements" in lsv  # include_details=True by default
 
     @patch(PATCH_TARGET)
@@ -221,31 +214,31 @@ class TestToolGetCatalystInfo:
         assert result_a["lsv"]["overpotential_10"] == pytest.approx(0.20)
 
     @patch(PATCH_TARGET)
-    def test_eis_multiple_averages(self, mock_hist):
+    def test_eis_uses_latest_without_averaging_versions(self, mock_hist):
         mgr = MagicMock()
         mgr.get_all_records.return_value = [
             _make_record("Cat-C", "EIS", Rs=4.0, Rct=40.0),
-            _make_record("Cat-C", "EIS", Rs=6.0, Rct=60.0),
+            _make_record("Cat-C", "EIS", Rs=6.0, Rct=60.0, _timestamp="2026-01-02 12:00:00"),
         ]
         mock_hist.return_value = mgr
 
         result = tool_get_catalyst_info("Cat-C")
-        assert result["eis"]["Rs"] == pytest.approx(5.0)
-        assert result["eis"]["Rct"] == pytest.approx(50.0)
+        assert result["eis"]["Rs"] == pytest.approx(6.0)
+        assert result["eis"]["Rct"] == pytest.approx(60.0)
 
     @patch(PATCH_TARGET)
-    def test_ecsa_averages(self, mock_hist):
+    def test_ecsa_uses_latest_without_averaging_versions(self, mock_hist):
         mgr = MagicMock()
         mgr.get_all_records.return_value = [
             _make_record("Cat-D", "ECSA", Cdl=0.02, ECSA=2.0, RF=10.0),
-            _make_record("Cat-D", "ECSA", Cdl=0.04, ECSA=4.0, RF=20.0),
+            _make_record("Cat-D", "ECSA", Cdl=0.04, ECSA=4.0, RF=20.0, _timestamp="2026-01-02 12:00:00"),
         ]
         mock_hist.return_value = mgr
 
         result = tool_get_catalyst_info("Cat-D")
-        assert result["ecsa"]["Cdl"] == pytest.approx(0.03)
-        assert result["ecsa"]["ECSA"] == pytest.approx(3.0)
-        assert result["ecsa"]["RF"] == pytest.approx(15.0)
+        assert result["ecsa"]["Cdl"] == pytest.approx(0.04)
+        assert result["ecsa"]["ECSA"] == pytest.approx(4.0)
+        assert result["ecsa"]["RF"] == pytest.approx(20.0)
 
     @patch(PATCH_TARGET)
     def test_exception_returns_error(self, mock_hist):
@@ -253,7 +246,6 @@ class TestToolGetCatalystInfo:
         result = tool_get_catalyst_info("Cat-E")
         assert result["success"] is False
         assert "storage broken" in result["error"]
-        assert "traceback" in result
 
     @patch(PATCH_TARGET)
     def test_missing_results_keys(self, mock_hist):

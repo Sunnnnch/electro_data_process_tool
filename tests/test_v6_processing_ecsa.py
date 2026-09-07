@@ -207,6 +207,9 @@ class TestProcessEcsaForSubfolder:
         assert result["R2"] > 0.95
         # Cdl should be close to the synthetic value
         assert result["Cdl_mFcm2"] == pytest.approx(self.CDL_TRUE, rel=0.25)
+        assert result["assumptions"]["specific_capacitance_input"] == pytest.approx(40.0)
+        assert result["assumptions"]["geometric_area_cm2"] == pytest.approx(1.0)
+        assert result["assumptions"]["limitations"]
         # PNG file generated
         assert Path(result["png"]).exists()
 
@@ -239,3 +242,13 @@ class TestProcessEcsaForSubfolder:
             str(folder), os.listdir(str(folder)), params, common,
         )
         assert result is None  # only 1 point → can't fit
+
+    def test_same_rate_replicates_do_not_export_a_spurious_fit(self, tmp_path: Path):
+        rows = make_ecsa_rows(scan_rate_Vs=0.01, Ev=0.10)
+        files = ["ECSA10_a.txt", "ECSA10_b.txt"]
+        for filename in files:
+            _write_tsv(tmp_path / filename, rows)
+        params, common = self._default_params()
+        result = process_ecsa_for_subfolder(str(tmp_path), files, params, common)
+        assert result is None
+        assert not list(tmp_path.glob("*.png"))

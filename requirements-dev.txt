@@ -1,5 +1,7 @@
 -r requirements.txt
 pytest
 pytest-cov
+playwright>=1.52,<2.0
 ruff
 pyright
+tomli>=2,<3; python_version < "3.11"

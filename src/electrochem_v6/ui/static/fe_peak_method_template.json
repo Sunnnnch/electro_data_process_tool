@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "method_id": "example_qnmr_fe_method",
+  "analysis_method": "qnmr_internal_standard",
+  "axis_unit": "ppm",
+  "internal_standard": {
+    "name": "internal_standard",
+    "expected_position": 0.0,
+    "nuclei_count": 9,
+    "concentration_mM": 10.0,
+    "volume_uL": 100.0,
+    "search_tolerance": 0.08,
+    "window_left": 0.05,
+    "window_right": 0.05,
+    "polarity": "positive"
+  },
+  "products": [
+    {
+      "name": "example_product",
+      "reaction_id": "replace_with_validated_reaction",
+      "electron_count": 2,
+      "expected_position": 1.90,
+      "nuclei_count": 3,
+      "response_factor": 1.0,
+      "search_tolerance": 0.08,
+      "window_left": 0.05,
+      "window_right": 0.05,
+      "polarity": "positive"
+    }
+  ],
+  "sample_defaults": {
+    "electrolyte_volume_mL": 20.0,
+    "sample_aliquot_volume_uL": 500.0
+  }
+}

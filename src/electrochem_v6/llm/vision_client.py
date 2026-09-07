@@ -9,6 +9,8 @@ import base64
 from pathlib import Path
 from typing import Dict
 
+from .error_utils import sanitize_llm_error
+
 
 class VisionClient:
     """Simple wrapper around OpenAI (or compatible) multimodal endpoints."""
@@ -43,7 +45,7 @@ class VisionClient:
                 "result": output_text,
             }
         except Exception as exc:
-            return {"success": False, "error": str(exc), "type": exc.__class__.__name__}
+            return {"success": False, "error": sanitize_llm_error(exc), "type": exc.__class__.__name__}
 
     def _build_payload(self, image_path: str, prompt: str) -> Dict:
         resolved = Path(image_path).resolve()
@@ -96,4 +98,3 @@ class VisionClient:
 
 
 __all__ = ["VisionClient"]
-

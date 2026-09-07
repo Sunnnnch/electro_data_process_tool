@@ -121,6 +121,37 @@ class TestDispatchGet:
         assert result is True
         handler._send_json.assert_called_once()
 
+    def test_process_schema_endpoint_filters_data_types(self):
+        from electrochem_v6.server.routes_get import dispatch_get
+        handler = _make_mock_handler("/api/v1/process/schema", "data_type=LSV,FE")
+        result = dispatch_get(handler)
+        assert result is True
+        handler._send_json.assert_called_once()
+        code, body = handler._send_json.call_args[0]
+        assert code == 200
+        assert body["status"] == "success"
+        assert body["schema"]["data_types"] == ["LSV", "COUPLED"]
+        modules = {item["key"]: item for item in body["schema"]["modules"]}
+        assert modules["LSV"]["input_kind"] == "data_files"
+        assert modules["COUPLED"]["display_name"] == "COUPLED/FE"
+        assert modules["COUPLED"]["input_kind"] == "product_table"
+        assert modules["COUPLED"]["aliases"] == ["FE", "FARADAIC", "FARADAIC_EFFICIENCY", "SELECTIVITY"]
+        assert "module_parameters" in body["schema"]
+        lsv_groups = {item["key"]: item for item in body["schema"]["module_parameters"]["LSV"]["groups"]}
+        assert "basic" in lsv_groups
+        assert any(item["key"] == "lsv_target_current" for item in lsv_groups["basic"]["parameters"])
+        coupled_groups = {item["key"]: item for item in body["schema"]["module_parameters"]["COUPLED"]["groups"]}
+        assert any(item["key"] == "coupled_products_file" for item in coupled_groups["source"]["parameters"])
+
+    def test_process_schema_endpoint_rejects_unknown_type(self):
+        from electrochem_v6.server.routes_get import dispatch_get
+        handler = _make_mock_handler("/api/v1/process/schema", "data_type=BAD")
+        result = dispatch_get(handler)
+        assert result is True
+        code, body = handler._send_json.call_args[0]
+        assert code == 400
+        assert body["status"] == "error"
+
     def test_conversations_list(self, tmp_path, monkeypatch):
         monkeypatch.setenv("ELECTROCHEM_V6_CONVERSATION_FILE", str(tmp_path / "conv.json"))
         from electrochem_v6.server.routes_get import dispatch_get

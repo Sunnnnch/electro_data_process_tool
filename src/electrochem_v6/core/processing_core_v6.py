@@ -1,14 +1,9 @@
-"""Compatibility entrypoint for ElectroChem processing modules.
-
-This module now keeps shared utilities, logging, plotting helpers, and
-re-exports the domain-specific processing functions from split modules.
-"""
+"""Shared logging, plotting, exceptions, and processing utilities."""
 from __future__ import annotations
 
 import json
 import logging
 import os
-import re
 import sys
 import tempfile
 from datetime import datetime
@@ -25,6 +20,8 @@ import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 from matplotlib.ft2font import FT2Font
 
+from .processing_common import serialized_plotting
+
 
 def _safe_print(msg: str) -> None:
     """Log that never crashes on non-UTF-8 terminals (e.g. cp1252 in CI)."""
@@ -37,15 +34,14 @@ def _safe_print(msg: str) -> None:
     except UnicodeEncodeError:
         print(msg.encode("utf-8", errors="replace").decode("ascii", errors="replace"))
 
-from .processing_pipeline import (
-    NumpyEncoder,
-    _as_bool,
+from .processing_scan import (
     auto_detect_data_start,
     natural_sort_key,
     resolve_data_start_line,
-    run_pipeline,
 )
-from .processing_quality import DataQualityChecker
+from .processing_scan import (
+    matches_named_file as _matches_named_file,
+)
 
 
 # ======================
@@ -78,20 +74,15 @@ class DataQualityError(ElectroChemException):
 # Optional numpy imports are performed lazily inside individual functions to
 # keep import time low when the full scientific stack is unavailable.
 
-# Import history and project manager
-try:
-    from electrochem_v6.store.legacy_runtime import get_history_manager_v6 as get_history_manager
-    HISTORY_MANAGER_AVAILABLE = True
-except ImportError:
-    HISTORY_MANAGER_AVAILABLE = False
-    get_history_manager = None
+from electrochem_v6.store.runtime import (
+    get_history_store as get_history_manager,
+)
+from electrochem_v6.store.runtime import (
+    get_project_store as get_project_manager,
+)
 
-try:
-    from electrochem_v6.store.legacy_runtime import get_project_manager_v6 as get_project_manager
-    PROJECT_MANAGER_AVAILABLE = True
-except ImportError:
-    PROJECT_MANAGER_AVAILABLE = False
-    get_project_manager = None
+HISTORY_MANAGER_AVAILABLE = True
+PROJECT_MANAGER_AVAILABLE = True
 
 LOG_FILE_PATH: Optional[str] = None
 PLOT_OUTPUT_SUBDIR = Path("artifacts") / "quality_plots"
@@ -235,29 +226,6 @@ def _contains_cjk(text: str) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in str(text or ""))
 
 
-def _matches_named_file(filename: str, mode: str, pattern: str) -> bool:
-    """Return True when a file name matches the requested strategy."""
-    name = str(filename or "")
-    mode_norm = str(mode or "prefix").strip().lower()
-    raw_pattern = str(pattern or "").strip()
-    if not name or not raw_pattern:
-        return False
-    lower_name = name.lower()
-    lower_pattern = raw_pattern.lower()
-    if mode_norm == "prefix":
-        return lower_name.startswith(lower_pattern)
-    if mode_norm == "suffix":
-        return lower_name.endswith(lower_pattern) or lower_name.endswith(lower_pattern + ".txt") or lower_name.endswith(lower_pattern + ".csv")
-    if mode_norm == "contains":
-        return lower_pattern in lower_name
-    if mode_norm == "regex":
-        try:
-            return re.search(raw_pattern, name, flags=re.IGNORECASE) is not None
-        except re.error:
-            return False
-    return lower_name.startswith(lower_pattern)
-
-
 def _font_supports_text(font_name: str, text: str) -> bool:
     probe = "".join(sorted(set(ch for ch in str(text or "") if "\u4e00" <= ch <= "\u9fff")))
     if not probe:
@@ -314,6 +282,7 @@ def _sanitize_filename(name: str) -> str:
     return sanitize_filename(name)
 
 
+@serialized_plotting
 def save_waveform_plot(
     df: pd.DataFrame,
     file_name: str,
@@ -473,44 +442,20 @@ def log(msg):
 
 
 
-# Domain processing modules are re-exported here to preserve the historic
-# `processing_core` import surface used by the server, tests, and shim layer.
-from .processing_cv import process_cv
-from .processing_ecsa import (
-    _extract_sample_token,
-    _match_eis_by_sample,
-    process_ecsa_for_subfolder,
-)
-from .processing_eis import process_eis
-from .processing_lsv import (
-    _filter_outliers,
-    _parse_tafel_range,
-    get_ir_from_eis,
-    interpolate_multiple_potentials,
-    interpolate_potential,
-    parse_target_currents,
-    potential_at_current,
-    process_lsv,
-)
-
 __all__ = [
     'CHINESE_FONT',
     'LOG_FILE_PATH',
-    'DataQualityChecker',
+    'ElectroChemException',
+    'DataProcessingError',
+    'FileFormatError',
+    'ParameterError',
+    'DataQualityError',
     'setup_chinese_font',
+    'setup_logger',
+    'get_logger',
     'natural_sort_key',
     'set_log_folder',
     'log',
-    'interpolate_potential',
-    'parse_target_currents',
-    'interpolate_multiple_potentials',
-    'potential_at_current',
-    'get_ir_from_eis',
-    'process_lsv',
-    'process_cv',
-    'process_eis',
-    'process_ecsa_for_subfolder',
     'auto_detect_data_start',
     'resolve_data_start_line',
-    'run_pipeline',
 ]

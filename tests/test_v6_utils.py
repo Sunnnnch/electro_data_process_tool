@@ -7,6 +7,7 @@ from electrochem_v6.core.utils import (
     as_bool,
     as_float,
     as_int,
+    iter_file_with_fallback_encodings,
     read_file_with_fallback_encodings,
 )
 
@@ -67,6 +68,17 @@ class TestAsBool:
 # ── read_file_with_fallback_encodings ──────────────────────────────────────
 
 class TestReadFileWithFallbackEncodings:
+    def test_streaming_iterator_handles_large_input_without_list_contract(self, tmp_path):
+        f = tmp_path / "large.txt"
+        with f.open("w", encoding="utf-8") as handle:
+            for index in range(100_000):
+                handle.write(f"{index}\n")
+
+        lines = iter_file_with_fallback_encodings(str(f), start_line=99_999)
+
+        assert iter(lines) is lines
+        assert list(lines) == ["99998\n", "99999\n"]
+
     def test_reads_utf8(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("line1\nline2\nline3\n", encoding="utf-8")

@@ -1,4 +1,4 @@
-"""ElectroChem v6 refactor package."""
+"""ElectroChem V6 application package."""
 
 from .config import APP_NAME, APP_VERSION
 

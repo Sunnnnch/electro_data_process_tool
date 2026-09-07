@@ -1,4 +1,4 @@
-"""Central config for v6 refactor."""
+"""Central configuration for ElectroChem V6."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from typing import Dict
 
 _logger = logging.getLogger(__name__)
 
-APP_NAME = "电化学数据处理与智能分析软件"
-APP_VERSION = "6.0.20"
+APP_NAME = "智能电化学数据处理软件"
+APP_VERSION = "7.0.1"
 
-# v6 design choice: no activation required.
-ENABLE_LICENSE = False
+# v6 design choice: no activation gate is required for local use.
+ACTIVATION_REQUIRED = False
 
 
 _FILE_KEYS: Dict[str, tuple[str, str]] = {

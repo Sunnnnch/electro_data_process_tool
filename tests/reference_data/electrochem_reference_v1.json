@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "suite": "electrochem-calculation-reference",
+  "cases": {
+    "lsv": {
+      "raw_potential_v": [0.1, 0.13, 0.16, 0.19, 0.22],
+      "raw_current_a": [
+        0.0005,
+        0.0015811388300841897,
+        0.005,
+        0.015811388300841896,
+        0.05
+      ],
+      "parameters": {
+        "potential_offset_v": 0.1,
+        "area_cm2": 0.5,
+        "target_current_ma_cm2": 10.0,
+        "equilibrium_potential_v": 1.23,
+        "tafel_range": "1-100",
+        "resistance_ohm": 2.0
+      },
+      "expected": {
+        "potential_v": [0.2, 0.23, 0.26, 0.29, 0.32],
+        "current_density_ma_cm2": [
+          1.0,
+          3.1622776601683795,
+          10.0,
+          31.622776601683793,
+          100.0
+        ],
+        "target_potential_v": 0.26,
+        "target_overpotential_mv": 970.0,
+        "tafel_slope_mv_dec": 60.0,
+        "ir_compensated_potential_v": [
+          0.199,
+          0.22683772233983163,
+          0.25,
+          0.2583772233983162,
+          0.22
+        ],
+        "ir_target_potential_v": 0.25
+      },
+      "absolute_tolerance": 1e-9
+    },
+    "cv": {
+      "potential_v": [0.0, 0.5, 1.0, 0.5, 0.0],
+      "current_ma": [1.0, 1.0, 1.0, 1.0, 1.0],
+      "scan_rate_v_s": 0.5,
+      "expected": {
+        "charge_mc": 4.0,
+        "cycle_count": 1
+      },
+      "absolute_tolerance": 1e-12
+    },
+    "eis": {
+      "frequency_hz": [
+        0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0,
+        50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0
+      ],
+      "z_real_ohm": [
+        24.996842225247452,
+        24.987374881082076,
+        24.92135364814345,
+        24.689082471969975,
+        23.811747182197763,
+        19.339136006497952,
+        12.754532734783028,
+        7.733529969952182,
+        5.494090460637152,
+        5.125854496642514,
+        5.031612822254338,
+        5.005064776259303,
+        5.001266434597621,
+        5.000316623686275,
+        5.000050660463497,
+        5.000012665139935
+      ],
+      "z_imag_ohm": [
+        -0.2512877305193263,
+        -0.502337520727621,
+        -1.2516955654114337,
+        -2.4742030739945777,
+        -4.727907739902478,
+        -9.009544867367772,
+        -9.744633228646371,
+        -6.870110137575443,
+        -3.1044619226929524,
+        -1.581534248293454,
+        -0.7945168812277608,
+        -0.31822927776605847,
+        -0.15914486512557965,
+        -0.0795762117403284,
+        -0.03183090798974721,
+        -0.015915484230591404
+      ],
+      "expected": {
+        "rs_ohm": 5.0,
+        "rct_ohm": 20.0,
+        "cdl_f": 0.001,
+        "minimum_r2": 0.999999999
+      },
+      "relative_tolerance": 1e-6
+    },
+    "ecsa": {
+      "scan_rate_v_s": [0.01, 0.02, 0.05, 0.1],
+      "delta_j_ma_cm2": [0.4, 0.8, 2.0, 4.0],
+      "parameters": {
+        "area_cm2": 0.5,
+        "cs_value": 40.0,
+        "cs_unit": "uF/cm2"
+      },
+      "expected": {
+        "slope_mf_cm2": 40.0,
+        "intercept": 0.0,
+        "r2": 1.0,
+        "cdl_mf_cm2": 20.0,
+        "cs_mf_cm2": 0.04,
+        "rf": 500.0,
+        "ecsa_cm2": 250.0
+      },
+      "absolute_tolerance": 1e-9
+    },
+    "fe": {
+      "sample_name": "reference-sample",
+      "charge_coulomb": 0.9648533212,
+      "products": [
+        {
+          "name": "H2",
+          "product_moles": 2e-6,
+          "electron_count": 2.0
+        },
+        {
+          "name": "acetate",
+          "product_moles": 2.5e-7,
+          "electron_count": 8.0
+        }
+      ],
+      "expected": {
+        "H2": {
+          "faradaic_efficiency_pct": 40.0,
+          "product_selectivity_pct": 88.88888888888889,
+          "fe_selectivity_pct": 66.66666666666667
+        },
+        "acetate": {
+          "faradaic_efficiency_pct": 20.0,
+          "product_selectivity_pct": 11.11111111111111,
+          "fe_selectivity_pct": 33.333333333333336
+        }
+      },
+      "absolute_tolerance": 1e-9
+    }
+  }
+}

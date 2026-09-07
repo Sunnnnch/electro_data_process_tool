@@ -1,16 +1,27 @@
-"""CV processing helpers extracted from the shared processing core."""
+"""CV processing orchestration."""
+
 from __future__ import annotations
 
-import os
-from datetime import datetime
+from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 from . import processing_core_v6 as core
+from .processing_common import build_file_context
+from .processing_cv_calc import compute_cv_metrics, parse_cycle_selection, split_cv_cycles
+from .processing_cv_history import add_cv_history_record, build_cv_history_record
+from .processing_cv_io import read_cv_raw_data
+from .processing_cv_plot import plot_cv_curve
+from .processing_metric_registry import resolve_metric
 from .processing_quality import DataQualityChecker
-from .utils import read_file_with_fallback_encodings
+from .processing_result_models import MetricValue, ProcessingResult, SourceFileRef
+from .processing_source_profile import (
+    CURRENT_TO_MA,
+    POTENTIAL_TO_V,
+    column_number_to_index,
+    unit_scale,
+)
+from .utils import as_bool, as_int
 
 _resolve_plot_font = core._resolve_plot_font
 HISTORY_MANAGER_AVAILABLE = core.HISTORY_MANAGER_AVAILABLE
@@ -19,204 +30,244 @@ get_history_manager = core.get_history_manager
 get_project_manager = core.get_project_manager
 log = core.log
 
+
+def _metric(label: str, value: Any, *, key: str | None = None) -> MetricValue:
+    resolved = resolve_metric("CV", label, fallback_key=key)
+    return MetricValue(
+        key=resolved.key,
+        label=resolved.label,
+        value=value,
+        unit=resolved.unit,
+        method=resolved.method,
+        metadata=resolved.metadata,
+    )
+
+
+def _build_cv_metrics(potential, current, metrics) -> tuple[MetricValue, ...]:
+    values: list[MetricValue] = [
+        _metric("data_points", len(potential), key="data_points"),
+        _metric("potential_min_v", min(potential), key="potential_min_v"),
+        _metric("potential_max_v", max(potential), key="potential_max_v"),
+        _metric("current_min_mA", min(current), key="current_min_mA"),
+        _metric("current_max_mA", max(current), key="current_max_mA"),
+        _metric("peak_count", len(metrics.peaks), key="peak_count"),
+    ]
+    if metrics.charge_mC_rounded is not None:
+        values.append(_metric("charge_mC", metrics.charge_mC_rounded, key="charge_mC"))
+    if metrics.delta_ep_mV is not None:
+        values.append(_metric("delta_ep_mV", metrics.delta_ep_mV, key="delta_ep_mV"))
+    return tuple(values)
+
+
+def _fallback_quality_report(*, sample_name: str, file_name: str, data_points: int, parse_errors: int) -> dict[str, Any]:
+    warnings: list[str] = []
+    if data_points < 10:
+        warnings.append("CV data point count is low.")
+    if parse_errors:
+        warnings.append(f"Skipped {parse_errors} unparsable rows.")
+    return {
+        "filename": f"{sample_name}/{file_name}" if sample_name else file_name,
+        "is_valid": True,
+        "warnings": warnings,
+        "issues": [],
+        "quality_level": "warning" if warnings else "normal",
+        "recommendation": "review_cv_input" if warnings else "none",
+        "stats": {
+            "data_points": data_points,
+            "parse_errors": parse_errors,
+        },
+    }
+
+
 def process_cv(subfolder, file, params, enable_quality_check=True):
-    """处理CV数据文件"""
-    filepath = os.path.join(subfolder, file)
-    subname = os.path.basename(subfolder)
-    file_stem = os.path.splitext(os.path.basename(file))[0]
-    output_dir = str(params.get("output_dir") or subfolder)
-    os.makedirs(output_dir, exist_ok=True)
+    """Process a CV data file and return quality/metric metadata."""
+    ctx = build_file_context(subfolder, file, params)
 
-    lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
+    potential_column = column_number_to_index(
+        params.get("cv_potential_column", 1), default=1, label="CV potential column"
+    )
+    current_column = column_number_to_index(
+        params.get("cv_current_column", 2), default=2, label="CV current column"
+    )
+    potential_unit, potential_scale = unit_scale(
+        params.get("cv_potential_unit"), default="v", supported=POTENTIAL_TO_V
+    )
+    current_unit, current_scale = unit_scale(
+        params.get("cv_current_unit"), default="a", supported=CURRENT_TO_MA
+    )
 
-    if lines is None:
-        log(f"无法读取CV文件 {filepath}，尝试了所有编码格式")
-        return
+    raw_cv = read_cv_raw_data(
+        ctx.filepath,
+        start_line=params.get("start_line", 1),
+        potential_column=potential_column,
+        current_column=current_column,
+        potential_scale=potential_scale,
+        current_scale=current_scale,
+        logger=log,
+    )
+    if raw_cv is None:
+        log(f"Unable to read valid CV data from {ctx.filepath}")
+        return None
 
-    potential, current = [], []
-    for line in lines:
-        parts = line.strip().replace(',', ' ').split()
-        if len(parts) >= 2:
-            try:
-                potential.append(float(parts[0]))
-                current.append(float(parts[1]) * 1000)
-            except (ValueError, TypeError):
-                continue
-
-    if not potential or not current:
-        return
+    potential = raw_cv.potential
+    current = raw_cv.current
 
     cv_quality_report = None
     if enable_quality_check:
         try:
-            df = pd.DataFrame({
-                'Potential': potential,
-                'Current': current,
-            })
-            display_name = f"{subname}/{file}" if subname else file
+            df = pd.DataFrame(
+                {
+                    "Potential": potential,
+                    "Current": current,
+                }
+            )
+            display_name = f"{ctx.sample_name}/{file}" if ctx.sample_name else file
             cv_quality_report = DataQualityChecker.check_cv_data(
                 df,
                 display_name,
-                config=params.get('quality_config'),
+                config=params.get("quality_config"),
             )
         except Exception as exc:
-            log(f"CV质量检查异常（继续处理）: {exc}")
+            log(f"CV quality check failed; continuing: {exc}")
 
-    plt.figure(figsize=(8, 6))
-    # 设置当前图形的中文字体支持
-    font_to_use = _resolve_plot_font(params.get('font'))
-    plt.rcParams['font.sans-serif'] = [font_to_use]
-    plt.rcParams['axes.unicode_minus'] = False
-
-    plt.plot(potential, current,
-             color=params.get('line_color', 'blue'),
-             linewidth=params.get('line_width', 2.0))
-    plt.xlabel(params['xlabel'])
-    plt.ylabel(params['ylabel'])
-    # 使用支持中文的字体
-    font_to_use = _resolve_plot_font(params.get('font'))
-    plt.title(params['title'].replace("{sample}", subname),
-              fontname=font_to_use, fontsize=int(params['fontsize']))
-    if params.get('plot_grid', True):
-        plt.grid(True, alpha=0.3)
-    # 峰值检测（可选，基础版）
-    sel: list = []
-    if params.get('peaks_enabled'):
-        import numpy as _np
-        x = _np.asarray(potential, dtype=float)
-        y = _np.asarray(current, dtype=float)
-        try:
-            w = int(params.get('peaks_smooth', 5))
-            if w < 1: w = 1
-            if w % 2 == 0: w += 1
-            if w > 1:
-                k = _np.ones(w) / w
-                y_s = _np.convolve(y, k, mode='same')
-            else:
-                y_s = y
-            min_h = float(params.get('peaks_min_height', 1.0))
-            min_dist = int(params.get('peaks_min_dist', 5))
-            max_n = int(params.get('peaks_max', 2))
-            # 简单极大/极小点检测
-            dy = _np.diff(y_s)
-            sgn = _np.sign(dy)
-            zc = _np.diff(sgn)
-            cand_max = _np.where(zc < 0)[0] + 1
-            cand_min = _np.where(zc > 0)[0] + 1
-            peaks = []
-            for idx in cand_max:
-                if 0 < idx < len(y_s)-1 and y_s[idx] >= min_h:
-                    peaks.append(('max', idx, y_s[idx]))
-            for idx in cand_min:
-                if 0 < idx < len(y_s)-1 and -y_s[idx] >= min_h:
-                    peaks.append(('min', idx, y_s[idx]))
-            # 依据绝对电流排序并应用最小点距
-            peaks.sort(key=lambda t: abs(t[2]), reverse=True)
-            sel = []
-            for p in peaks:
-                if all(abs(p[1]-q[1]) >= min_dist for q in sel):
-                    sel.append(p)
-                if len(sel) >= max_n:
-                    break
-            # 标注
-            for kind, idxp, yp in sel:
-                xp = x[idxp]
-                color = 'red' if kind=='max' else 'green'
-                marker = '^' if kind=='max' else 'v'
-                try:
-                    plt.plot([xp],[yp], marker=marker, color=color, markersize=8)
-                    plt.annotate(f"{kind}: {yp:.1f} mA\nE={xp:.3f} V",
-                                 xy=(float(xp), float(yp)), xytext=(10,10), textcoords='offset points',
-                                 bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
-                except Exception:
-                    pass  # annotation cosmetics – non-critical
-        except Exception as exc:
-            log(f"CV峰值检测异常（继续处理）: {exc}")
-
-    # ΔEp calculation (from detected peaks)
-    delta_ep = None
-    if params.get('peaks_enabled'):
-        try:
-            # sel is populated from peak detection above (if it succeeded)
-            maxes = [s for s in sel if s[0] == 'max']
-            mins = [s for s in sel if s[0] == 'min']
-            if maxes and mins:
-                ep_a = potential[maxes[0][1]]  # anodic peak potential
-                ep_c = potential[mins[0][1]]   # cathodic peak potential
-                delta_ep = abs(ep_a - ep_c)
-                plt.annotate(
-                    f"ΔEp = {delta_ep*1000:.1f} mV",
-                    xy=(0.03, 0.03), xycoords='axes fraction',
-                    fontsize=10,
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8),
+    metrics = compute_cv_metrics(potential, current, params, logger=log)
+    font_to_use = _resolve_plot_font(params.get("font"))
+    artifact = plot_cv_curve(
+        potential=potential,
+        current=current,
+        peaks=metrics.peaks,
+        delta_ep=metrics.delta_ep,
+        params=params,
+        sample_name=ctx.sample_name,
+        file_stem=ctx.file_stem,
+        output_dir=ctx.output_dir,
+        font_name=font_to_use,
+    )
+    artifacts = [artifact]
+    cycle_plot_warnings: list[str] = []
+    selected_cycle_numbers: list[int] = []
+    detected_cycle_count = 0
+    if as_bool(params.get("cycle_plot_enabled", params.get("cv_cycle_plot_enabled", False)), False):
+        cycles = split_cv_cycles(
+            potential,
+            current,
+            reversal_tolerance=params.get("cv_cycle_reversal_tolerance"),
+            min_segment_points=params.get("cv_cycle_min_segment_points", 3),
+        )
+        detected_cycle_count = len(cycles)
+        requested_numbers = parse_cycle_selection(params.get("cycle_numbers", params.get("cv_cycle_numbers", "")))
+        selected = [cycle for cycle in cycles if not requested_numbers or cycle.number in requested_numbers]
+        selected_cycle_numbers = [cycle.number for cycle in selected]
+        missing = [number for number in requested_numbers if number not in selected_cycle_numbers]
+        if not cycles:
+            cycle_plot_warnings.append("No full CV cycles were detected for separate cycle plotting.")
+        elif cycles[-1].end_index < len(potential) - 1:
+            cycle_plot_warnings.append("The trailing incomplete CV cycle was excluded from separate cycle plots; the full curve retains all points.")
+        if missing:
+            cycle_plot_warnings.append(f"Requested CV cycles were not detected: {', '.join(map(str, missing))}.")
+        for cycle in selected:
+            cycle_params = dict(params)
+            cycle_params["title"] = f"{params.get('title', 'CV of {sample}')} - Cycle {cycle.number}"
+            cycle_metrics = compute_cv_metrics(cycle.potential, cycle.current, cycle_params, logger=log)
+            artifacts.append(
+                plot_cv_curve(
+                    potential=cycle.potential,
+                    current=cycle.current,
+                    peaks=cycle_metrics.peaks,
+                    delta_ep=cycle_metrics.delta_ep,
+                    params=cycle_params,
+                    sample_name=ctx.sample_name,
+                    file_stem=f"{ctx.file_stem}_cycle{cycle.number}",
+                    output_dir=ctx.output_dir,
+                    font_name=font_to_use,
                 )
-        except Exception:
-            pass
+            )
 
-    # Charge integration (Q = ∫|I|dE using trapezoidal rule)
-    charge_mC = None
-    try:
-        pot_arr = np.asarray(potential, dtype=float)
-        cur_arr = np.asarray(current, dtype=float)  # mA
-        _trapz = getattr(np, 'trapezoid', None) or getattr(np, 'trapz', None)  # type: ignore[attr-defined]
-        if _trapz is not None:
-            charge_mC = float(_trapz(np.abs(cur_arr), pot_arr))  # mA·V = mC (if scan rate = 1 V/s)
-    except Exception:
-        pass
+    if cv_quality_report is None:
+        cv_quality_report = _fallback_quality_report(
+            sample_name=ctx.sample_name,
+            file_name=ctx.filename,
+            data_points=len(potential),
+            parse_errors=raw_cv.parse_errors,
+        )
+    if cycle_plot_warnings:
+        warnings = list(cv_quality_report.get("warnings") or [])
+        warnings.extend(cycle_plot_warnings)
+        cv_quality_report["warnings"] = warnings
+        cv_quality_report["quality_level"] = "warning"
+        if cv_quality_report.get("recommendation") in (None, "", "none"):
+            cv_quality_report["recommendation"] = "review_cv_cycle_selection"
 
-    plt.tight_layout()
-    # 避免覆盖：包含源文件名
-    try:
-        plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_CV.png"), dpi=300, bbox_inches='tight')
-    finally:
-        plt.close()
+    processing_result = ProcessingResult(
+        data_type="CV",
+        sample_name=ctx.sample_name,
+        source=SourceFileRef(
+            sample_name=ctx.sample_name,
+            file_name=ctx.filename,
+            path=ctx.filepath,
+            data_type="CV",
+        ),
+        metrics=_build_cv_metrics(potential, current, metrics),
+        artifacts=tuple(artifacts),
+        project_id=params.get("project_id"),
+        run_id=params.get("run_id"),
+        metadata={
+            "module": "direct_cv",
+            "parse_errors": raw_cv.parse_errors,
+            "scan_rate_v_s": params.get("scan_rate_v_s", params.get("cv_scan_rate_v_s")),
+            "charge_method": "absolute_current_time_integral" if metrics.charge_mC is not None else None,
+            "source_profile": {
+                "potential_column": potential_column + 1,
+                "current_column": current_column + 1,
+                "potential_unit": potential_unit,
+                "current_unit": current_unit,
+                "normalized_potential_unit": "V",
+                "normalized_current_unit": "mA",
+            },
+            "peaks_enabled": as_bool(params.get("peaks_enabled", False), False),
+            "cycle_plot_enabled": as_bool(
+                params.get("cycle_plot_enabled", params.get("cv_cycle_plot_enabled", False)),
+                False,
+            ),
+            "detected_cycles": detected_cycle_count,
+            "selected_cycles": selected_cycle_numbers,
+            "cycle_reversal_tolerance": params.get("cv_cycle_reversal_tolerance") or "auto",
+            "cycle_min_segment_points": as_int(params.get("cv_cycle_min_segment_points", 3), 3),
+        },
+    )
 
-    # ✅ 添加：保存CV历史记录
     if HISTORY_MANAGER_AVAILABLE:
         try:
             history_mgr = get_history_manager()
-
-            # 构建历史记录
-            record = {
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'sample_name': subname,
-                'file_name': file_stem,
-                'file_path': filepath,
-                'type': 'CV',
-                'status': 'success',
-                'results': {
-                    'data_points': len(potential),
-                    'potential_range': f"{min(potential):.3f} - {max(potential):.3f} V",
-                    'current_range': f"{min(current):.2f} - {max(current):.2f} mA",
-                    'delta_ep_mV': round(delta_ep * 1000, 1) if delta_ep is not None else None,
-                    'charge_mC': round(charge_mC, 4) if charge_mC is not None else None,
-                }
-            }
-            if params.get('run_id'):
-                record['run_id'] = params.get('run_id')
-
-            # 尝试添加项目信息
-            if 'project_id' in params and params['project_id']:
-                record['project_id'] = params['project_id']
-
-                # 获取项目名称
-                if PROJECT_MANAGER_AVAILABLE:
-                    try:
-                        proj_mgr = get_project_manager()
-                        proj = proj_mgr.get_project(params['project_id'])
-                        if proj:
-                            record['project_name'] = proj['name']
-                    except Exception:
-                        pass
-
-            history_mgr.add_record(record)
-            log(f"CV历史记录已保存: {subname}/{file_stem}")
-
-        except Exception as e:
-            log(f"保存CV历史记录失败: {e}")
+            project_manager = get_project_manager() if PROJECT_MANAGER_AVAILABLE else None
+            record = build_cv_history_record(
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+                file_path=ctx.filepath,
+                params=params,
+                potential=potential,
+                current=current,
+                delta_ep_mV=metrics.delta_ep_mV,
+                charge_mC=metrics.charge_mC_rounded,
+                project_manager=project_manager,
+            )
+            add_cv_history_record(
+                history_mgr,
+                record,
+                log_func=log,
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+            )
+        except Exception as exc:
+            log(f"Failed to save CV history record: {exc}")
 
     return {
-        'quality_report': cv_quality_report,
-        'delta_ep_mV': round(delta_ep * 1000, 1) if delta_ep is not None else None,
-        'charge_mC': round(charge_mC, 4) if charge_mC is not None else None,
+        "quality_report": cv_quality_report,
+        "processing_result": processing_result,
+        "artifacts": artifacts,
+        "delta_ep_mV": metrics.delta_ep_mV,
+        "charge_mC": metrics.charge_mC_rounded,
     }
+
+
+__all__ = ["process_cv"]

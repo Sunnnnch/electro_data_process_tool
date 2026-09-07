@@ -1,12 +1,15 @@
-import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 
 from electrochem_v6.store.projects import (
     _sanitize_description,
     _validate_project_name,
+    create_project,
+    delete_project,
     get_or_create_project_id_by_name,
+    update_project,
 )
+from electrochem_v6.store.runtime import get_project_store, reset_runtime
 
 
 def test_v6_get_or_create_project_concurrent_same_name(tmp_path):
@@ -18,6 +21,7 @@ def test_v6_get_or_create_project_concurrent_same_name(tmp_path):
         os.environ["ELECTROCHEM_V6_PROJECTS_FILE"] = str(projects_file)
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
         os.environ["ELECTROCHEM_V6_CONVERSATION_FILE"] = str(tmp_path / "conversation.json")
+        reset_runtime()
 
         target_name = "并发测试项目"
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -27,11 +31,11 @@ def test_v6_get_or_create_project_concurrent_same_name(tmp_path):
         assert ids
         assert len(set(ids)) == 1
 
-        data = json.loads(projects_file.read_text(encoding="utf-8"))
-        projects = data.get("projects") or []
+        projects = get_project_store().get_all_projects("active")
         matched = [p for p in projects if p.get("name") == target_name and p.get("status", "active") == "active"]
         assert len(matched) == 1
     finally:
+        reset_runtime()
         if old_projects is None:
             os.environ.pop("ELECTROCHEM_V6_PROJECTS_FILE", None)
         else:
@@ -97,3 +101,26 @@ class TestSanitizeDescription:
 
     def test_none(self):
         assert _sanitize_description(None) == ""
+
+
+def test_project_names_are_unique_across_active_and_archived_projects(tmp_path, monkeypatch):
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "runtime"))
+    reset_runtime()
+    try:
+        first = create_project("Demo Project", description="first")
+        assert first["status"] == "success"
+
+        duplicate = create_project("demo project", description="must not be discarded")
+        assert duplicate["status"] == "error"
+        assert duplicate["conflict_project_id"] == first["project_id"]
+
+        second = create_project("Second Project")
+        renamed = update_project(second["project_id"], name="DEMO PROJECT")
+        assert renamed["status"] == "error"
+
+        assert delete_project(first["project_id"])["status"] == "success"
+        archived_duplicate = create_project("Demo Project")
+        assert archived_duplicate["status"] == "error"
+        assert get_or_create_project_id_by_name("Demo Project") is None
+    finally:
+        reset_runtime()

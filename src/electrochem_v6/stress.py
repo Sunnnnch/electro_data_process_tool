@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import sys
-import tempfile
 import time
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
 from typing import Any, Dict, Tuple
 from urllib import error, request
 
+from electrochem_v6.runtime_test_env import isolated_data_env
 from electrochem_v6.server import V6ServerManager
 from electrochem_v6.store.conversations import append_message, get_conversation
 
@@ -28,30 +26,6 @@ def _ensure_utf8_console() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
-
-
-@contextmanager
-def _isolated_data_env():
-    with tempfile.TemporaryDirectory(prefix="v6_stress_env_") as td:
-        root = td
-        mapping = {
-            "ELECTROCHEM_V6_PROJECTS_FILE": os.path.join(root, "projects.json"),
-            "ELECTROCHEM_V6_HISTORY_FILE": os.path.join(root, "processing_history.json"),
-            "ELECTROCHEM_V6_CONVERSATION_FILE": os.path.join(root, "conversation_history.json"),
-            "ELECTROCHEM_V6_TEMPLATE_FILE": os.path.join(root, "process_templates.json"),
-            "ELECTROCHEM_V6_QUALITY_REPORT_FILE": os.path.join(root, "latest_quality_report.json"),
-        }
-        old = {k: os.environ.get(k) for k in mapping}
-        try:
-            for k, v in mapping.items():
-                os.environ[k] = v
-            yield {"root": root, "paths": mapping}
-        finally:
-            for k, v in old.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
 
 
 def _read_json_allow_error(
@@ -134,6 +108,12 @@ class _DummyAgentService:
         data_type: str | None = None,
         processing_result: Dict[str, Any] | None = None,
         attachments: list[Dict[str, Any]] | None = None,
+        prompt_prefix: str | None = None,
+        professional_context: Dict[str, Any] | None = None,
+        approval_id: str | None = None,
+        approval_action: str | None = None,
+        progress_callback=None,
+        cancel_check=None,
     ) -> Dict[str, Any]:
         cid = conversation_id or f"stress_conv_{uuid.uuid4().hex[:8]}"
         meta = {
@@ -271,7 +251,7 @@ def run_stress_smoke(
     timeout_sec: float = 10.0,
 ) -> Dict[str, Any]:
     _ensure_utf8_console()
-    with _isolated_data_env() as env_info:
+    with isolated_data_env(prefix="v6_stress_env_") as env_info:
         manager = V6ServerManager(port=port)
         manager._agent_service = _DummyAgentService()  # type: ignore[assignment]
         ok, msg = manager.start()

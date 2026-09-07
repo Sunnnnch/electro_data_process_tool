@@ -1,59 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "electrochem-v6"
-dynamic = ["version"]
-description = "电化学数据处理与智能分析软件"
+dynamic = ["version", "dependencies"]
+description = "智能电化学数据处理软件"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Sunnnnch" }]
 keywords = ["electrochemistry", "LSV", "CV", "EIS", "data-processing"]
-dependencies = [
-    "numpy>=1.24,<3.0",
-    "pandas>=2.0,<3.0",
-    "matplotlib>=3.7,<4.0",
-    "scipy>=1.10,<2.0",
-    "openpyxl>=3.1,<4.0",
-    "requests>=2.28,<3.0",
-    "openai>=1.0,<3.0",
-]
 
-[tool.semantic_release]
-version_toml = []                              # we don't use pyproject version
-version_variables = [
-    "src/electrochem_v6/config.py:APP_VERSION",
-]
-branch = "main"
-commit_message = "release: v{version}"
-tag_format = "v{version}"
-build_command = ""                             # no pip build; packaging is done separately
-upload_to_pypi = false
+[project.scripts]
+electrochem-mcp = "electrochem_v6.mcp_cli:main"
 
-[tool.semantic_release.remote]
-name = "origin"
-type = "github"
-owner = "Sunnnnch"
-repo = "electro_data_process_tool"
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
 
-[tool.semantic_release.changelog]
-# v10+ configuration path
-default_templates = { changelog_file = "CHANGELOG.md" }
+[tool.setuptools.dynamic]
+version = { attr = "electrochem_v6.config.APP_VERSION" }
+dependencies = { file = ["requirements.txt"] }
 
-[tool.semantic_release.commit_parser_options]
-# Conventional Commits — angular preset
-allowed_tags = [
-    "feat",      # → minor
-    "fix",       # → patch
-    "perf",      # → patch
-    "refactor",  # → patch (included so refactor commits get logged)
-    "docs",
-    "style",
-    "test",
-    "ci",
-    "chore",
-    "build",
-    "release",
-]
-minor_tags = ["feat"]
-patch_tags = ["fix", "perf", "refactor"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+electrochem_v6 = ["ui/static/*", "desktop/assets/*"]
+
+# Releases use an explicitly reviewed APP_VERSION, tag, and commit. No automatic
+# semantic-release configuration may recalculate or rewrite that version.
 
 [tool.ruff]
 target-version = "py310"
@@ -75,7 +51,6 @@ ignore = [
 "processing_core_v6.py" = ["E402", "F401", "F841"]
 "processing_ecsa.py" = ["F841"]
 "processing_lsv.py" = ["F841"]
-"processing_pipeline.py" = ["F841"]
 "conftest.py" = ["F401"]
 
 [tool.pytest.ini_options]

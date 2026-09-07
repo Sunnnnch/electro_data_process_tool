@@ -1,0 +1,40 @@
+html[data-desktop="connecting"] .shell { visibility: hidden; }
+/* Separate the native caption from the page even while the document is scrolled. */
+html[data-desktop="ready"]::after {
+  content: ""; position: fixed; inset: 0 0 auto; height: 2px; z-index: 1000;
+  background: var(--titlebar-divider); pointer-events: none;
+}
+@media (forced-colors: active) {
+  html[data-desktop="ready"]::after { background: CanvasText; }
+}
+.desktop-startup { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 20px; padding: 24px; background: var(--panel-solid); color: var(--ink); }
+.desktop-menu { position: relative; }
+.desktop-menu summary { cursor: pointer; list-style: none; }
+.desktop-menu summary::after { content: " ▾"; }
+.desktop-menu summary::-webkit-details-marker { display: none; }
+.desktop-menu-items { position: absolute; inset-inline-end: 0; top: calc(100% + 8px); z-index: 80; display: grid; gap: 5px; min-width: 230px; max-width: calc(100vw - 32px); padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md, 10px); background: var(--panel-solid); color: var(--ink); box-shadow: 0 12px 32px #0003; }
+.desktop-menu-items strong { padding: 6px 10px; font-size: var(--ui-font-size); }
+.desktop-menu-items .btn { width: 100%; text-align: start; white-space: normal; }
+.desktop-feedback { padding: 8px 12px; margin: 8px 0 0; background: var(--panel-soft); color: var(--ink); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.desktop-exit-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; margin-top: 12px; background: var(--panel-solid); color: var(--ink); border: 2px solid var(--accent); }
+.desktop-exit-status[hidden], .desktop-feedback[hidden] { display: none; }
+.desktop-dialog { width: min(640px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); box-sizing: border-box; padding: 22px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--panel-solid); color: var(--ink); font-size: var(--reading-font-size); line-height: var(--reading-line-height); }
+.desktop-dialog::backdrop { background: #0008; }
+.desktop-dialog-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.desktop-dialog-head h2 { margin: 0; font-size: calc(19px * var(--ui-font-scale)); }
+.desktop-dialog-head .btn { flex-shrink: 0; }
+.desktop-dialog-content { margin-top: 16px; overflow-wrap: anywhere; }
+.desktop-dialog-content p { margin: 8px 0; }
+.desktop-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.desktop-actions .btn, .desktop-candidate .btn { white-space: normal; }
+.desktop-candidate { border: 1px solid var(--line); background: var(--panel-soft); padding: 14px; margin-top: 14px; }
+.desktop-candidate h3 { margin: 0 0 8px; }
+.desktop-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 280px; overflow: auto; }
+.desktop-task-list { padding-inline-start: 22px; }
+body[data-desktop-closing="true"] #proc-run, body[data-desktop-closing="true"] #send-btn, body[data-desktop-closing="true"] #project-replay-execute, body[data-desktop-closing="true"] #recovery-execute { opacity: .55; cursor: not-allowed; }
+@media (max-width: 650px) {
+  .desktop-dialog { padding: 16px; }
+  .desktop-menu-items { position: fixed; inset: auto 16px auto auto; margin-top: 8px; }
+  .desktop-actions { display: grid; grid-template-columns: 1fr; }
+  .desktop-actions .btn { width: 100%; }
+}

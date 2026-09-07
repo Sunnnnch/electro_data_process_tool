@@ -30,8 +30,12 @@ def create_project(
     description: str = "",
     tags: Optional[List[str]] = None,
     color: Optional[str] = None,
+    default_template_name: str = "",
 ) -> Dict[str, Any]:
-    return _create_project(name=name, description=description, tags=tags, color=color)
+    return _create_project(
+        name=name, description=description, tags=tags, color=color,
+        default_template_name=default_template_name,
+    )
 
 
 def delete_project(project_id: str) -> Dict[str, Any]:
@@ -46,6 +50,7 @@ def update_project(
     tags: Optional[List[str]] = None,
     color: Optional[str] = None,
     status: Optional[str] = None,
+    default_template_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     return _update_project(
         project_id=project_id,
@@ -54,6 +59,7 @@ def update_project(
         tags=tags,
         color=color,
         status=status,
+        default_template_name=default_template_name,
     )
 
 

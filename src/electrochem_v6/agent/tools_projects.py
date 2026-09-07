@@ -21,7 +21,8 @@ def _resolve_v6_project(
 ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     from electrochem_v6.store.projects import list_projects
 
-    projects = list_projects(status="active").get("projects") or []
+    # Archived projects retain their history and remain valid read-only analysis targets.
+    projects = list_projects(status="all").get("projects") or []
     clean_id = str(project_id or "").strip()
     clean_name = str(project_name or "").strip()
 
@@ -205,9 +206,9 @@ def tool_get_current_compare_selection(
 def tool_create_project(name: str, description: str = "") -> Dict:
     """创建项目。"""
     try:
-        from electrochem_v6.store.legacy_runtime import get_project_manager_v6
+        from electrochem_v6.store.runtime import get_project_store
 
-        proj_mgr = get_project_manager_v6()
+        proj_mgr = get_project_store()
         project_id = proj_mgr.create_project(name=name, description=description)
 
         return {"success": True, "project_id": project_id, "message": f"项目'{name}'创建成功"}
@@ -220,9 +221,9 @@ def tool_get_processing_history(
 ) -> Dict:
     """获取处理历史。"""
     try:
-        from electrochem_v6.store.legacy_runtime import get_history_manager_v6
+        from electrochem_v6.store.runtime import get_history_store
 
-        hist_mgr = get_history_manager_v6()
+        hist_mgr = get_history_store()
 
         all_records = hist_mgr.get_all_records()
         if project_id:
@@ -248,23 +249,44 @@ def tool_auto_process_with_smart_params(
     electrode_area: Optional[float] = None,
     target_current: Optional[str] = None,
     tafel_range: Optional[str] = None,
+    coupled_products_file: Optional[str] = None,
+    coupled_products_sheet: Optional[str] = None,
+    coupled_results_csv_filename: Optional[str] = None,
     extra_gui_params: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """AI自主处理数据(核心功能)。"""
     try:
         from .tools_data import tool_scan_data_folder
 
+        data_type = str(data_type or "").strip().upper()
+        if data_type in {"FE", "FARADAIC", "FARADAIC_EFFICIENCY", "SELECTIVITY"}:
+            data_type = "COUPLED"
+        if data_type not in {"LSV", "CV", "EIS", "ECSA", "COUPLED"}:
+            return {"success": False, "error": f"Unsupported data_type: {data_type}"}
+
+        from electrochem_v6.core.agent_scientific import scientific_parameter_requirements
+
+        explicit_params: Dict[str, Any] = dict(extra_gui_params or {})
+        if electrode_area is not None:
+            explicit_params.setdefault("area", electrode_area)
+        if potential_offset is not None:
+            explicit_params.setdefault("potential_offset", potential_offset)
+            explicit_params.setdefault("potential_mode", "manual")
+        if coupled_products_file:
+            explicit_params.setdefault("coupled_products_file", coupled_products_file)
+        missing = scientific_parameter_requirements(data_type, explicit_params)
+        if missing:
+            return {"success": False, "status": "needs_parameters", "missing_parameters": missing,
+                    "error": "必要科学参数未明确，请核对实验记录或当前界面参数后再处理。"}
+
         scan_result = tool_scan_data_folder(folder_path)
         if not scan_result["success"]:
             return scan_result
 
-        if scan_result["total_files"] == 0:
+        if scan_result["total_files"] == 0 and data_type != "COUPLED":
             return {"success": False, "error": "文件夹中没有找到数据文件"}
 
-        gui_vars: Dict[str, Any] = {
-            "area": electrode_area if electrode_area is not None else 1.0,
-            "potential_offset": potential_offset if potential_offset is not None else 0.0,
-        }
+        gui_vars: Dict[str, Any] = dict(explicit_params)
 
         if data_type == "LSV":
             final_target_current = target_current if target_current else "10,100"
@@ -272,7 +294,6 @@ def tool_auto_process_with_smart_params(
             final_tafel_range = tafel_range if tafel_range else "1-10"
             gui_vars.update(
                 {
-                    "lsv_enabled": True,
                     "lsv_target_current": final_target_current,
                     "tafel_enabled": enable_tafel,
                     "tafel_range": final_tafel_range,
@@ -281,7 +302,6 @@ def tool_auto_process_with_smart_params(
         elif data_type == "CV":
             gui_vars.update(
                 {
-                    "cv_enabled": True,
                     "cv_match": "prefix",
                     "cv_prefix": "CV",
                     "cv_peaks_enabled": True,
@@ -294,7 +314,6 @@ def tool_auto_process_with_smart_params(
         elif data_type == "EIS":
             gui_vars.update(
                 {
-                    "eis_enabled": True,
                     "eis_match": "prefix",
                     "eis_prefix": "EIS",
                     "plot_nyquist": True,
@@ -306,7 +325,6 @@ def tool_auto_process_with_smart_params(
         elif data_type == "ECSA":
             gui_vars.update(
                 {
-                    "ecsa_enabled": True,
                     "ecsa_match": "prefix",
                     "ecsa_prefix": "ECSA",
                     "ecsa_ev": 0.10,
@@ -317,37 +335,65 @@ def tool_auto_process_with_smart_params(
                     "ecsa_use_abs_delta": True,
                 }
             )
+        elif data_type == "COUPLED":
+            if not coupled_products_file:
+                return {"success": False, "error": "COUPLED processing requires coupled_products_file"}
+            gui_vars.update(
+                {
+                    "coupled_products_file": coupled_products_file,
+                    "coupled_products_sheet": coupled_products_sheet or 0,
+                    "coupled_results_csv_filename": coupled_results_csv_filename or "coupled_results.csv",
+                }
+            )
         else:
             return {"success": False, "error": f"Unsupported data_type: {data_type}"}
 
         if extra_gui_params:
             gui_vars.update(extra_gui_params)
 
+        service_params = dict(gui_vars)
+        service_payload: Dict[str, Any] = {
+            "folder_path": folder_path,
+            "data_types": [data_type],
+            "params": service_params,
+        }
         if project_name:
-            from electrochem_v6.store.legacy_runtime import get_project_manager_v6
+            service_payload["project_name"] = project_name
 
-            proj_mgr = get_project_manager_v6()
-            existing = proj_mgr.get_all_projects()
-            project_id = None
-            for proj in existing:
-                if proj["name"] == project_name:
-                    project_id = proj["id"]
-                    break
-            if not project_id:
-                project_id = proj_mgr.create_project(
-                    name=project_name, description=f"AI自动创建:{data_type}数据分析"
-                )
-            gui_vars["project_id"] = project_id
+        from electrochem_v6.core.process_service import process_folder
 
-        from electrochem_v6.core.processing_compat import run_pipeline
+        service_response = process_folder(service_payload)
+        if service_response.get("status") != "success":
+            return {
+                "success": False,
+                "error": str(service_response.get("message") or "数据处理失败"),
+                "details": service_response.get("result"),
+            }
+        service_body = service_response.get("result")
+        if not isinstance(service_body, dict):
+            return {"success": False, "error": "处理服务返回了无效结果"}
+        raw_result = service_body.get("raw")
+        result = raw_result if isinstance(raw_result, dict) else {}
+        processing = service_body.get("processing")
+        processing_info = processing if isinstance(processing, dict) else {}
+        output_files = [str(item) for item in processing_info.get("output_files") or []]
 
-        result = run_pipeline(folder_path, gui_vars)
+        scan_stats = scan_result.get("statistics")
+        raw_by_type_stats = scan_stats.get("by_type") if isinstance(scan_stats, dict) else {}
+        by_type_stats = raw_by_type_stats if isinstance(raw_by_type_stats, dict) else {}
+        raw_matched_counts = processing_info.get("matched_counts") or result.get("matched_counts")
+        matched_counts = raw_matched_counts if isinstance(raw_matched_counts, dict) else {}
+        actual_processed = None
+        for module_run in result.get("module_runs") or []:
+            if not isinstance(module_run, dict):
+                continue
+            if str(module_run.get("data_type") or "").upper() == data_type:
+                actual_processed = module_run.get("processed")
+                break
+        if actual_processed is None:
+            actual_processed = matched_counts.get(data_type, by_type_stats.get(data_type, 0))
 
-        messages = result.get("messages", [])
-        by_type_stats = scan_result.get("statistics", {}).get("by_type", {})
-        actual_processed = by_type_stats.get(data_type, 0)
-
-        quality_summary = result.get("quality_summary", {})
+        quality_summary = service_body.get("quality_summary") or result.get("quality_summary", {})
         vision_findings = []
         if isinstance(quality_summary, dict):
             for report in quality_summary.get("files", []) or []:
@@ -365,7 +411,7 @@ def tool_auto_process_with_smart_params(
                         }
                     )
 
-        base_suggestion = "建议:处理完成后,可以问\"分析质量报告\"获取详细分析,或\"找出最优催化剂\"查看性能排名"
+        base_suggestion = "建议：查看本次质量报告，并在实验条件一致时比较明确记录的指标；数值排序不代表材料综合等级。"
         if vision_findings:
             highlight = []
             for finding in vision_findings[:3]:
@@ -378,6 +424,9 @@ def tool_auto_process_with_smart_params(
         else:
             ai_suggestion = base_suggestion
 
+        manifest = service_body.get("manifest") or {}
+        run_id = (manifest.get("run") or {}).get("run_id")
+        effective_params = manifest.get("parameters") or service_params
         return {
             "success": True,
             "message": "AI自动处理完成",
@@ -386,15 +435,17 @@ def tool_auto_process_with_smart_params(
                 "scanned_total": scan_result["total_files"],
                 "processed_count": actual_processed,
                 "data_type": data_type,
-                "output_files": messages,
+                "output_files": output_files,
             },
             "parameters": {
-                "potential_offset": potential_offset if potential_offset else 0.0,
-                "electrode_area": electrode_area if electrode_area else 1.0,
-                "target_current": target_current if target_current else "10,100",
-                "tafel_enabled": gui_vars.get("tafel_enabled", False),
+                "potential_offset": effective_params.get("potential_offset"),
+                "electrode_area": effective_params.get("area"),
+                "target_current": effective_params.get("lsv_target_current"),
+                "tafel_enabled": effective_params.get("tafel_enabled", False),
             },
-            "project_id": gui_vars.get("project_id"),
+            "effective_params": effective_params,
+            "run_id": run_id,
+            "project_id": service_body.get("project_id"),
             "ai_suggestion": ai_suggestion,
             "vision_findings": vision_findings,
             "quality_summary": quality_summary,

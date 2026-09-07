@@ -1,4 +1,4 @@
-"""Smoke tests for v6 server skeleton."""
+"""Smoke checks for the ElectroChem V6 local server."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import time
 from typing import Any, Dict, Tuple
 from urllib import error, request
 
+from .runtime_test_env import isolated_data_env
 from .server import V6ServerManager
 
 
@@ -51,7 +52,7 @@ def _wait_health(base_url: str, timeout_s: float = 5.0) -> None:
     raise RuntimeError("v6 health check timeout")
 
 
-def run_smoke(port: int = 8011) -> Dict[str, Any]:
+def _run_smoke_server(port: int) -> Dict[str, Any]:
     manager = V6ServerManager(port=port)
     ok, msg = manager.start()
     if not ok:
@@ -103,3 +104,9 @@ def run_smoke(port: int = 8011) -> Dict[str, Any]:
         return {"ok": False, "stage": "exception", "message": str(exc)}
     finally:
         manager.stop()
+
+
+def run_smoke(port: int = 8011) -> Dict[str, Any]:
+    """Run smoke checks without reading or mutating the user's runtime data."""
+    with isolated_data_env(prefix="v6_smoke_env_"):
+        return _run_smoke_server(port)

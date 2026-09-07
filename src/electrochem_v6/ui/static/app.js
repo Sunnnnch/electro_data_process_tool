@@ -1,17 +1,29 @@
 let currentConversationId = null;
+let activeAgentJobId = null;
+let activeAgentRequest = null;
+let conversationViewRevision = 0;
+let conversationLoadRequestId = 0;
+let conversationListRequestId = 0;
+let conversationAutoSelect = true;
 let conversationItems = [];
 let hasProcessResult = false;
 let templateItems = [];
 let historyRecords = [];
 let selectedHistoryKey = "";
+let historyNextCursor = "";
+let historyHasMore = false;
+let historyTotal = 0;
 let currentConversationKeyword = "";
 let llmModelsByProvider = {};
 let renamingConversationId = null;
 let projectItems = [];
+let activeProjectItems = [];
 let selectedProjectId = "";
 let projectDetailState = null;
 let selectedProjectHistoryKey = "";
 let projectIncludeArchived = false;
+let projectListStatus = "active";
+let projectFilterTimer = null;
 let projectOutputTypeFilter = "";
 let projectCompareSort = "eta";
 let projectCompareOnlyEta = false;
@@ -29,104 +41,416 @@ let projectCompareTargetCurrents = {
 };
 let helpDocCache = {};
 let activeHelpHeadingId = "";
+let processPreflightState = "pending";
+let activeProcessJobId = "";
+let processRunState = "pending";
+let expandedProcessModules = new Set(["LSV"]);
+let activeResultTab = "current";
+let preflightFileDetailOpen = false;
+let latestPreflightScan = null;
+let processSourceItems = [];
+let processSourceFolders = [];
+let appliedProcessTemplateName = "";
+let processParameterSchema = null;
+let activeProcessStepKey = "";
+let processScrollSpyTicking = false;
+let latestProcessResult = null;
+let assistantContextSnapshot = null;
+let pendingAssistantApprovalDecision = null;
+let projectNavigationRevision = 0;
+const assistantSourceTokens = new Map();
 
-const PROMPT_STORAGE_KEY = "electrochem_v6_prompt_settings";
-const PROMPT_TEMPLATES = {
-  analyst:
-    "你是电化学数据分析助手。回答时请先给结论，再给证据；明确指出可能误差来源，并给下一步实验建议。",
-  summary:
-    "请用结构化方式总结本次结果：1)核心结论 2)关键指标 3)异常/风险 4)建议动作。每项不超过3条。",
-  paper:
-    "请用学术写作风格输出：背景一句、方法一句、结果三句、讨论两句，并保持术语严谨。",
+const uiCore = window.ElectrochemUiCore || {
+  boolValue: (id) => Boolean(byId(id) && byId(id).checked),
+  byId: (id) => document.getElementById(id),
+  escapeHtml: (text) =>
+    String(text || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;"),
+  fileNameOnly: (pathText) => {
+    const safe = String(pathText || "").trim();
+    return safe.split(/[\\/]/).pop() || safe;
+  },
+  numberValue: (id) => {
+    const raw = textValue(id);
+    if (!raw) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  },
+  textValue: (id) => String((byId(id) && byId(id).value) || "").trim(),
 };
+const byId = uiCore.byId;
+const textValue = uiCore.textValue;
+const boolValue = uiCore.boolValue;
+const numberValue = uiCore.numberValue;
+const escapeHtml = uiCore.escapeHtml;
+const fileNameOnly = uiCore.fileNameOnly;
 
-const TEMPLATE_VALUE_IDS = [
-  "plot-font-family",
-  "plot-font-size",
-  "pro-area",
-  "pro-potential-mode",
-  "pro-offset",
-  "pro-rhe-ph",
-  "pro-ref-preset",
-  "pro-ref-custom",
-  "pro-lsv-target",
-  "pro-lsv-tafel",
-  "pro-lsv-match",
-  "pro-lsv-prefix",
-  "pro-lsv-title",
-  "pro-lsv-xlabel",
-  "pro-lsv-ylabel",
-  "pro-lsv-line-width",
-  "pro-lsv-ir-method",
-  "pro-lsv-ir-manual",
-  "pro-lsv-ir-points",
-  "pro-lsv-quality-min-points-issue",
-  "pro-lsv-quality-min-points-warning",
-  "pro-lsv-quality-outlier-warning-pct",
-  "pro-lsv-quality-min-potential-span",
-  "pro-lsv-quality-noise-warning",
-  "pro-lsv-quality-noise-critical",
-  "pro-lsv-quality-jump-warning",
-  "pro-lsv-quality-jump-critical",
-  "pro-lsv-quality-local-factor",
-  "pro-lsv-onset-current",
-  "pro-lsv-eq-potential",
-  "pro-lsv-halfwave-current",
-  "pro-cv-match",
-  "pro-cv-prefix",
-  "pro-cv-title",
-  "pro-cv-xlabel",
-  "pro-cv-ylabel",
-  "pro-cv-line-width",
-  "pro-cv-peaks-smooth",
-  "pro-cv-peaks-height",
-  "pro-cv-peaks-dist",
-  "pro-cv-peaks-max",
-  "pro-cv-quality-min-points-warning",
-  "pro-cv-quality-cycle-tolerance",
-  "pro-eis-match",
-  "pro-eis-prefix",
-  "pro-eis-title",
-  "pro-eis-xlabel",
-  "pro-eis-ylabel",
-  "pro-eis-line-width",
-  "pro-ecsa-match",
-  "pro-ecsa-prefix",
-  "pro-ecsa-title",
-  "pro-ecsa-xlabel",
-  "pro-ecsa-ylabel",
-  "pro-ecsa-line-width",
-  "pro-ecsa-ev",
-  "pro-ecsa-last-n",
-  "pro-ecsa-cs-value",
-  "pro-ecsa-cs-unit",
-];
-
-const TEMPLATE_CHECK_IDS = [
-
-  "pro-plot-grid",
-  "pro-use-abs-current",
-  "pro-lsv-tafel-enabled",
-  "pro-lsv-mark-targets",
-  "pro-lsv-export-data",
-  "pro-lsv-combine-all",
-  "pro-lsv-export-tafel",
-  "pro-lsv-quality-check",
-  "pro-lsv-ir-enabled",
-  "pro-lsv-overpotential-enabled",
-  "pro-lsv-onset-enabled",
-  "pro-lsv-halfwave-enabled",
-  "pro-cv-peaks-enabled",
-  "pro-cv-quality-check",
-  "pro-eis-plot-nyquist",
-  "pro-eis-plot-bode",
-  "pro-eis-randles-fit",
-  "pro-ecsa-avg-last-n",
-  "pro-ecsa-use-abs",
-];
-
+const themeManager = window.ElectrochemTheme || {
+  apply: (themeName) => themeName || "",
+  getTheme: () => "",
+  init: () => "",
+  save: (themeName) => themeName || "",
+};
+const processSchemaClient = window.ElectrochemProcessingSchema || {
+  applyToControls: () => {},
+  buildModuleCards: () => [],
+  controlIds: () => [],
+  getCached: () => null,
+  getDefault: (_schema, _key, fallback) => fallback,
+  getModule: () => null,
+  load: async () => null,
+  moduleList: () => [],
+  moduleMap: () => new Map(),
+  validateControls: () => [],
+};
+const processPayloadBuilder = window.ElectrochemProcessPayload || {};
+const processSourceSelection = window.ElectrochemProcessSourceSelection || {
+  PRIMARY_TYPES: ["LSV", "CV", "EIS", "ECSA"],
+  merge: (current, incoming) => (current || []).concat(incoming || []),
+  preferredFolder: (_items, fallback) => fallback || "",
+  toInputFiles: () => [],
+};
+const processRuntime = window.ElectrochemProcessRuntime || {};
+const processTemplates = window.ElectrochemProcessTemplates || {};
+const preflightModel = window.ElectrochemPreflightModel || {
+  buildCheckItems: () => ({
+    scan: null,
+    items: {
+      files: { state: "pending", labelKey: "preflight_status_pending" },
+      params: { state: "pending", labelKey: "preflight_status_pending" },
+      output: { state: "pending", labelKey: "preflight_status_pending" },
+      runnable: { state: "pending", labelKey: "preflight_status_pending" },
+    },
+  }),
+  buildFileDetailCards: () => [],
+  buildSummary: () => ({
+    counts: ["LSV", "CV", "EIS", "ECSA", "COUPLED"].map((dtype) => ({ dtype, matched: 0 })),
+    textFiles: 0,
+    warnings: [],
+    workUnits: 0,
+  }),
+  buildFileDetailView: () => ({
+    cards: [],
+    metrics: [
+      { labelKey: "preflight_detail_matched_files", value: 0 },
+      { labelKey: "preflight_text_files", value: 0 },
+      { labelKey: "preflight_work_units", value: 0 },
+    ],
+    warnings: [],
+  }),
+  checkKeys: ["files", "params", "output", "runnable"],
+  defaultTypes: ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
+};
+const projectCompareModel = window.ElectrochemProjectCompareModel || {
+  availableTargetCurrents: (state, metric) => {
+    const safe = state && typeof state === "object" ? state : {};
+    if (metric === "overpotential_at_target") return safe.overpotential_target_currents || [];
+    if (metric === "potential_at_target") return safe.potential_target_currents || [];
+    return safe.target_currents || [];
+  },
+  filterSamples: (samples) => (Array.isArray(samples) ? [...samples] : []),
+  formatTargetCurrent: (value) => String(value || ""),
+  needsTargetCurrent: (chartType, metric) => chartType === "bar" && metric !== "tafel_slope",
+  selectTargetCurrent: (options, currentValue, preferredValue) => {
+    const normalized = (Array.isArray(options) ? options : []).map(Number).filter((item) => Number.isFinite(item) && item > 0);
+    const preferred = normalized.includes(preferredValue) ? preferredValue : normalized[0];
+    const current = Number(currentValue);
+    const value = normalized.includes(current) ? current : preferred;
+    return { options: [...new Set(normalized)], value: value !== undefined ? String(value) : "" };
+  },
+  syncSelectedSamples: (samples, selectedSamples, maxDefault) => {
+    const names = (Array.isArray(samples) ? samples : []).map((item) => String(item.sample_name || "").trim()).filter(Boolean);
+    const selected = names.filter((name) => (selectedSamples || []).includes(name));
+    return {
+      clearPlot: !selected.length || selected.length !== (selectedSamples || []).length,
+      selectedSamples: selected.length ? selected : names.slice(0, Math.min(maxDefault || 3, names.length)),
+      visibleNames: names,
+    };
+  },
+};
+const projectComparePage = window.ElectrochemProjectComparePage || {};
+const processResultModel = window.ElectrochemProcessResultModel || {
+  buildResultFromHistoryRecord: (record, historyLabel) => {
+    const safe = record && typeof record === "object" ? record : {};
+    const type = String(safe.type || "").toUpperCase();
+    const files = Array.isArray(safe.output_files) && safe.output_files.length
+      ? safe.output_files.map((item) => String(item))
+      : safe.summary_path
+        ? [String(safe.summary_path)]
+        : safe.file_path || safe.file_name
+          ? [String(safe.file_path || safe.file_name)]
+          : [];
+    return {
+      data_type: type || undefined,
+      data_types: type ? [type] : [],
+      processing: { output_files: files },
+      quality_summary: {
+        status: safe.status || "-",
+        project: safe.project_name || "-",
+        timestamp: safe.timestamp || "-",
+      },
+      summary: `${historyLabel || "History record"}: ${safe.sample_name || safe.file_name || safe.file_path || "-"}`,
+    };
+  },
+  buildResultView: (result) => {
+    const safe = result && typeof result === "object" ? result : {};
+    const processing = safe.processing && typeof safe.processing === "object" ? safe.processing : {};
+    const outputFiles = Array.isArray(processing.output_files)
+      ? processing.output_files.map((item) => {
+          const path = String(item || "").trim();
+          return { fileName: fileNameOnly(path), path };
+        })
+      : [];
+    return {
+      dataTypes: Array.isArray(safe.data_types) ? safe.data_types : safe.data_type ? [String(safe.data_type)] : [],
+      outputFiles,
+      qualityItems: [],
+      skippedErrors: [],
+      summary: safe.summary || "",
+    };
+  },
+};
+const processResultPage = window.ElectrochemProcessResultPage || {};
+const processPage = window.ElectrochemProcessPage || {};
+const assistantPage = window.ElectrochemAssistantPage || {};
+const assistantContext = window.ElectrochemAssistantContext || {
+  build: () => null,
+  summary: () => "",
+};
+const aiSettingsPage = window.ElectrochemAISettingsPage || {};
+const projectPage = window.ElectrochemProjectPage || {};
+const projectWorkspace = window.ElectrochemProjectWorkspace || {};
+const projectWorkbench = window.ElectrochemProjectWorkbench || null;
+const projectPreferences = window.ElectrochemProjectPreferences || null;
+const projectRecovery = window.ElectrochemProjectRecovery || null;
+const projectReplay = window.ElectrochemProjectReplay || null;
+const projectReplicates = window.ElectrochemProjectReplicates || null;
+const assistantActions = window.ElectrochemAssistantActions || null;
+const taskCenter = window.ElectrochemTaskCenter || null;
+const projectHistoryWorkspace = window.ElectrochemProjectHistoryWorkspace || {};
+const assistantPrompt = window.ElectrochemAssistantPrompt || {
+  applyTemplate: () => {},
+  buildMessage: (message) => String(message || "").trim(),
+  getActivePrefix: () => "",
+  load: () => {},
+  renderTemplateOptions: () => {},
+  save: () => {},
+};
+const assistantApi = window.ElectrochemAssistantApi || {
+  conversationListUrl: (options) => {
+    const opts = options || {};
+    const query = new URLSearchParams();
+    query.set("page", String(opts.page || 1));
+    query.set("page_size", String(opts.pageSize || 30));
+    if (opts.keyword) query.set("keyword", String(opts.keyword));
+    return `/api/v1/agent/conversations?${query.toString()}`;
+  },
+  deleteConversation: (conversationId) =>
+    apiFetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  getConversation: (conversationId) => apiFetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`),
+  listConversations: (options) => apiFetch(assistantApi.conversationListUrl(options)),
+  renameConversation: (conversationId, title) =>
+    apiFetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+  sendMessageForm: (formData) => apiFetch("/api/v1/agent/messages", { method: "POST", body: formData }),
+  submitMessageJobForm: (formData) => apiFetch("/api/v1/agent/jobs", { method: "POST", body: formData }),
+  sendMessageJson: (payload) =>
+    apiFetch("/api/v1/agent/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  submitMessageJob: (payload) =>
+    apiFetch("/api/v1/agent/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  getMessageJob: (jobId) => apiFetch(`/api/v1/agent/jobs/${encodeURIComponent(jobId)}`),
+  cancelMessageJob: (jobId) =>
+    apiFetch(`/api/v1/agent/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+};
+const llmApi = window.ElectrochemLLMApi || {
+  getConfig: () => apiFetch("/api/v1/llm/config"),
+  saveConfig: (payload) =>
+    apiFetch("/api/v1/llm/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    }),
+  testConfig: (payload) =>
+    apiFetch("/api/v1/llm/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    }),
+};
+const systemApi = window.ElectrochemSystemApi || {
+  health: () => apiFetch("/health"),
+  openPath: (pathValue, revealOnly) =>
+    apiFetch("/api/v1/system/open-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: pathValue, reveal_only: Boolean(revealOnly) }),
+    }),
+  selectFolder: (initialDir) =>
+    apiFetch("/api/v1/system/select-folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initial_dir: initialDir }),
+    }),
+  selectFile: (initialPath, extensions) =>
+    apiFetch("/api/v1/system/select-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initial_path: initialPath, extensions: extensions || [".txt", ".csv"] }),
+    }),
+  selectFiles: (initialPath, extensions) =>
+    apiFetch("/api/v1/system/select-files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initial_path: initialPath, extensions: extensions || [".txt", ".csv"] }),
+    }),
+};
+const projectApi =
+  window.ElectrochemProjectApi ||
+  (() => {
+    const buildQuery = (params) => {
+      const query = new URLSearchParams();
+      Object.entries(params || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === "") return;
+        if (Array.isArray(value)) {
+          value.forEach((item) => query.append(key, String(item)));
+          return;
+        }
+        query.set(key, String(value));
+      });
+      return query.toString();
+    };
+    const withQuery = (path, params) => {
+      const query = buildQuery(params);
+      return query ? `${path}?${query}` : path;
+    };
+    const postJson = (payload) => ({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const archivedFlag = (includeArchived) => (includeArchived ? "1" : "0");
+    const projectPath = (projectId, suffix = "") => `/api/v1/projects/${encodeURIComponent(projectId)}${suffix}`;
+    return {
+      archiveHistory: (historyKey) =>
+        apiFetch("/api/v1/history/archive", postJson({ history_key: historyKey })),
+      createProject: (payload) => apiFetch("/api/v1/projects", postJson(payload)),
+      cleanupStorage: () => apiFetch("/api/v1/storage/cleanup", postJson({})),
+      deleteHistory: (historyKey, options = {}) => apiFetch("/api/v1/history/delete", postJson({
+        history_key: historyKey,
+        delete_artifacts: options.deleteArtifacts !== false,
+      })),
+      deleteProject: (projectId) => apiFetch(projectPath(projectId, "/delete"), postJson({})),
+      permanentlyDeleteProject: (projectId, options = {}) => apiFetch(
+        projectPath(projectId, "/delete-permanent"),
+        postJson({ delete_artifacts: options.deleteArtifacts !== false }),
+      ),
+      restoreProject: (projectId) => apiFetch(projectPath(projectId, "/restore"), postJson({})),
+      exportReport: (projectId, options = {}) =>
+        apiFetch(withQuery(projectPath(projectId, "/report"), { include_archived: archivedFlag(options.includeArchived) })),
+      history: (options = {}) =>
+        apiFetch(
+          withQuery("/api/v1/history", {
+            project: options.projectId,
+            limit: options.limit,
+            cursor: options.cursor,
+            include_archived:
+              options.includeArchived === undefined ? undefined : archivedFlag(options.includeArchived),
+          })
+        ),
+      historyDetail: (historyKey) => apiFetch(`/api/v1/history/${encodeURIComponent(historyKey)}`),
+      latestLsvComparePlot: (projectId, options = {}) =>
+        apiFetch(
+          withQuery(projectPath(projectId, "/lsv-compare-plot/latest"), {
+            chart_type: options.chartType,
+            metric: options.metric,
+            target_current: options.targetCurrent,
+          })
+        ),
+      listProjects: (options = {}) => apiFetch(withQuery("/api/v1/projects", { status: options.status || "active" })),
+      lsvComparePlot: (projectId, options = {}) =>
+        apiFetch(
+          withQuery(projectPath(projectId, "/lsv-compare-plot"), {
+            include_archived: archivedFlag(options.includeArchived),
+            chart_type: options.chartType,
+            metric: options.metric,
+            target_current: options.targetCurrent,
+            sample: Array.isArray(options.samples) ? options.samples : [],
+          })
+        ),
+      lsvSummary: (projectId, options = {}) =>
+        apiFetch(
+          withQuery(projectPath(projectId, "/lsv-summary"), {
+            page: options.page || 1,
+            page_size: options.pageSize || 15,
+            sort: options.sort || "eta",
+          })
+        ),
+      lsvTargetCurrents: (projectId, options = {}) =>
+        apiFetch(
+          withQuery(projectPath(projectId, "/lsv-target-currents"), {
+            include_archived: archivedFlag(options.includeArchived),
+          })
+        ),
+      stats: (options = {}) =>
+        apiFetch(
+          withQuery("/api/v1/stats", {
+            project: options.projectId,
+            include_archived:
+              options.includeArchived === undefined ? undefined : archivedFlag(options.includeArchived),
+          })
+        ),
+      storageSummary: () => apiFetch("/api/v1/storage"),
+      updateProject: (projectId, payload) => apiFetch(projectPath(projectId, "/update"), postJson(payload)),
+    };
+  })();
+const processingApi =
+  window.ElectrochemProcessingApi ||
+  (() => {
+    const postJson = (payload) => ({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    return {
+      deleteTemplate: (name) => apiFetch(`/api/v1/process/templates/${encodeURIComponent(name)}/delete`, postJson({})),
+      discoverInputs: (payload) => apiFetch("/api/v1/process/discover-inputs", postJson(payload)),
+      exportDiagnostics: () => apiFetch("/api/v1/diagnostics/export", { method: "POST" }),
+      listTemplates: () => apiFetch("/api/v1/process/templates"),
+      preflight: (payload) => apiFetch("/api/v1/process/preflight", postJson(payload)),
+      cancelProcessJob: (jobId) => apiFetch(`/api/v1/process/jobs/${encodeURIComponent(jobId)}/cancel`, postJson({})),
+      getProcessJob: (jobId) => apiFetch(`/api/v1/process/jobs/${encodeURIComponent(jobId)}`),
+      runProcess: (payload) => apiFetch("/api/v1/process", postJson(payload)),
+      saveTemplate: (payload) => apiFetch("/api/v1/process/templates", postJson(payload)),
+      submitProcessJob: (payload) => apiFetch("/api/v1/process/jobs", postJson(payload)),
+    };
+  })();
 /* I18N translations are loaded from i18n.js (see index.html <script> order). */
 const I18N = window.I18N || { zh: {}, en: {} };
+const electrochemApi = window.ElectrochemApi || { fetch: (...args) => window.fetch(...args) };
+const apiFetch = (...args) => electrochemApi.fetch(...args);
 
 let currentLang = "zh";
 
@@ -134,27 +458,21 @@ function t(key) {
   return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
 }
 
-function byId(id) {
-  return document.getElementById(id);
-}
-
-function textValue(id) {
-  return String((byId(id) && byId(id).value) || "").trim();
-}
-
-function boolValue(id) {
-  return Boolean(byId(id) && byId(id).checked);
-}
-
-function numberValue(id) {
-  const raw = textValue(id);
-  if (!raw) return undefined;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : undefined;
-}
-
 function getPotentialMode() {
-  return textValue("pro-potential-mode") || "manual";
+  return schemaControlValue("pro-potential-mode", "potential_mode");
+}
+
+function schemaControlValue(elementId, parameterKey) {
+  const value = textValue(elementId);
+  if (value !== "") return value;
+  const fallback = processSchemaClient.getDefault(processParameterSchema, parameterKey, "");
+  return fallback === undefined || fallback === null ? "" : String(fallback);
+}
+
+function schemaNumberDefault(parameterKey) {
+  const value = processSchemaClient.getDefault(processParameterSchema, parameterKey, undefined);
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function getReferenceElectrodePotential() {
@@ -178,16 +496,20 @@ function renderPotentialOffsetPreview() {
   const mode = getPotentialMode();
   if (mode === "formula_rhe") {
     const ph = numberValue("pro-rhe-ph");
+    const temperature = numberValue("pro-rhe-temperature");
     const ref = getReferenceElectrodePotential();
-    if (!Number.isFinite(ph) || !Number.isFinite(ref)) {
+    if (!Number.isFinite(ph) || !Number.isFinite(ref) || !Number.isFinite(temperature)) {
       el.textContent = t("potential_offset_preview_empty");
       return;
     }
-    const value = ref + 0.0591 * ph;
+    const slope = 2.303 * 8.31446261815324 * (temperature + 273.15) / 96485.33212;
+    const value = ref + slope * ph;
     el.textContent = t("potential_offset_preview_rhe")
       .replace("{value}", value.toFixed(4))
       .replace("{ref}", ref.toFixed(4))
-      .replace("{ph}", String(ph));
+      .replace("{ph}", String(ph))
+      .replace("{temperature}", String(temperature))
+      .replace("{slope}", slope.toFixed(5));
     return;
   }
   const offset = numberValue("pro-offset");
@@ -223,114 +545,211 @@ function syncPotentialConversionUI() {
   renderPotentialOffsetPreview();
 }
 
-function validateNumericField(id, label, options = {}) {
-  const raw = textValue(id);
-  if (!raw) return null;
+function syncIrCompensationUI() {
+  const enabled = boolValue("pro-lsv-ir-enabled");
+  const source = schemaControlValue("pro-lsv-ir-source", "ir_source");
+  const scope = schemaControlValue("pro-lsv-ir-scope", "ir_eis_search_scope");
+  const groups = [
+    ["ir-manual-options", enabled && source === "manual"],
+    ["ir-eis-options", enabled && source !== "manual"],
+    ["ir-specified-file-options", enabled && source !== "manual" && scope === "specified_file"],
+  ];
+  groups.forEach(([id, visible]) => {
+    const group = byId(id);
+    if (!group) return;
+    group.classList.toggle("hidden", !visible);
+    group.querySelectorAll("input, select, textarea, button").forEach((el) => {
+      el.disabled = !visible;
+    });
+  });
+}
+
+function syncCoupledInputUI() {
+  const peakMode = schemaControlValue("pro-coupled-input-mode", "coupled_input_mode") === "peak_analysis";
+  const groups = [
+    ["coupled-product-table-options", !peakMode],
+    ["coupled-product-table-hint", !peakMode],
+    ["coupled-peak-source-options", peakMode],
+    ["coupled-peak-calc-options", peakMode],
+  ];
+  groups.forEach(([id, visible]) => {
+    const group = byId(id);
+    if (!group) return;
+    group.classList.toggle("hidden", !visible);
+    group.querySelectorAll("input, select, textarea, button").forEach((el) => {
+      el.disabled = !visible;
+    });
+  });
+  syncCoupledPeakMethodSourceUI();
+}
+
+function syncCoupledPeakMethodSourceUI() {
+  const peakMode = schemaControlValue("pro-coupled-input-mode", "coupled_input_mode") === "peak_analysis";
+  const methodSource = schemaControlValue("pro-coupled-peak-method-source", "coupled_peak_method_source");
+  const groups = [
+    ["coupled-peak-method-file-options", peakMode && methodSource === "file"],
+    ["coupled-peak-method-panel-options", peakMode && methodSource === "panel"],
+  ];
+  groups.forEach(([id, visible]) => {
+    const group = byId(id);
+    if (!group) return;
+    group.classList.toggle("hidden", !visible);
+    group.querySelectorAll("input, select, textarea, button").forEach((el) => {
+      el.disabled = !visible;
+    });
+  });
+}
+
+function feProductField(row, name) {
+  return row ? row.querySelector(`[data-fe-product-field="${name}"]`) : null;
+}
+
+function feProductNumber(row, name) {
+  const input = feProductField(row, name);
+  const raw = String((input && input.value) || "").trim();
+  if (!raw) return undefined;
   const value = Number(raw);
-  const integerOnly = Boolean(options.integerOnly);
-  const min = options.min;
-  const max = options.max;
-  if (!Number.isFinite(value)) {
-    return currentLang === "zh" ? `${label}必须是数字` : `${label} must be numeric`;
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function setFeProductRowValues(row, product, index) {
+  const defaults = {
+    name: `product_${index}`,
+    expected_position: 1.9,
+    polarity: "positive",
+    nuclei_count: 1,
+    electron_count: 2,
+    response_factor: 1,
+    reaction_id: "",
+  };
+  const values = { ...defaults, ...(product || {}) };
+  Object.keys(defaults).forEach((name) => {
+    const input = feProductField(row, name);
+    if (input) input.value = values[name] == null ? "" : String(values[name]);
+  });
+}
+
+function renumberFeProductRows() {
+  const rows = Array.from(document.querySelectorAll("#fe-product-list [data-fe-product-row]"));
+  rows.forEach((row, index) => {
+    const number = row.querySelector("[data-fe-product-index]");
+    if (number) number.textContent = String(index + 1);
+    const remove = row.querySelector("[data-fe-product-remove]");
+    if (remove) remove.disabled = rows.length === 1;
+  });
+}
+
+function addFeProductRow(product) {
+  const list = byId("fe-product-list");
+  const template = list && list.querySelector("[data-fe-product-row]");
+  if (!list || !template) return null;
+  const row = template.cloneNode(true);
+  setFeProductRowValues(row, product, list.querySelectorAll("[data-fe-product-row]").length + 1);
+  list.appendChild(row);
+  renumberFeProductRows();
+  return row;
+}
+
+function getCoupledPeakMethodFromPanel() {
+  const searchTolerance = numberValue("pro-fe-peak-search-tolerance")
+    ?? schemaNumberDefault("fe_peak_search_tolerance");
+  const windowLeft = numberValue("pro-fe-peak-window-left")
+    ?? schemaNumberDefault("fe_peak_window_left");
+  const windowRight = numberValue("pro-fe-peak-window-right")
+    ?? schemaNumberDefault("fe_peak_window_right");
+  const products = Array.from(document.querySelectorAll("#fe-product-list [data-fe-product-row]")).map((row) => ({
+    name: String((feProductField(row, "name") && feProductField(row, "name").value) || "").trim(),
+    reaction_id: String((feProductField(row, "reaction_id") && feProductField(row, "reaction_id").value) || "").trim(),
+    electron_count: feProductNumber(row, "electron_count"),
+    expected_position: feProductNumber(row, "expected_position"),
+    nuclei_count: feProductNumber(row, "nuclei_count"),
+    response_factor: feProductNumber(row, "response_factor"),
+    polarity: String((feProductField(row, "polarity") && feProductField(row, "polarity").value) || "positive"),
+    search_tolerance: searchTolerance,
+    window_left: windowLeft,
+    window_right: windowRight,
+  }));
+  return {
+    schema_version: "1.0",
+    method_id: textValue("pro-fe-method-id") || "qnmr_panel_method",
+    analysis_method: "qnmr_internal_standard",
+    axis_unit: textValue("pro-fe-axis-unit") || "ppm",
+    internal_standard: {
+      name: textValue("pro-fe-standard-name") || "internal_standard",
+      expected_position: numberValue("pro-fe-standard-position"),
+      nuclei_count: numberValue("pro-fe-standard-nuclei"),
+      concentration_mM: numberValue("pro-fe-standard-concentration"),
+      volume_uL: numberValue("pro-fe-standard-volume"),
+      search_tolerance: searchTolerance,
+      window_left: windowLeft,
+      window_right: windowRight,
+      polarity: textValue("pro-fe-standard-polarity") || "positive",
+    },
+    products,
+    sample_defaults: {
+      electrolyte_volume_mL: numberValue("pro-fe-electrolyte-volume"),
+      sample_aliquot_volume_uL: numberValue("pro-fe-aliquot-volume"),
+    },
+  };
+}
+
+function applyCoupledPeakMethodToPanel(method) {
+  if (!method || typeof method !== "object") return;
+  const setValue = (id, value) => {
+    const input = byId(id);
+    if (input && value !== undefined && value !== null) input.value = String(value);
+  };
+  const standard = method.internal_standard && typeof method.internal_standard === "object"
+    ? method.internal_standard
+    : {};
+  const defaults = method.sample_defaults && typeof method.sample_defaults === "object"
+    ? method.sample_defaults
+    : {};
+  setValue("pro-fe-method-id", method.method_id);
+  setValue("pro-fe-axis-unit", method.axis_unit);
+  setValue("pro-fe-standard-name", standard.name);
+  setValue("pro-fe-standard-position", standard.expected_position);
+  setValue("pro-fe-standard-nuclei", standard.nuclei_count);
+  setValue("pro-fe-standard-concentration", standard.concentration_mM);
+  setValue("pro-fe-standard-volume", standard.volume_uL);
+  setValue("pro-fe-standard-polarity", standard.polarity);
+  setValue("pro-fe-electrolyte-volume", defaults.electrolyte_volume_mL);
+  setValue("pro-fe-aliquot-volume", defaults.sample_aliquot_volume_uL);
+
+  const list = byId("fe-product-list");
+  const template = list && list.querySelector("[data-fe-product-row]");
+  const products = Array.isArray(method.products) && method.products.length ? method.products : [{}];
+  if (list && template) {
+    list.replaceChildren();
+    products.forEach((product, index) => {
+      const row = template.cloneNode(true);
+      setFeProductRowValues(row, product, index + 1);
+      list.appendChild(row);
+    });
   }
-  if (integerOnly && !Number.isInteger(value)) {
-    return currentLang === "zh" ? `${label}必须是整数` : `${label} must be an integer`;
-  }
-  if (typeof min === "number" && value < min) {
-    return currentLang === "zh" ? `${label}不能小于 ${min}` : `${label} must be >= ${min}`;
-  }
-  if (typeof max === "number" && value > max) {
-    return currentLang === "zh" ? `${label}不能大于 ${max}` : `${label} must be <= ${max}`;
-  }
-  return null;
+  renumberFeProductRows();
+}
+
+function processPayloadContext() {
+  return {
+    boolValue,
+    currentLang,
+    getSelectedInputFiles: (dataTypes) => processSourceSelection.toInputFiles(processSourceItems, dataTypes),
+    getPotentialMode,
+    getReferenceElectrodePotential,
+    getSelectedProcessTypes,
+    getCoupledPeakMethod: getCoupledPeakMethodFromPanel,
+    numberValue,
+    processParameterSchema,
+    processSchemaClient,
+    hasExplicitInputSelection: () => processSourceItems.length > 0,
+    t,
+    textValue,
+  };
 }
 
 function collectProcessValidationErrors(dataTypes) {
-  const errors = [];
-  const addError = (err) => {
-    if (err) errors.push(err);
-  };
-
-  addError(validateNumericField("plot-font-size", t("label_font_size"), { min: 6, max: 72, integerOnly: true }));
-  addError(validateNumericField("pro-area", currentLang === "zh" ? "电极面积" : "Electrode area", { min: 0.000001 }));
-  if (getPotentialMode() === "formula_rhe") {
-    addError(validateNumericField("pro-rhe-ph", t("label_rhe_ph"), { min: 0, max: 14 }));
-    const refPreset = textValue("pro-ref-preset");
-    if (refPreset === "custom") {
-      if (!textValue("pro-ref-custom")) {
-        addError(currentLang === "zh" ? "请填写自定义参比电位" : "Custom reference potential is required");
-      }
-      addError(validateNumericField("pro-ref-custom", t("label_ref_custom"), { min: -2, max: 2 }));
-    } else if (getReferenceElectrodePotential() === undefined) {
-      addError(currentLang === "zh" ? "参比电极电位无效" : "Reference electrode potential is invalid");
-    }
-  } else {
-    addError(validateNumericField("pro-offset", currentLang === "zh" ? "电位偏移" : "Potential offset", { min: -100, max: 100 }));
-  }
-
-  if (dataTypes.includes("LSV")) {
-    addError(validateNumericField("pro-lsv-line-width", `LSV ${t("label_line_width")}`, { min: 0.1, max: 10 }));
-    if (boolValue("pro-lsv-quality-check")) {
-      addError(validateNumericField("pro-lsv-quality-min-points-issue", t("label_quality_min_points_issue"), { min: 1, max: 100000, integerOnly: true }));
-      addError(validateNumericField("pro-lsv-quality-min-points-warning", t("label_quality_min_points_warning"), { min: 1, max: 100000, integerOnly: true }));
-      addError(validateNumericField("pro-lsv-quality-outlier-warning-pct", t("label_quality_outlier_warning_pct"), { min: 0, max: 100 }));
-      addError(validateNumericField("pro-lsv-quality-min-potential-span", t("label_quality_min_potential_span"), { min: 0, max: 100 }));
-      addError(validateNumericField("pro-lsv-quality-noise-warning", t("label_quality_noise_warning"), { min: 0, max: 100000 }));
-      addError(validateNumericField("pro-lsv-quality-noise-critical", t("label_quality_noise_critical"), { min: 0, max: 100000 }));
-      addError(validateNumericField("pro-lsv-quality-jump-warning", t("label_quality_jump_warning"), { min: 0, max: 1 }));
-      addError(validateNumericField("pro-lsv-quality-jump-critical", t("label_quality_jump_critical"), { min: 0, max: 1 }));
-      addError(validateNumericField("pro-lsv-quality-local-factor", t("label_quality_local_factor"), { min: 1, max: 100000 }));
-    }
-    if (boolValue("pro-lsv-ir-enabled")) {
-      addError(validateNumericField("pro-lsv-ir-manual", t("label_ir_manual"), { min: 0 }));
-      addError(validateNumericField("pro-lsv-ir-points", t("label_ir_points"), { min: 2, max: 1000, integerOnly: true }));
-    }
-    if (boolValue("pro-lsv-overpotential-enabled")) {
-      addError(validateNumericField("pro-lsv-eq-potential", t("label_eq_potential")));
-    }
-  }
-
-  if (dataTypes.includes("CV")) {
-    addError(validateNumericField("pro-cv-line-width", `CV ${t("label_line_width")}`, { min: 0.1, max: 10 }));
-    if (boolValue("pro-cv-peaks-enabled")) {
-      addError(validateNumericField("pro-cv-peaks-smooth", t("label_cv_peaks_smooth"), { min: 1, max: 999, integerOnly: true }));
-      addError(validateNumericField("pro-cv-peaks-height", t("label_cv_peaks_height"), { min: 0 }));
-      addError(validateNumericField("pro-cv-peaks-dist", t("label_cv_peaks_dist"), { min: 1, max: 10000, integerOnly: true }));
-      addError(validateNumericField("pro-cv-peaks-max", t("label_cv_peaks_max"), { min: 1, max: 1000, integerOnly: true }));
-    }
-    if (boolValue("pro-cv-quality-check")) {
-      addError(validateNumericField("pro-cv-quality-min-points-warning", t("label_cv_quality_min_points_warning"), { min: 1, max: 100000, integerOnly: true }));
-      addError(validateNumericField("pro-cv-quality-cycle-tolerance", t("label_cv_quality_cycle_tolerance"), { min: 0, max: 100 }));
-    }
-  }
-
-  if (dataTypes.includes("EIS")) {
-    addError(validateNumericField("pro-eis-line-width", `EIS ${t("label_line_width")}`, { min: 0.1, max: 10 }));
-  }
-
-  if (dataTypes.includes("ECSA")) {
-    addError(validateNumericField("pro-ecsa-line-width", `ECSA ${t("label_line_width")}`, { min: 0.1, max: 10 }));
-    addError(validateNumericField("pro-ecsa-ev", t("label_ecsa_ev"), { min: 0.000001 }));
-    addError(validateNumericField("pro-ecsa-last-n", t("label_ecsa_last_n"), { min: 1, max: 10000, integerOnly: true }));
-    addError(validateNumericField("pro-ecsa-cs-value", t("label_ecsa_cs_value"), { min: 0.000001 }));
-  }
-
-  return errors;
-}
-
-function addIfSet(obj, key, value) {
-  if (value !== undefined && value !== null && value !== "") {
-    obj[key] = value;
-  }
-}
-
-function escapeHtml(text) {
-  return String(text || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return processPayloadBuilder.collectValidationErrors(processPayloadContext(), dataTypes);
 }
 
 function formatLocalTimestamp() {
@@ -527,16 +946,26 @@ function renderMarkdownDocument(text) {
   let listMode = null;
   let listItems = [];
 
+  // Only the bundled manual can link its fixed demonstration download.
+  // Keep inline code and the assistant's Markdown renderer unchanged.
+  const renderDocumentInline = (line) => String(line).split(/(`[^`\n]+`)/g).map((part) => {
+    if (part.startsWith("`") && part.endsWith("`")) return renderInlineMarkdown(part);
+    return part.split(/(\[[^\]\n]+\]\(guide-cv-demo\.csv\))/g).map((segment) => {
+      const link = segment.match(/^\[([^\]\n]+)\]\(guide-cv-demo\.csv\)$/);
+      return link ? `<a href="/ui/static/guide-cv-demo.csv" download="CV_demo.csv">${renderInlineMarkdown(link[1])}</a>` : renderInlineMarkdown(segment);
+    }).join("");
+  }).join("");
+
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    html.push(`<p>${paragraph.map((line) => renderInlineMarkdown(line)).join("<br>")}</p>`);
+    html.push(`<p>${paragraph.map((line) => renderDocumentInline(line)).join("<br>")}</p>`);
     paragraph = [];
   };
 
   const flushList = () => {
     if (!listItems.length || !listMode) return;
     const tag = listMode === "ol" ? "ol" : "ul";
-    html.push(`<${tag}>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${tag}>`);
+    html.push(`<${tag}>${listItems.map((item) => `<li>${renderDocumentInline(item)}</li>`).join("")}</${tag}>`);
     listMode = null;
     listItems = [];
   };
@@ -562,6 +991,15 @@ function renderMarkdownDocument(text) {
       return;
     }
 
+    const imageMatch = trimmedRaw.match(/^!\[([^\]]*)\]\((guide-(?:professional|project)\.(?:zh|en)\.png)\)$/);
+    if (imageMatch) {
+      flushParagraph();
+      flushList();
+      const alt = escapeHtml(imageMatch[1]);
+      html.push(`<figure class="help-guide-figure"><a href="/ui/static/${imageMatch[2]}" target="_blank" rel="noopener noreferrer"><img src="/ui/static/${imageMatch[2]}" alt="${alt}" loading="lazy"></a><figcaption>${alt}</figcaption></figure>`);
+      return;
+    }
+
     const headingMatch = trimmedRaw.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       flushParagraph();
@@ -570,7 +1008,7 @@ function renderMarkdownDocument(text) {
       const titleRaw = headingMatch[2];
       const titleEscaped = escapeHtml(titleRaw);
       const id = slugifyHeading(titleRaw, seenIds);
-      html.push(`<h${level} id="${id}" class="doc-heading level-${level}">${renderInlineMarkdown(titleEscaped)}</h${level}>`);
+      html.push(`<h${level} id="${id}" class="doc-heading level-${level}">${renderDocumentInline(titleEscaped)}</h${level}>`);
       if (level >= 2 && level <= 4) {
         toc.push({ id, level, text: stripInlineMarkdown(titleRaw) });
       }
@@ -598,7 +1036,7 @@ function renderMarkdownDocument(text) {
     if (trimmed.startsWith("&gt;")) {
       flushParagraph();
       flushList();
-      html.push(`<blockquote>${renderInlineMarkdown(trimmed.replace(/^&gt;\s?/, ""))}</blockquote>`);
+      html.push(`<blockquote>${renderDocumentInline(trimmed.replace(/^&gt;\s?/, ""))}</blockquote>`);
       return;
     }
 
@@ -609,7 +1047,7 @@ function renderMarkdownDocument(text) {
   flushParagraph();
   flushList();
   const rawHtml = html.join("") || renderPlainText(raw);
-  const safeHtml = typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(rawHtml) : rawHtml;
+  const safeHtml = typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(rawHtml, { ADD_ATTR: ["target"] }) : rawHtml;
   return {
     html: safeHtml,
     toc,
@@ -618,68 +1056,128 @@ function renderMarkdownDocument(text) {
 
 function roleTextByRole(role) {
   if (role === "agent") return "AI";
-  return currentLang === "zh" ? "用户" : "User";
+  return assistantPage.roleTextByRole(role, currentLang);
 }
 
 function renderMessageBody(role, content) {
-  if (role === "agent") return renderMarkdownContent(content);
-  return renderPlainText(content);
+  return assistantPage.renderMessageBody({
+    content,
+    renderAgentContent: renderMarkdownContent,
+    renderUserContent: renderPlainText,
+    role,
+  });
 }
 
 function renderMessageItem(role, content, timestamp) {
-  return `
-    <div class="msg ${role}">
-      <div class="meta">${roleTextByRole(role)} | ${escapeHtml(timestamp || "")}</div>
-      <div class="content">${renderMessageBody(role, content)}</div>
-    </div>
-  `;
+  return assistantPage.renderMessageItem({
+    content,
+    escapeHtml,
+    lang: currentLang,
+    renderAgentContent: renderMarkdownContent,
+    renderUserContent: renderPlainText,
+    role,
+    timestamp,
+  });
 }
 
 function ensureChatLogReady() {
-  const log = byId("chat-log");
-  if (!log) return null;
-  const placeholder = log.querySelector(".placeholder");
-  if (placeholder) {
-    log.innerHTML = "";
-  }
-  return log;
+  return assistantPage.ensureChatLogReady({ byId });
 }
 
 function appendLocalMessage(role, content) {
-  const log = ensureChatLogReady();
-  if (!log) return;
-  const body = String(content || "").trim();
-  if (!body) return;
-  log.insertAdjacentHTML("beforeend", renderMessageItem(role, body, formatLocalTimestamp()));
-  log.scrollTop = log.scrollHeight;
+  assistantPage.appendLocalMessage({
+    byId,
+    content,
+    escapeHtml,
+    lang: currentLang,
+    renderAgentContent: renderMarkdownContent,
+    renderUserContent: renderPlainText,
+    role,
+    timestamp: formatLocalTimestamp(),
+  });
 }
 
 function removeTypingIndicator() {
-  const el = byId("chat-typing");
-  if (el) el.remove();
+  assistantPage.removeTypingIndicator({ byId });
 }
 
 function showTypingIndicator() {
-  const log = ensureChatLogReady();
-  if (!log) return;
-  removeTypingIndicator();
-  log.insertAdjacentHTML(
-    "beforeend",
-    `
-      <div id="chat-typing" class="msg agent typing">
-        <div class="meta">AI | ${escapeHtml(t("status_ai_typing"))}</div>
-        <div class="content">
-          <span>${escapeHtml(t("typing_reply"))}</span>
-          <span class="typing-dots"><span></span><span></span><span></span></span>
-        </div>
-      </div>
-    `
-  );
-  log.scrollTop = log.scrollHeight;
+  assistantPage.showTypingIndicator({ byId, escapeHtml, t });
+}
+
+function closeInlineHelpPopovers(except = null) {
+  document.querySelectorAll(".inline-help[open]").forEach((el) => {
+    if (el !== except) el.open = false;
+  });
+}
+
+function createInlineHelp(label, lines) {
+  const details = document.createElement("details");
+  details.className = "inline-help";
+
+  const summary = document.createElement("summary");
+  summary.textContent = "i";
+  summary.setAttribute("aria-label", label);
+  summary.setAttribute("title", label);
+
+  const popover = document.createElement("div");
+  popover.className = "inline-help-popover";
+
+  const safeLines = lines.map((line) => String(line || "").trim()).filter(Boolean);
+  if (safeLines.length > 1) {
+    const list = document.createElement("ul");
+    safeLines.forEach((line) => {
+      const item = document.createElement("li");
+      item.textContent = line;
+      list.appendChild(item);
+    });
+    popover.appendChild(list);
+  } else {
+    popover.textContent = safeLines[0] || label;
+  }
+
+  details.appendChild(summary);
+  details.appendChild(popover);
+  details.addEventListener("toggle", () => {
+    if (details.open) closeInlineHelpPopovers(details);
+  });
+  return details;
+}
+
+function attachInlineHelp(target, label, lines) {
+  if (!target) return;
+  target.querySelectorAll(".inline-help").forEach((el) => el.remove());
+  const safeLines = lines.map((line) => String(line || "").trim()).filter(Boolean);
+  if (!safeLines.length) return;
+  target.appendChild(createInlineHelp(label, safeLines));
+}
+
+function renderInlineHelpPopovers() {
+  attachInlineHelp(document.querySelector(".common-params-section .process-section-head h4"), t("inline_help_common_label"), [
+    t("inline_help_common_line1"),
+    t("inline_help_common_line2"),
+    t("inline_help_common_line3"),
+  ]);
+  attachInlineHelp(document.querySelector(".module-params-section > .process-section-head h4"), t("inline_help_modules_label"), [
+    t("inline_help_modules_line1"),
+    t("inline_help_modules_line2"),
+  ]);
+
+  document.querySelectorAll(".module-group-title .inline-help").forEach((el) => {
+    el.remove();
+  });
+
+  document.querySelectorAll(".module-advanced-control").forEach((control) => {
+    const title = control.querySelector("label > span");
+    const note = control.querySelector(":scope > span[data-i18n='module_advanced_hint']");
+    if (!title || !note) return;
+    attachInlineHelp(title, t("inline_help_advanced_label"), [note.textContent]);
+  });
 }
 
 function applyI18n() {
   document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
+  document.title = t("hero_title");
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     el.textContent = t(key);
@@ -705,11 +1203,25 @@ function applyI18n() {
   if (byId("help-panel") && !byId("help-panel").classList.contains("hidden")) loadHelpDocument(true);
   syncAllMatchFieldMeta();
   syncPotentialConversionUI();
+  syncProcessModulePanels();
+  setResultTab(activeResultTab);
   syncProjectCompareControls();
   renderPromptTemplateOptions();
   syncProcessProjectOptions();
+  renderPreflightFileDetail();
   renderProjectList(projectItems);
   renderSelectedProjectDetail();
+  renderInlineHelpPopovers();
+  if (projectPreferences) {
+    projectPreferences.refresh(projectPreferencesContext());
+    ["project-create", "project-edit"].forEach((prefix) => projectPreferences.renderColors(projectPreferencesContext(), prefix));
+  }
+  renderProcessTypeCards(processParameterSchema);
+  updateProcessStepState();
+  setActiveProcessJob(activeProcessJobId);
+  if (activeAgentJobId && byId("send-btn")) byId("send-btn").textContent = t("btn_cancel_ai");
+  if (window.ElectrochemAppearance) window.ElectrochemAppearance.refresh();
+  if (window.ElectrochemDesktop) window.ElectrochemDesktop.refresh();
 }
 
 function setSendStatus(text) {
@@ -723,6 +1235,55 @@ function setLLMStatus(text) {
 
 function setProcStatus(text) {
   byId("proc-status").textContent = text || "";
+}
+
+function setActiveProcessJob(jobId) {
+  activeProcessJobId = String(jobId || "");
+  const label = activeProcessJobId ? t("process_job_cancel") : t("btn_run");
+  ["proc-run"].forEach((id) => {
+    const button = byId(id);
+    if (button) button.textContent = label;
+  });
+  const panel = byId("process-job-panel");
+  if (panel) panel.classList.toggle("hidden", !activeProcessJobId);
+}
+
+function setProcessSubmitting(submitting) {
+  const button = byId("proc-run");
+  if (button) button.disabled = Boolean(submitting);
+}
+
+function updateProcessJobProgress(job) {
+  const safe = job && typeof job === "object" ? job : {};
+  const current = Math.max(0, Number(safe.progress_current || 0));
+  const total = Math.max(0, Number(safe.progress_total || 0));
+  const progress = byId("process-job-progress");
+  if (progress) {
+    progress.max = total || 1;
+    progress.value = Math.min(current, total || 1);
+  }
+  const text = byId("process-job-progress-text");
+  if (text) {
+    text.textContent = t("process_job_progress")
+      .replace("{current}", String(current))
+      .replace("{total}", String(total || "?"))
+      .replace("{item}", String(safe.current_item || ""));
+  }
+}
+
+async function loadProcessingParameterSchema() {
+  try {
+    processParameterSchema = await processSchemaClient.load();
+    renderProcessTypeCards(processParameterSchema);
+    processSchemaClient.applyToControls(processParameterSchema);
+    syncAllMatchFieldMeta();
+    syncPotentialConversionUI();
+    syncFeatureBlocks();
+    toggleDataTypePanels();
+  } catch (err) {
+    processParameterSchema = null;
+    setProcStatus(`${t("proc_schema_unavailable")}: ${err.message}`);
+  }
 }
 
 function setProjectStatus(text) {
@@ -746,7 +1307,7 @@ function syncProcessProjectOptions() {
   const previous = String(select.value || "").trim();
   const options = [
     `<option value="">${escapeHtml(t("proc_project_optional"))}</option>`,
-    ...projectItems
+    ...(projectListStatus === "archived" ? activeProjectItems : projectItems)
       .map((item) => {
         const name = String(item && item.name ? item.name : "").trim();
         if (!name) return "";
@@ -755,18 +1316,28 @@ function syncProcessProjectOptions() {
       .filter(Boolean),
   ];
   select.innerHTML = options.join("");
-  const hasPrevious = projectItems.some(
+  const hasPrevious = (projectListStatus === "archived" ? activeProjectItems : projectItems).some(
     (item) => String(item && item.name ? item.name : "").trim() === previous
   );
   select.value = hasPrevious ? previous : "";
 }
 
-function syncMatchFieldMeta(baseId, defaultToken) {
+function matchDefaultValue(baseId) {
+  const module = processSchemaClient.getModule(processParameterSchema, baseId);
+  return String(module && module.file_match && module.file_match.default_value || "");
+}
+
+function matchDefaultMode(baseId) {
+  const module = processSchemaClient.getModule(processParameterSchema, baseId);
+  return String(module && module.file_match && module.file_match.default_mode || "");
+}
+
+function syncMatchFieldMeta(baseId) {
   const matchEl = byId(`pro-${baseId}-match`);
   const valueEl = byId(`pro-${baseId}-prefix`);
   const labelEl = byId(`pro-${baseId}-prefix-label`);
   if (!matchEl || !valueEl || !labelEl) return;
-  const mode = String(matchEl.value || "prefix").toLowerCase();
+  const mode = String(matchEl.value || matchDefaultMode(baseId)).toLowerCase();
   let labelKey = "match_value_prefix";
   let titleKey = "match_title_prefix";
   let placeholderKey = "match_placeholder_prefix";
@@ -783,17 +1354,15 @@ function syncMatchFieldMeta(baseId, defaultToken) {
   valueEl.title = t(titleKey);
   valueEl.placeholder = formatTemplateString(t(placeholderKey), {
     key: baseId,
-    default: defaultToken,
+    default: matchDefaultValue(baseId),
   });
 }
 
 function syncAllMatchFieldMeta() {
-  [
-    ["lsv", "LSV"],
-    ["cv", "CV"],
-    ["eis", "EIS"],
-    ["ecsa", "ECSA"],
-  ].forEach(([baseId, defaultToken]) => syncMatchFieldMeta(baseId, defaultToken));
+  document.querySelectorAll("[data-match-label]").forEach((label) => {
+    const baseId = String(label.dataset.matchLabel || "").trim().toLowerCase();
+    if (baseId) syncMatchFieldMeta(baseId);
+  });
 }
 
 function setActiveHelpToc(targetId) {
@@ -848,306 +1417,106 @@ function jumpToHelpHeading(targetId) {
   setActiveHelpToc(targetId);
 }
 
-function getCurrentTemplateState() {
-  const state = {
-    selected_types: getSelectedProcessTypes(),
-    values: {},
-    checks: {},
+function templateContext() {
+  return {
+    byId,
+    confirm: (message) => window.confirm(message),
+    applyCoupledPeakMethodState: applyCoupledPeakMethodToPanel,
+    getCoupledPeakMethodState: getCoupledPeakMethodFromPanel,
+    getSelectedProcessTypes,
+    getTemplateItems: () => templateItems,
+    onTemplateApplied: () => {
+      appliedProcessTemplateName = textValue("tmpl-select");
+      const state = processRuntime.resetState();
+      processPreflightState = state.preflightState;
+      processRunState = state.runState;
+      toggleDataTypePanels();
+      syncFeatureBlocks();
+      syncPotentialConversionUI();
+      renderProcessSourceList();
+    },
+    processingApi,
+    setTemplateItems: (items) => {
+      templateItems = Array.isArray(items) ? items : [];
+      if (appliedProcessTemplateName && !templateItems.some((item) => item.name === appliedProcessTemplateName)) {
+        appliedProcessTemplateName = "";
+      }
+      if (projectPreferences) projectPreferences.refresh(projectPreferencesContext());
+    },
+    setTemplateStatus,
+    t,
+    textValue,
   };
-  TEMPLATE_VALUE_IDS.forEach((id) => {
-    const el = byId(id);
-    if (el) state.values[id] = el.value;
-  });
-  TEMPLATE_CHECK_IDS.forEach((id) => {
-    const el = byId(id);
-    if (el) state.checks[id] = Boolean(el.checked);
-  });
-  return state;
+}
+
+function getCurrentTemplateState() {
+  return processTemplates.getCurrentState(templateContext());
 }
 
 function applyTemplateState(state) {
-  if (!state || typeof state !== "object") return;
-  const selected = Array.isArray(state.selected_types) ? state.selected_types.map((x) => String(x).toUpperCase()) : [];
-  document.querySelectorAll(".proc-type-check").forEach((el) => {
-    el.checked = selected.includes(String(el.value || "").toUpperCase());
-  });
-  if (!getSelectedProcessTypes().length) {
-    const defaultType = document.querySelector('.proc-type-check[value="LSV"]');
-    if (defaultType) defaultType.checked = true;
-  }
-  const values = state.values && typeof state.values === "object" ? state.values : {};
-  Object.keys(values).forEach((id) => {
-    const el = byId(id);
-    if (el && typeof values[id] !== "undefined") {
-      el.value = String(values[id]);
-    }
-  });
-  const checks = state.checks && typeof state.checks === "object" ? state.checks : {};
-  Object.keys(checks).forEach((id) => {
-    const el = byId(id);
-    if (el) el.checked = Boolean(checks[id]);
-  });
-  toggleDataTypePanels();
-  syncFeatureBlocks();
-  syncPotentialConversionUI();
+  processTemplates.applyState(templateContext(), state);
 }
 
 function renderTemplateOptions() {
-  const select = byId("tmpl-select");
-  if (!select) return;
-  const prev = select.value;
-  select.innerHTML = "";
-  if (!Array.isArray(templateItems) || !templateItems.length) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = t("template_none");
-    select.appendChild(opt);
-    select.value = "";
-    return;
-  }
-  templateItems.forEach((item) => {
-    const opt = document.createElement("option");
-    opt.value = String(item.name || "");
-    const suffix = item.builtin ? ` [${t("template_builtin_tag")}]` : "";
-    opt.textContent = `${item.name || ""}${suffix}`;
-    select.appendChild(opt);
-  });
-  if (prev && templateItems.some((x) => x.name === prev)) {
-    select.value = prev;
-  }
+  processTemplates.renderOptions(templateContext());
 }
 
 async function loadTemplates() {
-  try {
-    const resp = await fetch("/api/v1/process/templates");
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("template_load_failed"));
-    }
-    templateItems = Array.isArray(data.templates) ? data.templates : [];
-    renderTemplateOptions();
-    setTemplateStatus("");
-  } catch (err) {
-    templateItems = [];
-    renderTemplateOptions();
-    setTemplateStatus(`${t("template_load_failed")}: ${err.message}`);
-  }
+  await processTemplates.loadTemplates(templateContext());
 }
 
 async function saveTemplate(overwrite = false) {
-  const name = textValue("tmpl-name") || byId("tmpl-select").value;
-  if (!name) {
-    setTemplateStatus(t("template_name_required"));
-    return;
-  }
-  try {
-    const resp = await fetch("/api/v1/process/templates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        state: getCurrentTemplateState(),
-        overwrite,
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      if (data.code === "already_exists" && !overwrite && window.confirm(t("template_confirm_overwrite"))) {
-        await saveTemplate(true);
-        return;
-      }
-      throw new Error(data.message || t("template_save_failed"));
-    }
-    await loadTemplates();
-    byId("tmpl-name").value = name;
-    byId("tmpl-select").value = name;
-    setTemplateStatus(t("template_saved"));
-  } catch (err) {
-    const msg = String(err && err.message ? err.message : "");
-    if (msg.toLowerCase().includes("not found")) {
-      setTemplateStatus(`${t("template_save_failed")}: ${msg}. ${t("template_restart_hint")}`);
-    } else {
-      setTemplateStatus(`${t("template_save_failed")}: ${msg}`);
-    }
-  }
+  await processTemplates.saveTemplate(templateContext(), overwrite);
 }
 
 function loadSelectedTemplate() {
-  const name = byId("tmpl-select").value;
-  if (!name) return;
-  const found = templateItems.find((item) => item.name === name);
-  if (!found) {
-    setTemplateStatus(t("template_load_failed"));
-    return;
-  }
-  applyTemplateState(found.state || {});
-  byId("tmpl-name").value = name;
-  setTemplateStatus(t("template_loaded"));
+  processTemplates.loadSelectedTemplate(templateContext());
 }
 
 async function deleteSelectedTemplate() {
-  const name = byId("tmpl-select").value;
-  if (!name) return;
-  const found = templateItems.find((item) => item.name === name);
-  if (found && found.builtin) {
-    setTemplateStatus(t("template_builtin_immutable"));
-    return;
+  const selectedName = textValue("tmpl-select");
+  const result = await processTemplates.deleteSelectedTemplate(templateContext());
+  if (result && selectedName === appliedProcessTemplateName) {
+    appliedProcessTemplateName = "";
+    updateProcessStepState();
   }
-  if (!window.confirm(t("template_confirm_delete"))) return;
-  try {
-    const resp = await fetch(`/api/v1/process/templates/${encodeURIComponent(name)}/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("template_delete_failed"));
-    }
-    await loadTemplates();
-    byId("tmpl-name").value = "";
-    setTemplateStatus(t("template_deleted"));
-  } catch (err) {
-    setTemplateStatus(`${t("template_delete_failed")}: ${err.message}`);
-  }
+}
+
+function processResultContext() {
+  return {
+    bindFileActions: bindProjectFileActions,
+    byId,
+    escapeHtml,
+    processResultModel,
+    setResultTab,
+    t,
+    updateProcessStepState,
+  };
+}
+
+function applyProcessResultState(state) {
+  if (!state || typeof state !== "object") return;
+  hasProcessResult = Boolean(state.hasProcessResult);
+  processRunState = state.processRunState || processRunState;
 }
 
 function renderResultPlaceholder() {
-  hasProcessResult = false;
-  byId("proc-result-summary").textContent = t("result_empty");
-  byId("proc-result-types").textContent = "-";
-  byId("proc-result-files").classList.remove("action-list");
-  byId("proc-result-files").innerHTML = "<li>-</li>";
-  byId("proc-result-quality").innerHTML = "<li>-</li>";
-  byId("proc-result-skipped-wrap").classList.add("hidden");
-  byId("proc-result-skipped").innerHTML = "";
-  byId("proc-result-error-wrap").classList.add("hidden");
-  byId("proc-result-error").textContent = "-";
+  latestProcessResult = null;
+  applyProcessResultState(processResultPage.renderPlaceholder(processResultContext()));
 }
 
 function renderProcessResult(result) {
-  hasProcessResult = true;
-  const panel = byId("proc-result-panel");
-  const summaryEl = byId("proc-result-summary");
-  const typesEl = byId("proc-result-types");
-  const filesEl = byId("proc-result-files");
-  const qualityEl = byId("proc-result-quality");
-  const errWrap = byId("proc-result-error-wrap");
-  const errText = byId("proc-result-error");
-
-  panel.classList.remove("hidden");
-  errWrap.classList.add("hidden");
-  errText.textContent = "-";
-
-  const summary = (result && result.summary) || t("result_empty");
-  summaryEl.textContent = summary;
-
-  const dataTypes = Array.isArray(result && result.data_types)
-    ? result.data_types
-    : result && result.data_type
-      ? [String(result.data_type)]
-      : [];
-  typesEl.textContent = dataTypes.length ? dataTypes.join(", ") : "-";
-
-  const files = ((result && result.processing) || {}).output_files || [];
-  if (Array.isArray(files) && files.length) {
-    filesEl.classList.add("action-list");
-    filesEl.innerHTML = files
-      .map((f) => {
-        const pathText = String(f || "").trim();
-        const fileName = pathText.split(/[\\/]/).pop() || pathText;
-        return `
-          <li class="output-file-item proc-output-file-item">
-            <div class="name">${escapeHtml(fileName)}</div>
-            <div class="path">${escapeHtml(pathText)}</div>
-            <div class="file-actions">
-              <button class="btn mini" type="button" data-copy-path="${escapeHtml(pathText)}">${escapeHtml(t("btn_copy_path"))}</button>
-              <button class="btn mini" type="button" data-open-path="${escapeHtml(pathText)}">${escapeHtml(t("btn_open_file"))}</button>
-              <button class="btn mini" type="button" data-open-dir="${escapeHtml(pathText)}">${escapeHtml(t("btn_open_dir"))}</button>
-            </div>
-          </li>
-        `;
-      })
-      .join("");
-    bindProjectFileActions(filesEl);
-  } else {
-    filesEl.classList.remove("action-list");
-    filesEl.innerHTML = "<li>-</li>";
-  }
-
-  const quality = (result && result.quality_summary) || {};
-  const qItems = [];
-  const consumed = new Set();
-  const processing = (result && result.processing) || {};
-  if (processing.matched_files !== undefined) qItems.push(`${t("result_matched_files")}: ${processing.matched_files}`);
-  if (processing.generated_files !== undefined) qItems.push(`${t("result_generated_files")}: ${processing.generated_files}`);
-  if (processing.skipped_files !== undefined) qItems.push(`${t("result_skipped_count")}: ${processing.skipped_files}`);
-  if (processing.output_dir) qItems.push(`${t("result_output_dir")}: ${processing.output_dir}`);
-  if (quality.total_files !== undefined) qItems.push(`${t("result_quality_total")}: ${quality.total_files}`);
-  if (quality.total_files !== undefined) consumed.add("total_files");
-  if (quality.passed !== undefined) qItems.push(`${t("result_quality_passed")}: ${quality.passed}`);
-  if (quality.passed !== undefined) consumed.add("passed");
-  if (quality.failed !== undefined) qItems.push(`${t("result_quality_failed")}: ${quality.failed}`);
-  if (quality.failed !== undefined) consumed.add("failed");
-  if (quality.warnings !== undefined) qItems.push(`${t("result_quality_warnings")}: ${quality.warnings}`);
-  if (quality.warnings !== undefined) consumed.add("warnings");
-  const skippedCount = Array.isArray(result && result.skipped_errors) ? result.skipped_errors.length : (quality.skipped || 0);
-  if (skippedCount > 0) {
-    qItems.push(`${t("result_skipped_count")}: ${skippedCount}`);
-    consumed.add("skipped");
-  }
-  Object.keys(quality || {}).forEach((key) => {
-    if (consumed.has(key)) return;
-    const val = quality[key];
-    if (val === undefined || val === null) return;
-    const text = typeof val === "object" ? JSON.stringify(val) : String(val);
-    qItems.push(`${key}: ${text}`);
-  });
-  qualityEl.innerHTML = qItems.length ? qItems.map((it) => `<li>${escapeHtml(it)}</li>`).join("") : "<li>-</li>";
-
-  // ── skipped errors ──
-  const skippedWrap = byId("proc-result-skipped-wrap");
-  const skippedEl = byId("proc-result-skipped");
-  const skipped = (result && result.skipped_errors) || [];
-  if (Array.isArray(skipped) && skipped.length) {
-    skippedWrap.classList.remove("hidden");
-    skippedEl.innerHTML = skipped
-      .map((item) => {
-        const fileName = String(item.file || "").split(/[\\/]/).pop() || String(item.file || "");
-        const errType = escapeHtml(item.type || "");
-        const errMsg = escapeHtml(item.error || "");
-        return `<li class="skipped-item"><span class="skipped-type">[${errType}]</span> <strong>${escapeHtml(fileName)}</strong><span class="skipped-msg">${errMsg}</span></li>`;
-      })
-      .join("");
-  } else {
-    skippedWrap.classList.add("hidden");
-    skippedEl.innerHTML = "";
-  }
+  latestProcessResult = result && typeof result === "object" ? result : null;
+  applyProcessResultState(processResultPage.renderResult(processResultContext(), result));
 }
 
 function renderProcessError(message) {
-  hasProcessResult = true;
-  const panel = byId("proc-result-panel");
-  const summaryEl = byId("proc-result-summary");
-  const typesEl = byId("proc-result-types");
-  const filesEl = byId("proc-result-files");
-  const qualityEl = byId("proc-result-quality");
-  const errWrap = byId("proc-result-error-wrap");
-  const errText = byId("proc-result-error");
-
-  panel.classList.remove("hidden");
-  summaryEl.textContent = t("proc_failed");
-  typesEl.textContent = "-";
-  filesEl.classList.remove("action-list");
-  filesEl.innerHTML = "<li>-</li>";
-  qualityEl.innerHTML = "<li>-</li>";
-  byId("proc-result-skipped-wrap").classList.add("hidden");
-  byId("proc-result-skipped").innerHTML = "";
-  errWrap.classList.remove("hidden");
-  errText.textContent = message || t("proc_failed");
+  latestProcessResult = { summary: String(message || ""), error: String(message || "") };
+  applyProcessResultState(processResultPage.renderError(processResultContext(), message));
 }
 
 function setSystemStatus(state, text, version) {
+  if (state === "ok" && window.ElectrochemDesktop && window.ElectrochemDesktop.isEnabled()) text = currentLang === "en" ? "Desktop app ready" : "本机版就绪";
   const btn = byId("sys-status-btn");
   const textEl = byId("sys-status-text");
   const panelHealth = byId("sys-panel-health");
@@ -1163,6 +1532,7 @@ function setSystemStatus(state, text, version) {
 }
 
 function openSystemPanel() {
+  loadStorageSummary();
   byId("sys-panel-mask").classList.remove("hidden");
   byId("sys-panel").classList.remove("hidden");
 }
@@ -1199,7 +1569,7 @@ async function loadHelpDocument(force = false) {
   let lastError = null;
   for (const url of getHelpDocUrls()) {
     try {
-      const resp = await fetch(url);
+      const resp = await apiFetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
       if (text.trim()) {
@@ -1235,90 +1605,191 @@ function closeHelpPanel() {
 }
 
 function openAISettingsPanel() {
-  byId("ai-settings-mask").classList.remove("hidden");
-  byId("ai-settings-panel").classList.remove("hidden");
+  assistantPage.setPanelOpen({ byId, maskId: "ai-settings-mask", open: true, panelId: "ai-settings-panel" });
 }
 
 function closeAISettingsPanel() {
-  byId("ai-settings-mask").classList.add("hidden");
-  byId("ai-settings-panel").classList.add("hidden");
+  assistantPage.setPanelOpen({ byId, maskId: "ai-settings-mask", open: false, panelId: "ai-settings-panel" });
+}
+
+function aiSettingsContext() {
+  return {
+    assistantPage,
+    assistantPrompt,
+    byId,
+    getModelsByProvider: () => llmModelsByProvider,
+    llmApi,
+    setLLMStatus,
+    setModelsByProvider: (models) => {
+      llmModelsByProvider = models && typeof models === "object" ? models : {};
+    },
+    t,
+    textValue,
+  };
 }
 
 function loadPromptSettings() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(PROMPT_STORAGE_KEY) || "null");
-  } catch (_err) {
-    saved = null;
-  }
-  const enabled = saved && typeof saved.enabled === "boolean" ? saved.enabled : true;
-  const template = saved && typeof saved.template === "string" ? saved.template : "analyst";
-  const prefix =
-    saved && typeof saved.prefix === "string" && saved.prefix.trim()
-      ? saved.prefix
-      : PROMPT_TEMPLATES[template] || PROMPT_TEMPLATES.analyst;
-  byId("prompt-enabled").checked = enabled;
-  byId("prompt-template").value = template;
-  byId("prompt-prefix").value = prefix;
+  aiSettingsPage.loadPromptSettings(aiSettingsContext());
 }
 
 function renderPromptTemplateOptions() {
-  const select = byId("prompt-template");
-  if (!select) return;
-  const current = select.value || "analyst";
-  select.innerHTML = "";
-  const options = [
-    { key: "analyst", label: t("prompt_tpl_analyst") },
-    { key: "summary", label: t("prompt_tpl_summary") },
-    { key: "paper", label: t("prompt_tpl_paper") },
-  ];
-  options.forEach((it) => {
-    const op = document.createElement("option");
-    op.value = it.key;
-    op.textContent = it.label;
-    select.appendChild(op);
-  });
-  select.value = options.some((it) => it.key === current) ? current : "analyst";
+  aiSettingsPage.renderPromptTemplateOptions(aiSettingsContext());
 }
 
 function savePromptSettings() {
-  const enabled = Boolean(byId("prompt-enabled").checked);
-  const template = textValue("prompt-template") || "analyst";
-  const prefix = String(byId("prompt-prefix").value || "").trim();
-  localStorage.setItem(
-    PROMPT_STORAGE_KEY,
-    JSON.stringify({
-      enabled,
-      template,
-      prefix,
-    })
-  );
-  if (!prefix && enabled) {
-    byId("prompt-enabled").checked = false;
-    setLLMStatus(t("status_prompt_empty"));
-    return;
-  }
-  setLLMStatus(t("status_prompt_saved"));
+  aiSettingsPage.savePromptSettings(aiSettingsContext());
 }
 
 function applyPromptTemplate() {
-  const template = textValue("prompt-template") || "analyst";
-  const text = PROMPT_TEMPLATES[template] || PROMPT_TEMPLATES.analyst;
-  byId("prompt-prefix").value = text;
-  setLLMStatus(t("status_prompt_applied"));
+  aiSettingsPage.applyPromptTemplate(aiSettingsContext());
 }
 
 function buildPromptedMessage(message) {
-  const raw = String(message || "").trim();
-  const enabled = Boolean(byId("prompt-enabled") && byId("prompt-enabled").checked);
-  const prefix = String((byId("prompt-prefix") && byId("prompt-prefix").value) || "").trim();
-  if (!enabled || !prefix) return raw;
-  if (!raw) return prefix;
-  return `${prefix}\n\n${raw}`;
+  return aiSettingsPage.buildPromptedMessage(aiSettingsContext(), message);
+}
+
+function getActivePromptPrefix() {
+  return aiSettingsPage.getActivePromptPrefix(aiSettingsContext());
+}
+
+function buildProfessionalModeContext() {
+  const dataTypes = getSelectedProcessTypes();
+  let processPayload = { params: {} };
+  let payloadError = "";
+  try {
+    processPayload = collectProcessPayload();
+  } catch (err) {
+    payloadError = err && err.message ? err.message : String(err || "");
+  }
+  const moduleDescriptors = processSchemaClient.moduleList(processParameterSchema);
+  const preflight = latestPreflightScan
+    ? preflightModel.buildSummary(latestPreflightScan, dataTypes, moduleDescriptors)
+    : null;
+  const result = latestProcessResult
+    ? processResultModel.buildResultView(latestProcessResult)
+    : null;
+  const context = assistantContext.build({
+    dataTypes,
+    folderName: textValue("proc-folder"),
+    payloadError,
+    preflight,
+    preflightState: processPreflightState,
+    processPayload,
+    projectName: textValue("proc-project"),
+    result,
+    resultState: processRunState,
+    sourceItems: processSourceItems,
+    templateName: appliedProcessTemplateName,
+  });
+  const inProjects = byId("tab-project").classList.contains("active");
+  const selectedKeys = inProjects && projectWorkbench ? projectWorkbench.selectedKeys() : [];
+  const detailKey = inProjects ? selectedProjectHistoryKey : selectedHistoryKey;
+  const keys = selectedKeys.length ? selectedKeys : detailKey ? [detailKey] : [];
+  const selectedRecord = inProjects && projectDetailState ? (projectDetailState.history || []).find((item) => historyRecordKey(item) === detailKey) : historyRecords.find((item) => historyRecordKey(item) === detailKey);
+  const lastRun = latestProcessResult && latestProcessResult.manifest && latestProcessResult.manifest.run;
+  const processProject = projectItems.concat(activeProjectItems).find((item) => item.name === textValue("proc-project"));
+  context.action_context = {
+    project_id: inProjects ? selectedProjectId || null : processPayload.project_id || (processProject && processProject.id) || (selectedRecord && selectedRecord.project_id) || null,
+    record_keys: keys,
+    run_id: selectedRecord && selectedRecord.run_id || (!inProjects && lastRun && lastRun.run_id) || null,
+  };
+  return context;
+}
+
+async function buildAssistantActionContext() {
+  const context = buildProfessionalModeContext();
+  let payload;
+  try { payload = collectProcessPayload(); }
+  catch (_error) { payload = { folder_path: textValue("proc-folder"), input_files: processSourceItems, parameters: context.parameters }; }
+  const source = JSON.stringify({ folder_path: payload.folder_path, input_files: payload.input_files, params: payload.params || payload.parameters, data_types: context.data_types, project_id: context.action_context.project_id });
+  if (window.crypto && window.crypto.subtle) {
+    const sha256 = async (value) => {
+      const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    };
+    const inputs = Array.isArray(payload.input_files) ? payload.input_files : processSourceItems;
+    const paths = inputs.filter((item) => item && item.enabled !== false && (!item.data_type || context.data_types.includes(item.data_type)))
+      .map((item) => assistantContext.canonicalInputPath(typeof item === "string" ? item : item.path)).filter(Boolean);
+    const [signature, pathSignatures] = await Promise.all([sha256(source), Promise.all([...new Set(paths)].map(sha256))]);
+    context.action_context.parameter_signature = signature;
+    context.action_context.input_path_signatures = pathSignatures.sort();
+  } else {
+    // A page-local opaque token fails closed after reload in older webviews.
+    if (!assistantSourceTokens.has(source)) assistantSourceTokens.set(source, `${Date.now()}-${Math.random()}-${assistantSourceTokens.size}`);
+    context.action_context.parameter_signature = assistantSourceTokens.get(source);
+    context.action_context.input_path_signatures = [];
+  }
+  return context;
+}
+
+function refreshAssistantContextPreview() {
+  const summaryEl = byId("assistant-context-summary");
+  const previewEl = byId("assistant-context-preview");
+  assistantContextSnapshot = buildProfessionalModeContext();
+  if (summaryEl) summaryEl.textContent = assistantContext.summary(assistantContextSnapshot, t);
+  if (previewEl) previewEl.textContent = JSON.stringify(assistantContextSnapshot, null, 2);
+  return assistantContextSnapshot;
+}
+
+function setAssistantDrawerOpen(open) {
+  const drawer = byId("assistant-drawer");
+  const fab = byId("assistant-fab");
+  if (!drawer) return;
+  drawer.classList.toggle("hidden", !open);
+  drawer.setAttribute("aria-hidden", open ? "false" : "true");
+  if (fab) fab.setAttribute("aria-expanded", open ? "true" : "false");
+  if (window.ElectrochemDesktop) window.ElectrochemDesktop.changed();
+  if (open) {
+    refreshAssistantContextPreview();
+    window.setTimeout(() => {
+      const input = byId("msg-input");
+      if (input) input.focus();
+    }, 0);
+  }
+}
+
+function openAssistantDrawer() {
+  setAssistantDrawerOpen(true);
+}
+
+function closeAssistantDrawer() {
+  setAssistantDrawerOpen(false);
+}
+
+function toggleAssistantHistory() {
+  const panel = byId("assistant-conversation-panel");
+  const button = byId("assistant-history-toggle");
+  if (!panel) return;
+  const open = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function prepareProfessionalAdvicePrompt() {
+  openAssistantDrawer();
+  refreshAssistantContextPreview();
+  const input = byId("msg-input");
+  if (!input) return;
+  input.value = t("assistant_context_suggest_prompt");
+  input.focus();
+  setSendStatus(t("assistant_context_prompt_ready"));
+}
+
+function prepareDatabaseAdvicePrompt() {
+  openAssistantDrawer();
+  const input = byId("msg-input");
+  if (!input) return;
+  input.value = t("assistant_database_suggest_prompt");
+  input.focus();
+  setSendStatus(t("assistant_context_prompt_ready"));
 }
 
 function switchTab(tabName) {
-  const tabs = ["pro", "ai", "project"];
+  if (tabName === "ai") {
+    openAssistantDrawer();
+    return;
+  }
+  const tabs = ["pro", "project"];
   tabs.forEach((name) => {
     const active = tabName === name;
     const btn = byId(`tab-btn-${name}`);
@@ -1326,42 +1797,55 @@ function switchTab(tabName) {
     if (btn) btn.classList.toggle("active", active);
     if (panel) panel.classList.toggle("active", active);
   });
+  document.querySelectorAll(".side-mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.sideTab === tabName);
+  });
+  if (tabName === "pro") {
+    requestProcessScrollSpyUpdate();
+  }
+  if (window.ElectrochemDesktop) window.ElectrochemDesktop.changed();
 }
 
 function renderMessages(messages) {
-  const log = byId("chat-log");
-  removeTypingIndicator();
-  if (!Array.isArray(messages) || messages.length === 0) {
-    log.innerHTML = `<div class="placeholder">${t("chat_no_messages")}</div>`;
-    return;
-  }
-  log.innerHTML = messages
-    .map((m) => {
-      const role = m.role === "agent" ? "agent" : "user";
-      return renderMessageItem(role, m.content || "", m.timestamp || "");
-    })
-    .join("");
-  log.scrollTop = log.scrollHeight;
+  assistantPage.renderMessages({
+    byId,
+    escapeHtml,
+    lang: currentLang,
+    messages,
+    renderAgentContent: renderMarkdownContent,
+    renderUserContent: renderPlainText,
+    t,
+  });
+}
+
+function startNewConversation() {
+  currentConversationId = null;
+  conversationViewRevision += 1;
+  conversationLoadRequestId += 1;
+  conversationAutoSelect = false;
+  byId("conv-title").textContent = t("conv_new");
+  byId("conv-meta").textContent = t("conv_new_hint");
+  renderMessages([]);
+  renderConversations(conversationItems);
+  setSendStatus(t("conv_new"));
+}
+
+function isAgentRequestVisible(request) {
+  return conversationViewRevision === request.viewRevision
+    || Boolean(request.conversationId && currentConversationId === request.conversationId);
 }
 
 async function deleteConversation(conversationId) {
   if (!conversationId) return;
   setSendStatus(t("status_delete_running"));
   try {
-    const resp = await fetch(`/api/v1/agent/conversations/${conversationId}/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    const resp = await assistantApi.deleteConversation(conversationId);
     const data = await resp.json();
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || t("status_delete_failed"));
     }
     if (conversationId === currentConversationId) {
-      currentConversationId = null;
-      byId("conv-title").textContent = t("conv_new");
-      byId("conv-meta").textContent = t("conv_new_hint");
-      renderMessages([]);
+      startNewConversation();
     }
     await loadConversations();
     setSendStatus(t("status_delete_success"));
@@ -1381,11 +1865,7 @@ async function renameConversation(conversationId, nextTitleInput) {
   }
   setSendStatus(t("status_rename_running"));
   try {
-    const resp = await fetch(`/api/v1/agent/conversations/${conversationId}/rename`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
+    const resp = await assistantApi.renameConversation(conversationId, title);
     const data = await resp.json();
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || t("status_rename_failed"));
@@ -1407,108 +1887,34 @@ function renderConversations(items) {
   if (renamingConversationId && !conversationItems.some((it) => it.conversation_id === renamingConversationId)) {
     renamingConversationId = null;
   }
-  if (conversationItems.length === 0) {
-    listEl.innerHTML = `<div class="placeholder">${t("chat_no_conversations")}</div>`;
-    return;
-  }
-
-  listEl.innerHTML = conversationItems
-    .map((it) => {
-      const active = it.conversation_id === currentConversationId ? "active" : "";
-      const title = it.title || t("conv_rename_default");
-      const editing = it.conversation_id === renamingConversationId;
-      return `
-        <div class="conv-item ${active}" data-id="${it.conversation_id}">
-          <div class="conv-actions">
-            ${
-              editing
-                ? `
-                  <button class="conv-save" data-save="${it.conversation_id}" title="${escapeHtml(t("btn_save"))}">${escapeHtml(t("btn_save"))}</button>
-                  <button class="conv-cancel" data-cancel="${it.conversation_id}" title="${escapeHtml(t("btn_close"))}">${escapeHtml(t("btn_close"))}</button>
-                `
-                : `
-                  <button class="conv-rename" data-rename="${it.conversation_id}" title="${escapeHtml(t("conv_rename_action"))}">${escapeHtml(t("conv_rename_action"))}</button>
-                  <button class="conv-del" data-del="${it.conversation_id}" title="${escapeHtml(t("conv_delete_action"))}">${escapeHtml(t("conv_delete_action"))}</button>
-                `
-            }
-          </div>
-          ${
-            editing
-              ? `<input class="conv-title-input" data-rename-input="${it.conversation_id}" value="${escapeHtml(title)}" maxlength="80">`
-              : `<div class="title">${escapeHtml(title)}</div>`
-          }
-          <div class="meta">${escapeHtml(it.provider || "-")} | ${escapeHtml(it.updated_at || "")}</div>
-        </div>
-      `;
-    })
-    .join("");
-
-  listEl.querySelectorAll(".conv-item").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      if (e.target.closest(".conv-actions") || e.target.closest(".conv-title-input")) return;
-      openConversation(el.dataset.id);
-    });
-  });
-
-  listEl.querySelectorAll(".conv-del").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      deleteConversation(btn.dataset.del);
-    });
-  });
-
-  listEl.querySelectorAll(".conv-rename").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      renamingConversationId = btn.dataset.rename;
-      renderConversations(conversationItems);
-      const input = listEl.querySelector(`.conv-title-input[data-rename-input="${renamingConversationId}"]`);
-      if (input) {
-        input.focus();
-        try {
-          input.setSelectionRange(0, input.value.length);
-        } catch (_err) {}
-      }
-    });
-  });
-
-  listEl.querySelectorAll(".conv-save").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const cid = btn.dataset.save;
-      const input = listEl.querySelector(`.conv-title-input[data-rename-input="${cid}"]`);
-      renameConversation(cid, input ? input.value : "");
-    });
-  });
-
-  listEl.querySelectorAll(".conv-cancel").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      renamingConversationId = null;
-      renderConversations(conversationItems);
-    });
-  });
-
-  listEl.querySelectorAll(".conv-title-input").forEach((input) => {
-    input.addEventListener("click", (e) => e.stopPropagation());
-    input.addEventListener("keydown", (e) => {
-      const cid = input.getAttribute("data-rename-input") || "";
-      if (e.key === "Enter") {
-        e.preventDefault();
-        renameConversation(cid, input.value);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
+  assistantPage.renderConversations({
+    callbacks: {
+      cancelRename: () => {
         renamingConversationId = null;
         renderConversations(conversationItems);
-      }
-    });
+      },
+      delete: deleteConversation,
+      open: openConversation,
+      saveRename: renameConversation,
+      startRename: (conversationId) => {
+        renamingConversationId = conversationId;
+        renderConversations(conversationItems);
+        assistantPage.focusRenameInput(listEl, renamingConversationId);
+      },
+    },
+    currentConversationId,
+    escapeHtml,
+    items: conversationItems,
+    listEl,
+    renamingConversationId,
+    t,
   });
 }
 
 async function fetchHealth() {
   setSystemStatus("pending", t("health_checking"), "-");
   try {
-    const resp = await fetch("/health");
+    const resp = await systemApi.health();
     const data = await resp.json();
     if (resp.ok && data.status === "ok") {
       setSystemStatus("ok", t("health_online"), data.version || "unknown");
@@ -1521,150 +1927,39 @@ async function fetchHealth() {
 }
 
 function listLLMProviders() {
-  return Object.keys(llmModelsByProvider || {}).filter((k) => {
-    const v = llmModelsByProvider[k];
-    return v && typeof v === "object";
-  });
+  return aiSettingsPage.listLLMProviders(aiSettingsContext());
 }
 
 function updateLLMKeyHint(provider) {
-  const hintEl = byId("llm-key-hint");
-  if (!hintEl) return;
-  const entry = (provider && llmModelsByProvider[provider]) || {};
-  hintEl.textContent = entry && entry.has_api_key ? t("llm_key_configured") : t("llm_key_missing");
+  aiSettingsPage.updateLLMKeyHint(aiSettingsContext(), provider);
 }
 
 function applyLLMProviderPreset(provider) {
-  const entry = (provider && llmModelsByProvider[provider]) || {};
-  if (Object.keys(entry).length === 0) {
-    updateLLMKeyHint(provider);
-    return;
-  }
-  if (byId("llm-model")) byId("llm-model").value = String(entry.model || "");
-  if (byId("llm-base-url")) byId("llm-base-url").value = String(entry.base_url || "");
-  if (byId("llm-timeout")) byId("llm-timeout").value = entry.timeout !== undefined ? String(entry.timeout) : "";
-  updateLLMKeyHint(provider);
+  aiSettingsPage.applyLLMProviderPreset(aiSettingsContext(), provider);
 }
 
 function renderLLMProviders(defaultProvider) {
-  const select = byId("llm-provider");
-  if (!select) return;
-  const providers = listLLMProviders();
-  const previous = select.value;
-  if (!providers.length) {
-    select.innerHTML = '<option value="">-</option>';
-    select.value = "";
-    applyLLMProviderPreset("");
-    return;
-  }
-  select.innerHTML = "";
-  providers.forEach((p) => {
-    const op = document.createElement("option");
-    op.value = p;
-    op.textContent = p;
-    select.appendChild(op);
-  });
-  const pick = providers.includes(previous)
-    ? previous
-    : providers.includes(defaultProvider)
-      ? defaultProvider
-      : providers[0];
-  select.value = pick;
-  applyLLMProviderPreset(pick);
+  aiSettingsPage.renderLLMProviders(aiSettingsContext(), defaultProvider);
 }
 
 async function loadLLMConfig() {
-  setLLMStatus(t("status_llm_loading"));
-  try {
-    const resp = await fetch("/api/v1/llm/config");
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("status_llm_load_failed"));
-    }
-    llmModelsByProvider = data.models || {};
-    renderLLMProviders(data.default_provider || "");
-    setLLMStatus(t("status_llm_loaded"));
-  } catch (err) {
-    setLLMStatus(`${t("status_llm_load_failed")}: ${err.message}`);
-  }
+  await aiSettingsPage.loadLLMConfig(aiSettingsContext());
+}
+
+function buildLLMConfigPayload(options = {}) {
+  return aiSettingsPage.buildLLMConfigPayload(aiSettingsContext(), options);
 }
 
 async function saveLLMConfig() {
-  const provider = textValue("llm-provider");
-  if (!provider) {
-    setLLMStatus(t("status_llm_provider_required"));
-    return;
-  }
-  const payload = { provider };
-  let hasChanges = false;
+  await aiSettingsPage.saveLLMConfig(aiSettingsContext());
+}
 
-  const model = textValue("llm-model");
-  if (model) {
-    payload.model = model;
-    hasChanges = true;
-  }
-
-  const baseUrl = textValue("llm-base-url");
-  if (baseUrl) {
-    payload.base_url = baseUrl;
-    hasChanges = true;
-  }
-
-  const timeoutRaw = textValue("llm-timeout");
-  if (timeoutRaw) {
-    const timeout = Number.parseInt(timeoutRaw, 10);
-    if (!Number.isInteger(timeout) || timeout <= 0) {
-      setLLMStatus(t("status_llm_timeout_invalid"));
-      return;
-    }
-    payload.timeout = timeout;
-    hasChanges = true;
-  }
-
-  const apiKey = textValue("llm-api-key");
-  if (apiKey) {
-    payload.api_key = apiKey;
-    hasChanges = true;
-  }
-
-  if (!hasChanges) {
-    setLLMStatus(t("status_llm_no_changes"));
-    return;
-  }
-
-  setLLMStatus(t("status_llm_save_running"));
-  try {
-    const resp = await fetch("/api/v1/llm/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("status_llm_save_failed"));
-    }
-    const current = llmModelsByProvider[provider] || {};
-    const nextCfg = data.config || {};
-    llmModelsByProvider[provider] = { ...current, ...nextCfg };
-    if (apiKey) {
-      llmModelsByProvider[provider].has_api_key = true;
-      byId("llm-api-key").value = "";
-    }
-    renderLLMProviders(provider);
-    setLLMStatus(t("status_llm_save_success"));
-  } catch (err) {
-    setLLMStatus(`${t("status_llm_save_failed")}: ${err.message}`);
-  }
+async function testLLMConnection() {
+  await aiSettingsPage.testLLMConnection(aiSettingsContext());
 }
 
 function buildConversationListUrl() {
-  const query = new URLSearchParams();
-  query.set("page", "1");
-  query.set("page_size", "30");
-  if (currentConversationKeyword) {
-    query.set("keyword", currentConversationKeyword);
-  }
-  return `/api/v1/agent/conversations?${query.toString()}`;
+  return assistantApi.conversationListUrl({ keyword: currentConversationKeyword, page: 1, pageSize: 30 });
 }
 
 function applyConversationFilter() {
@@ -1678,686 +1973,465 @@ function clearConversationFilter() {
   loadConversations();
 }
 
-async function loadConversations() {
-  setSendStatus(t("status_loading_conversations"));
+async function loadConversations(options = {}) {
+  const silent = Boolean(options.silent);
+  const requestId = ++conversationListRequestId;
+  const viewRevision = conversationViewRevision;
+  if (!silent) setSendStatus(t("status_loading_conversations"));
   try {
-    const resp = await fetch(buildConversationListUrl());
+    const resp = await assistantApi.listConversations({ keyword: currentConversationKeyword, page: 1, pageSize: 30 });
     const data = await resp.json();
+    if (requestId !== conversationListRequestId) return;
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || t("status_load_failed"));
     }
     const items = data.items || [];
     renderConversations(items);
-    if (!currentConversationId && items.length > 0) {
+    if (conversationAutoSelect && conversationViewRevision === viewRevision && !currentConversationId && items.length > 0) {
       await openConversation(items[0].conversation_id, true);
-    } else if (currentConversationId) {
-      const exists = items.some((i) => i.conversation_id === currentConversationId);
-      if (!exists) currentConversationId = null;
     }
-    setSendStatus("");
+    if (!silent && requestId === conversationListRequestId) setSendStatus("");
   } catch (err) {
-    setSendStatus(`${t("status_load_failed")}: ${err.message}`);
+    if (!silent && requestId === conversationListRequestId) setSendStatus(`${t("status_load_failed")}: ${err.message}`);
   }
 }
 
 async function openConversation(conversationId, skipListReload = false) {
   if (!conversationId) return;
-  currentConversationId = conversationId;
-  const resp = await fetch(`/api/v1/agent/conversations/${conversationId}`);
-  const data = await resp.json();
-  if (!resp.ok || data.status !== "success") {
-    setSendStatus(data.message || t("status_load_failed"));
-    return;
+  const requestId = ++conversationLoadRequestId;
+  conversationAutoSelect = false;
+  if (currentConversationId !== conversationId) {
+    conversationViewRevision += 1;
+    byId("conv-title").textContent = t("status_loading_conversations");
+    byId("conv-meta").textContent = `ID: ${conversationId}`;
+    renderMessages([]);
   }
-  const conv = data.conversation || {};
-  byId("conv-title").textContent = conv.title || conv.project_name || t("conv_rename_default");
-  byId("conv-meta").textContent = `ID: ${conv.conversation_id || "-"} | ${conv.provider || "-"}`;
-  renderMessages(conv.messages || []);
+  currentConversationId = conversationId;
+  if (window.ElectrochemDesktop) window.ElectrochemDesktop.changed();
+  renderConversations(conversationItems);
+  try {
+    const resp = await assistantApi.getConversation(conversationId);
+    const data = await resp.json();
+    if (requestId !== conversationLoadRequestId || currentConversationId !== conversationId) return;
+    if (!resp.ok || data.status !== "success") {
+      throw new Error(data.message || t("status_load_failed"));
+    }
+    const conv = data.conversation || {};
+    byId("conv-title").textContent = conv.title || conv.project_name || t("conv_rename_default");
+    byId("conv-meta").textContent = `ID: ${conv.conversation_id || "-"} | ${conv.provider || "-"}`;
+    renderMessages(conv.messages || []);
 
-  if (!skipListReload) {
-    await loadConversations();
+    if (!skipListReload) {
+      await loadConversations({ silent: true });
+    }
+    return true;
+  } catch (err) {
+    if (requestId === conversationLoadRequestId && currentConversationId === conversationId) {
+      setSendStatus(`${t("status_load_failed")}: ${err.message}`);
+    }
+    return false;
   }
 }
 
+async function waitForAgentJob(jobId, sendBtn, options = {}) {
+  activeAgentJobId = jobId;
+  const cancellable = options.cancellable !== false;
+  if (sendBtn) {
+    sendBtn.disabled = !cancellable;
+    sendBtn.dataset.agentCancellable = cancellable ? "true" : "false";
+    sendBtn.textContent = t(cancellable ? "btn_cancel_ai" : "btn_confirmed_action_running");
+  }
+  while (activeAgentJobId === jobId) {
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    if (activeAgentJobId !== jobId) break;
+    const jobResp = await assistantApi.getMessageJob(jobId);
+    const jobData = await jobResp.json();
+    if (activeAgentJobId !== jobId) break;
+    if (!jobResp.ok || jobData.status !== "success") {
+      throw new Error(jobData.message || t("status_send_failed"));
+    }
+    const job = jobData.job || {};
+    if (["queued", "running"].includes(job.status)) {
+      const progressText = job.current_item ? `: ${job.current_item}` : "";
+      setSendStatus(`${t("status_waiting_reply")}${progressText}`);
+      continue;
+    }
+    activeAgentJobId = null;
+    if (job.status === "cancelled") throw new Error(t("status_ai_cancelled"));
+    if (job.status !== "succeeded") throw new Error(job.error || t("status_send_failed"));
+    return job.result || {};
+  }
+  throw new Error(t("status_ai_cancelled"));
+}
+
 async function sendMessage() {
+  if (window.ElectrochemDesktop && window.ElectrochemDesktop.isLocked()) return;
   const msgEl = byId("msg-input");
-  const fileEl = byId("zip-file");
-  const projectEl = byId("project-name");
-  const dataTypeEl = byId("data-type");
   const sendBtn = byId("send-btn");
   const provider = textValue("llm-provider");
   const model = textValue("llm-model");
 
-  if (sendBtn && sendBtn.disabled) return;
+  if (activeAgentJobId) {
+    const cancellingJobId = activeAgentJobId;
+    if (sendBtn && sendBtn.dataset.agentCancellable === "false") {
+      setSendStatus(t("status_confirmed_action_not_cancellable"));
+      return;
+    }
+    try {
+      const cancelResponse = await assistantApi.cancelMessageJob(cancellingJobId);
+      const cancelData = await cancelResponse.json();
+      if (activeAgentJobId !== cancellingJobId) return;
+      if (!cancelResponse.ok || cancelData.status !== "success") {
+        throw new Error(cancelData.message || t("status_send_failed"));
+      }
+      setSendStatus(t("status_ai_cancelling"));
+    } catch (err) {
+      if (activeAgentJobId === cancellingJobId) setSendStatus(`${t("status_send_failed")}: ${err.message}`);
+    }
+    return;
+  }
+  if (activeAgentRequest || (sendBtn && sendBtn.disabled)) return;
 
+  const approvalDecision = pendingAssistantApprovalDecision;
   const message = (msgEl.value || "").trim();
-  const promptedMessage = buildPromptedMessage(message);
-  const file = fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+  const promptPrefix = getActivePromptPrefix();
+  refreshAssistantContextPreview();
 
-  if (!promptedMessage && !file) {
+  if (!message && !approvalDecision) {
     setSendStatus(t("status_send_empty"));
     return;
   }
 
-  if (file && !file.name.toLowerCase().endsWith(".zip")) {
-    setSendStatus(t("status_zip_only"));
-    return;
-  }
-
-  const localText = message || `${t("msg_zip_attached")}: ${file ? file.name : "-"}`;
-  appendLocalMessage("user", localText);
+  const request = {
+    conversationId: currentConversationId,
+    viewRevision: conversationViewRevision,
+  };
+  activeAgentRequest = request;
+  conversationAutoSelect = false;
+  appendLocalMessage("user", message);
   showTypingIndicator();
   setSendStatus(t("status_waiting_reply"));
   if (sendBtn) sendBtn.disabled = true;
   msgEl.value = "";
-  fileEl.value = "";
 
   try {
-    let resp;
-    if (file) {
-      const fd = new FormData();
-      if (promptedMessage) fd.append("message", promptedMessage);
-      fd.append("file", file);
-      if (currentConversationId) fd.append("conversation_id", currentConversationId);
-      if (projectEl.value.trim()) fd.append("project_name", projectEl.value.trim());
-      if (dataTypeEl.value) fd.append("data_type", dataTypeEl.value);
-      if (provider) fd.append("provider", provider);
-      if (model) fd.append("model", model);
-      resp = await fetch("/api/v1/agent/messages", { method: "POST", body: fd });
-    } else {
-      resp = await fetch("/api/v1/agent/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: promptedMessage,
-          conversation_id: currentConversationId,
-          project_name: projectEl.value.trim() || undefined,
-          data_type: dataTypeEl.value || undefined,
-          provider: provider || undefined,
-          model: model || undefined,
-        }),
-      });
+    const professionalContext = await buildAssistantActionContext();
+    const submitResp = await assistantApi.submitMessageJob({
+      message,
+      prompt_prefix: promptPrefix || undefined,
+      professional_context: professionalContext || undefined,
+      approval_id: approvalDecision ? approvalDecision.approvalId : undefined,
+      approval_action: approvalDecision ? approvalDecision.action : undefined,
+      conversation_id: request.conversationId,
+      provider: provider || undefined,
+      model: model || undefined,
+    });
+    const submitData = await submitResp.json();
+    if (!submitResp.ok || submitData.status !== "success" || !submitData.job_id) {
+      throw new Error(submitData.message || t("status_send_failed"));
     }
-
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
+    const data = await waitForAgentJob(submitData.job_id, sendBtn, {
+      cancellable: !(approvalDecision && approvalDecision.action === "approve"),
+    });
+    if (data.status !== "success") {
       throw new Error(data.message || t("status_send_failed"));
     }
 
-    currentConversationId = data.conversation_id || currentConversationId;
     const conv = data.conversation || null;
-
-    if (conv) {
-      byId("conv-title").textContent = conv.title || conv.project_name || t("conv_rename_default");
-      byId("conv-meta").textContent = `ID: ${conv.conversation_id || "-"} | ${conv.provider || "-"}`;
-      renderMessages(conv.messages || []);
-    } else if (Array.isArray(data.messages)) {
-      renderMessages(data.messages);
-    } else {
-      removeTypingIndicator();
+    if (isAgentRequestVisible(request)) {
+      const resultConversationId = data.conversation_id || request.conversationId;
+      if (currentConversationId !== resultConversationId) conversationViewRevision += 1;
+      currentConversationId = resultConversationId;
+      conversationLoadRequestId += 1;
+      if (conv) {
+        byId("conv-title").textContent = conv.title || conv.project_name || t("conv_rename_default");
+        byId("conv-meta").textContent = `ID: ${conv.conversation_id || "-"} | ${conv.provider || "-"}`;
+        renderMessages(conv.messages || []);
+      } else if (Array.isArray(data.messages)) {
+        renderMessages(data.messages);
+      } else if (currentConversationId) {
+        await openConversation(currentConversationId, true);
+      } else {
+        removeTypingIndicator();
+      }
     }
 
     setSendStatus(t("status_send_success"));
     await loadConversations();
   } catch (err) {
     removeTypingIndicator();
+    try {
+      if (isAgentRequestVisible(request)) {
+        if (request.conversationId) await openConversation(request.conversationId, true);
+        else renderMessages([]);
+      }
+    } catch (_syncError) {
+      // Preserve the original send/cancel error below if the resync also fails.
+    }
+    if (approvalDecision) {
+      document.querySelectorAll(`.assistant-approval-btn[data-approval-id="${approvalDecision.approvalId}"]`).forEach((button) => {
+        button.disabled = false;
+      });
+    }
     setSendStatus(`${t("status_send_failed")}: ${err.message}`);
   } finally {
-    if (sendBtn) sendBtn.disabled = false;
+    if (pendingAssistantApprovalDecision === approvalDecision) pendingAssistantApprovalDecision = null;
+    if (activeAgentRequest === request) {
+      activeAgentRequest = null;
+      activeAgentJobId = null;
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        delete sendBtn.dataset.agentCancellable;
+        sendBtn.textContent = t("btn_send");
+      }
+    }
   }
+}
+
+function handleAssistantApprovalClick(event) {
+  const button = event.target.closest(".assistant-approval-btn");
+  if (!button || activeAgentRequest || activeAgentJobId) return;
+  const approvalId = String(button.dataset.approvalId || "").trim();
+  const action = String(button.dataset.approvalAction || "").trim();
+  const summary = String(button.dataset.approvalSummary || t("assistant_approval_unknown")).trim();
+  if (!approvalId || !["approve", "decline"].includes(action)) return;
+  document.querySelectorAll(`.assistant-approval-btn[data-approval-id="${approvalId}"]`).forEach((item) => {
+    item.disabled = true;
+  });
+  pendingAssistantApprovalDecision = { approvalId, action };
+  const key = action === "approve" ? "assistant_approval_approve_message" : "assistant_approval_decline_message";
+  byId("msg-input").value = t(key).replace("{summary}", summary);
+  sendMessage();
 }
 
 function historyRecordKey(record) {
-  if (!record) return "";
-  const file = record.file_path || record.file_name || record.sample_name || "";
-  return `${record.timestamp || ""}|${record.type || ""}|${file}`;
+  return processResultPage.historyRecordKey(record);
 }
 
 function buildResultFromHistoryRecord(record) {
-  const type = String(record.type || "").toUpperCase();
-  const sample = record.sample_name || record.file_name || record.file_path || "-";
-  const results = record && typeof record.results === "object" && record.results ? record.results : {};
-  const quality = {
-    status: record.status || "-",
-    project: record.project_name || "-",
-    timestamp: record.timestamp || "-",
-  };
-  let count = 0;
-  Object.keys(results).forEach((key) => {
-    if (count >= 8) return;
-    const value = results[key];
-    if (typeof value === "object") return;
-    quality[key] = value;
-    count += 1;
-  });
-  const files = Array.isArray(record.output_files) && record.output_files.length
-    ? record.output_files.map((item) => String(item))
-    : record.summary_path
-      ? [String(record.summary_path)]
-      : record.file_path || record.file_name
-        ? [String(record.file_path || record.file_name)]
-        : [];
-  return {
-    summary: `${t("result_from_history")}: ${sample}`,
-    data_type: type || undefined,
-    data_types: type ? [type] : [],
-    processing: { output_files: files },
-    quality_summary: quality,
-  };
+  return processResultPage.buildResultFromHistoryRecord(processResultContext(), record);
 }
 
-function viewHistoryRecord(index) {
+async function viewHistoryRecord(index) {
   const i = Number(index);
   if (!Number.isInteger(i) || i < 0 || i >= historyRecords.length) return;
-  const record = historyRecords[i];
+  let record = historyRecords[i];
   selectedHistoryKey = historyRecordKey(record);
+  processResultPage.setActiveHistoryItem(processResultContext(), selectedHistoryKey);
+  if (record.data === undefined && projectApi && typeof projectApi.historyDetail === "function") {
+    try {
+      const resp = await projectApi.historyDetail(selectedHistoryKey);
+      const payload = await resp.json();
+      if (!resp.ok || payload.status !== "success" || !payload.record) {
+        throw new Error(payload.message || t("status_load_failed"));
+      }
+      record = payload.record;
+      historyRecords[i] = record;
+    } catch (err) {
+      setProcStatus(`${t("status_load_failed")}: ${err.message}`);
+      return;
+    }
+  }
+  if (selectedHistoryKey !== historyRecordKey(record)) return;
   renderProcessResult(buildResultFromHistoryRecord(record));
   setProcStatus(t("status_history_loaded"));
-  byId("history-list").querySelectorAll(".history-item").forEach((el) => {
-    el.classList.toggle("active", el.dataset.key === selectedHistoryKey);
-  });
 }
 
 function renderHistory(records) {
-  const listEl = byId("history-list");
-  historyRecords = Array.isArray(records) ? records : [];
-  if (historyRecords.length === 0) {
-    listEl.innerHTML = `<div class="placeholder">${t("no_history")}</div>`;
-    return;
+  const view = processResultPage.renderHistory(
+    {
+      ...processResultContext(),
+      onSelect: viewHistoryRecord,
+      selectedKey: selectedHistoryKey,
+    },
+    records,
+  );
+  historyRecords = view.records;
+}
+
+function renderHistoryPagination() {
+  const status = byId("history-page-status");
+  const button = byId("history-load-more");
+  if (status) {
+    status.textContent = t("history_page_status")
+      .replace("{loaded}", String(historyRecords.length))
+      .replace("{total}", String(historyTotal));
   }
-  listEl.innerHTML = historyRecords
-    .slice(0, 20)
-    .map((r, idx) => {
-      const key = historyRecordKey(r);
-      const active = key === selectedHistoryKey ? "active" : "";
-      const name = r.sample_name || r.file_name || r.file_path || "unknown";
-      return `
-        <div class="history-item ${active}" data-index="${idx}" data-key="${escapeHtml(key)}">
-          <div class="name">${escapeHtml(name)}</div>
-          <div class="meta">${escapeHtml(r.type || "-")} | ${escapeHtml(r.timestamp || "")}</div>
-        </div>
-      `;
-    })
-    .join("");
-  listEl.querySelectorAll(".history-item").forEach((el) => {
-    el.addEventListener("click", () => viewHistoryRecord(el.dataset.index));
-  });
+  if (button) button.hidden = !historyHasMore;
+}
+
+function renderProjectHistoryPagination(state) {
+  const detail = state && typeof state === "object" ? state : {};
+  const records = Array.isArray(detail.history) ? detail.history : [];
+  const status = byId("project-history-page-status");
+  const button = byId("project-history-load-more");
+  if (status) {
+    status.textContent = t("history_page_status")
+      .replace("{loaded}", String(records.length))
+      .replace("{total}", String(Number(detail.historyTotal || 0)));
+  }
+  if (button) {
+    button.hidden = !detail.historyHasMore;
+    button.disabled = Boolean(detail.historyLoadingMore);
+  }
 }
 
 function renderStats(data) {
-  byId("stat-total").textContent = String(data.total_files || 0);
-  byId("stat-lsv").textContent = String(data.lsv_count || 0);
-  byId("stat-cv").textContent = String(data.cv_count || 0);
-  byId("stat-eis").textContent = String(data.eis_count || 0);
-  byId("stat-ecsa").textContent = String(data.ecsa_count || 0);
+  projectPage.renderStats({ byId, data, prefix: "stat" });
 }
 
 function renderProjectStats(data) {
-  const safe = data && typeof data === "object" ? data : {};
-  byId("project-stat-total").textContent = String(safe.total_files || 0);
-  byId("project-stat-lsv").textContent = String(safe.lsv_count || 0);
-  byId("project-stat-cv").textContent = String(safe.cv_count || 0);
-  byId("project-stat-eis").textContent = String(safe.eis_count || 0);
-  byId("project-stat-ecsa").textContent = String(safe.ecsa_count || 0);
+  projectPage.renderStats({ byId, data, prefix: "project-stat" });
 }
 
 function setProjectEditForm(project) {
-  const saveBtn = byId("project-save-btn");
-  const safe = project && typeof project === "object" ? project : null;
-  if (byId("project-edit-name")) byId("project-edit-name").value = safe ? String(safe.name || "") : "";
-  if (byId("project-edit-color")) byId("project-edit-color").value = safe ? String(safe.color || "") : "";
-  if (byId("project-edit-tags")) {
-    const tags = safe && Array.isArray(safe.tags) ? safe.tags.join(", ") : "";
-    byId("project-edit-tags").value = tags;
-  }
-  if (byId("project-edit-desc")) byId("project-edit-desc").value = safe ? String(safe.description || "") : "";
-  if (saveBtn) saveBtn.disabled = !safe;
+  projectPage.setProjectEditForm({ byId, project });
+  if (projectPreferences) projectPreferences.setEditForm(projectPreferencesContext(), project);
 }
 
 function getSelectedProjectHistoryRecord() {
-  const state = projectDetailState && typeof projectDetailState === "object" ? projectDetailState : {};
-  const history = Array.isArray(state.history) ? state.history : [];
-  return history.find((item) => historyRecordKey(item) === selectedProjectHistoryKey) || null;
+  return projectHistoryWorkspace.getSelectedProjectHistoryRecord(projectHistoryContext());
 }
 
 function renderProjectHistoryDetail(record) {
-  const wrap = byId("project-history-detail");
-  const openBtn = byId("project-open-result-btn");
-  const archiveBtn = byId("project-archive-history-btn");
-  const deleteBtn = byId("project-delete-history-btn");
-  if (!wrap) return;
-  if (!record) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_select_history")}</div>`;
-    if (openBtn) openBtn.disabled = true;
-    if (archiveBtn) archiveBtn.disabled = true;
-    if (deleteBtn) deleteBtn.disabled = true;
-    return;
-  }
-  if (openBtn) openBtn.disabled = false;
-  if (archiveBtn) archiveBtn.disabled = false;
-  if (deleteBtn) deleteBtn.disabled = false;
-  const results = record && typeof record.results === "object" && record.results ? record.results : {};
-  const resultItems = Object.keys(results).length
-    ? Object.keys(results)
-        .map((key) => {
-          const value = results[key];
-          const text = typeof value === "object" ? JSON.stringify(value) : String(value);
-          return `<li><strong>${escapeHtml(String(key))}</strong>: ${escapeHtml(text)}</li>`;
-        })
-        .join("")
-    : "<li>-</li>";
-  const related = [];
-  if (record.file_path) related.push(String(record.file_path));
-  if (record.file_name && record.file_name !== record.file_path) related.push(String(record.file_name));
-  if (record.summary_path) related.push(String(record.summary_path));
-  if (Array.isArray(record.output_files)) {
-    record.output_files.forEach((item) => {
-      const text = String(item || "").trim();
-      if (text) related.push(text);
-    });
-  }
-  const uniqueRelated = Array.from(new Set(related));
-  wrap.innerHTML = `
-    <div class="project-history-meta">
-      <div><strong>${escapeHtml(String(record.sample_name || "-"))}</strong></div>
-      <div>${escapeHtml(String(record.type || "-"))} | ${escapeHtml(String(record.timestamp || "-"))} | ${escapeHtml(
-        String(record.status || "-")
-      )}</div>
-    </div>
-    <div class="project-history-sections">
-      <section class="project-history-subblock">
-        <div class="proc-block-title">${escapeHtml(t("project_related_files"))}</div>
-        <ul class="proc-list">
-          ${uniqueRelated.length ? uniqueRelated.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>-</li>"}
-        </ul>
-      </section>
-      <section class="project-history-subblock">
-        <div class="proc-block-title">${escapeHtml(t("project_result_metrics"))}</div>
-        <ul class="proc-list">${resultItems}</ul>
-      </section>
-    </div>
-  `;
+  projectHistoryWorkspace.renderProjectHistoryDetail(projectHistoryContext(), record);
 }
 
 function selectProjectHistory(index) {
-  const state = projectDetailState && typeof projectDetailState === "object" ? projectDetailState : {};
-  const history = Array.isArray(state.history) ? state.history : [];
-  const i = Number(index);
-  if (!Number.isInteger(i) || i < 0 || i >= history.length) return;
-  const record = history[i];
-  selectedProjectHistoryKey = historyRecordKey(record);
-  renderProjectHistory(history);
-  renderProjectHistoryDetail(record);
+  projectHistoryWorkspace.selectProjectHistory(projectHistoryContext(), index);
 }
 
 function renderProjectHistory(records) {
-  const listEl = byId("project-history-list");
-  if (!listEl) return;
-  const items = Array.isArray(records) ? records : [];
-  if (!items.length) {
-    listEl.innerHTML = `<div class="placeholder">${t("project_no_history")}</div>`;
-    renderProjectHistoryDetail(null);
-    return;
-  }
-  if (!items.some((r) => historyRecordKey(r) === selectedProjectHistoryKey)) {
-    selectedProjectHistoryKey = historyRecordKey(items[0]);
-  }
-  listEl.innerHTML = items
-    .slice(0, 20)
-    .map((r, idx) => {
-      const name = r.sample_name || r.file_name || r.file_path || "unknown";
-      const type = r.type || "-";
-      const time = r.timestamp || "-";
-      const status = r.status || "-";
-      const key = historyRecordKey(r);
-      const active = key === selectedProjectHistoryKey ? "active" : "";
-      return `
-        <div class="history-item ${active}" data-project-history-index="${idx}" data-key="${escapeHtml(key)}">
-          <div class="name">${escapeHtml(name)}</div>
-          <div class="meta">${escapeHtml(type)} | ${escapeHtml(time)} | ${escapeHtml(status)}</div>
-        </div>
-      `;
-    })
-    .join("");
-  listEl.querySelectorAll(".history-item").forEach((el) => {
-    el.addEventListener("click", () => {
-      selectProjectHistory(el.getAttribute("data-project-history-index"));
-    });
-  });
-  const selected = items.find((r) => historyRecordKey(r) === selectedProjectHistoryKey) || items[0];
-  renderProjectHistoryDetail(selected);
+  projectHistoryWorkspace.renderProjectHistory(projectHistoryContext(), records);
 }
 
 function renderProjectLSVSummary(summary) {
-  const wrap = byId("project-lsv-table");
-  if (!wrap) return;
-  const payload = summary && typeof summary === "object" ? summary : {};
-  const samples = Array.isArray(payload.samples) ? payload.samples : [];
-  if (!samples.length) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_no_lsv")}</div>`;
-    return;
-  }
-  wrap.innerHTML = `
-    <table class="lsv-summary-table">
-      <thead>
-        <tr>
-          <th>${escapeHtml(t("project_lsv_col_sample"))}</th>
-          <th>${escapeHtml(t("project_lsv_col_eta"))}</th>
-          <th>${escapeHtml(t("project_lsv_col_tafel"))}</th>
-          <th>${escapeHtml(t("project_lsv_col_count"))}</th>
-          <th>${escapeHtml(t("project_lsv_col_time"))}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${samples
-          .slice(0, 15)
-          .map((it) => {
-            const eta = it.overpotential_10 !== undefined && it.overpotential_10 !== null
-              ? `${formatMetric(it.overpotential_10, 3)} mV`
-              : it.potential_10 !== undefined && it.potential_10 !== null
-                ? `${formatMetric(it.potential_10, 3)} V`
-                : "-";
-            const tafel = formatMetric(it.tafel_slope, 3);
-            const count = it.record_count === undefined || it.record_count === null ? "-" : String(it.record_count);
-            const latest = it.latest_time || "-";
-            return `
-              <tr>
-                <td>${escapeHtml(String(it.sample_name || "-"))}</td>
-                <td>${escapeHtml(eta)}</td>
-                <td>${escapeHtml(tafel)}</td>
-                <td>${escapeHtml(count)}</td>
-                <td>${escapeHtml(String(latest))}</td>
-              </tr>
-            `;
-          })
-          .join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-function getFilteredProjectCompareSamples(summary) {
-  const payload = summary && typeof summary === "object" ? summary : {};
-  let samples = Array.isArray(payload.samples) ? [...payload.samples] : [];
-  if (projectCompareOnlyEta) {
-    samples = samples.filter((it) => it.overpotential_10 !== undefined && it.overpotential_10 !== null);
-  }
-  if (projectCompareOnlyTafel) {
-    samples = samples.filter((it) => it.tafel_slope !== undefined && it.tafel_slope !== null);
-  }
-  if (projectCompareSort === "tafel") {
-    samples.sort((a, b) => {
-      const av = a.tafel_slope ?? Number.POSITIVE_INFINITY;
-      const bv = b.tafel_slope ?? Number.POSITIVE_INFINITY;
-      return av - bv;
-    });
-  } else if (projectCompareSort === "latest") {
-    samples.sort((a, b) => String(b.latest_time || "").localeCompare(String(a.latest_time || "")));
-  } else if (projectCompareSort === "sample") {
-    samples.sort((a, b) => String(a.sample_name || "").localeCompare(String(b.sample_name || "")));
-  } else {
-    samples.sort((a, b) => {
-      const aEta = a.overpotential_10;
-      const bEta = b.overpotential_10;
-      if (aEta !== undefined && aEta !== null && bEta !== undefined && bEta !== null) return aEta - bEta;
-      if (aEta !== undefined && aEta !== null) return -1;
-      if (bEta !== undefined && bEta !== null) return 1;
-      const aPot = a.potential_10 ?? Number.POSITIVE_INFINITY;
-      const bPot = b.potential_10 ?? Number.POSITIVE_INFINITY;
-      return aPot - bPot;
-    });
-  }
-  return samples;
-}
-
-function syncProjectCompareSelection(summary) {
-  const samples = getFilteredProjectCompareSamples(summary);
-  const visibleNames = samples.map((it) => String(it.sample_name || "").trim()).filter(Boolean);
-  if (!visibleNames.length) {
-    projectCompareSelectedSamples = [];
-    projectComparePlotData = null;
-    projectComparePlotLoading = false;
-    return samples;
-  }
-  const visibleSet = new Set(visibleNames);
-  const nextSelected = visibleNames.filter((name) => projectCompareSelectedSamples.includes(name));
-  if (!nextSelected.length) {
-    projectCompareSelectedSamples = visibleNames.slice(0, Math.min(3, visibleNames.length));
-    projectComparePlotData = null;
-  } else {
-    if (nextSelected.length !== projectCompareSelectedSamples.length || projectCompareSelectedSamples.some((name) => !visibleSet.has(name))) {
-      projectComparePlotData = null;
-    }
-    projectCompareSelectedSamples = nextSelected;
-  }
-  return samples;
-}
-
-function renderProjectCompareSelectionCount() {
-  const el = byId("project-compare-selected-count");
-  if (!el) return;
-  const count = projectCompareSelectedSamples.length;
-  el.textContent = count
-    ? t("project_compare_selected_count").replace("{count}", String(count))
-    : t("project_compare_selected_count_empty");
-}
-
-function projectCompareNeedsTargetCurrent() {
-  return projectCompareChartType === "bar" && projectCompareMetric !== "tafel_slope";
-}
-
-function formatProjectCompareTargetCurrentOption(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "";
-  if (Number.isInteger(numeric)) return String(numeric);
-  return String(numeric);
-}
-
-function getProjectCompareAvailableTargetCurrents(metric = projectCompareMetric) {
-  const state = projectCompareTargetCurrents && typeof projectCompareTargetCurrents === "object" ? projectCompareTargetCurrents : {};
-  if (metric === "overpotential_at_target") {
-    return Array.isArray(state.overpotential_target_currents) ? state.overpotential_target_currents : [];
-  }
-  if (metric === "potential_at_target") {
-    return Array.isArray(state.potential_target_currents) ? state.potential_target_currents : [];
-  }
-  return Array.isArray(state.target_currents) ? state.target_currents : [];
-}
-
-function syncProjectCompareTargetOptions() {
-  const targetEl = byId("project-compare-target-current");
-  if (!targetEl) return;
-  const options = getProjectCompareAvailableTargetCurrents(projectCompareMetric);
-  const normalizedOptions = options
-    .map((item) => {
-      const numeric = Number(item);
-      return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-    })
-    .filter((item) => item !== null);
-  const uniqueOptions = [...new Set(normalizedOptions)];
-  const preferred = uniqueOptions.includes(10) ? 10 : uniqueOptions[0];
-  const currentValue = Number(projectCompareTargetCurrent);
-  const nextValue = uniqueOptions.includes(currentValue) ? currentValue : preferred;
-  projectCompareTargetCurrent = nextValue !== undefined ? formatProjectCompareTargetCurrentOption(nextValue) : "";
-  if (!uniqueOptions.length) {
-    targetEl.innerHTML = `<option value="">${escapeHtml(t("project_compare_target_current_empty"))}</option>`;
-    targetEl.value = "";
-    return;
-  }
-  targetEl.innerHTML = uniqueOptions
-    .map((item) => {
-      const text = formatProjectCompareTargetCurrentOption(item);
-      return `<option value="${escapeHtml(text)}">${escapeHtml(text)}</option>`;
-    })
-    .join("");
-  targetEl.value = projectCompareTargetCurrent;
-}
-
-function syncProjectCompareControls() {
-  const metricEl = byId("project-compare-metric");
-  const targetEl = byId("project-compare-target-current");
-  const targetWrap = byId("project-compare-target-wrap");
-  if (metricEl) {
-    metricEl.disabled = projectCompareChartType !== "bar";
-  }
-  const needsTarget = projectCompareNeedsTargetCurrent();
-  syncProjectCompareTargetOptions();
-  if (targetEl) {
-    targetEl.disabled = !needsTarget || !getProjectCompareAvailableTargetCurrents(projectCompareMetric).length;
-  }
-  if (targetWrap) {
-    targetWrap.style.opacity = needsTarget ? "1" : "0.55";
-  }
-}
-
-function bindProjectCompareSelection() {
-  document.querySelectorAll(".project-compare-sample").forEach((input) => {
-    input.addEventListener("change", () => {
-      const sampleName = decodeURIComponent(input.getAttribute("data-sample-name") || "");
-      if (!sampleName) return;
-      if (input.checked) {
-        if (!projectCompareSelectedSamples.includes(sampleName)) {
-          projectCompareSelectedSamples = [...projectCompareSelectedSamples, sampleName];
-        }
-      } else {
-        projectCompareSelectedSamples = projectCompareSelectedSamples.filter((item) => item !== sampleName);
-      }
-      projectComparePlotData = null;
-      renderProjectCompareSelectionCount();
-      renderProjectComparePlot();
-    });
+  projectPage.renderProjectLSVSummary({
+    escapeHtml,
+    formatMetric,
+    summary,
+    t,
+    wrap: byId("project-lsv-table"),
   });
 }
 
-function renderProjectCompareSummary(summary) {
-  const wrap = byId("project-compare-summary");
-  if (!wrap) return;
-  const samples = getFilteredProjectCompareSamples(summary);
-  if (!samples.length) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_compare_empty")}</div>`;
-    return;
-  }
-  const bestEta = [...samples]
-    .filter((it) => it.overpotential_10 !== undefined && it.overpotential_10 !== null)
-    .sort((a, b) => a.overpotential_10 - b.overpotential_10)[0];
-  const bestPotential = [...samples]
-    .filter((it) => it.potential_10 !== undefined && it.potential_10 !== null)
-    .sort((a, b) => a.potential_10 - b.potential_10)[0];
-  const bestTafel = [...samples]
-    .filter((it) => it.tafel_slope !== undefined && it.tafel_slope !== null)
-    .sort((a, b) => a.tafel_slope - b.tafel_slope)[0];
-  const missingEta = samples.filter((it) => it.overpotential_10 === undefined || it.overpotential_10 === null).map((it) => it.sample_name || "-");
-  const missingTafel = samples.filter((it) => it.tafel_slope === undefined || it.tafel_slope === null).map((it) => it.sample_name || "-");
+function getProjectCompareViewState() {
+  return {
+    chartType: projectCompareChartType,
+    metric: projectCompareMetric,
+    onlyEta: projectCompareOnlyEta,
+    onlyTafel: projectCompareOnlyTafel,
+    plotData: projectComparePlotData,
+    plotLoading: projectComparePlotLoading,
+    selectedSamples: projectCompareSelectedSamples,
+    sort: projectCompareSort,
+    targetCurrent: projectCompareTargetCurrent,
+    targetCurrents: projectCompareTargetCurrents,
+  };
+}
 
-  const cards = [];
-  if (bestEta) {
-    cards.push(`<div class="compare-chip"><strong>${escapeHtml(t("project_compare_best_eta"))}</strong><span>${escapeHtml(String(bestEta.sample_name || "-"))} | ${escapeHtml(formatMetric(bestEta.overpotential_10, 3))} mV</span></div>`);
-  } else if (bestPotential) {
-    cards.push(`<div class="compare-chip"><strong>${escapeHtml(t("project_compare_best_potential"))}</strong><span>${escapeHtml(String(bestPotential.sample_name || "-"))} | ${escapeHtml(formatMetric(bestPotential.potential_10, 3))} V</span></div>`);
-  }
-  if (bestTafel) {
-    cards.push(`<div class="compare-chip"><strong>${escapeHtml(t("project_compare_best_tafel"))}</strong><span>${escapeHtml(String(bestTafel.sample_name || "-"))} | ${escapeHtml(formatMetric(bestTafel.tafel_slope, 3))}</span></div>`);
-  }
-  if (missingEta.length || missingTafel.length) {
-    const missingParts = [];
-    if (missingEta.length) missingParts.push(`${t("project_compare_missing_eta")}: ${missingEta.slice(0, 4).join(", ")}`);
-    if (missingTafel.length) missingParts.push(`${t("project_compare_missing_tafel")}: ${missingTafel.slice(0, 4).join(", ")}`);
-    cards.push(`<div class="compare-chip muted"><strong>${escapeHtml(t("project_compare_missing"))}</strong><span>${escapeHtml(missingParts.join(" | "))}</span></div>`);
-  }
-  wrap.innerHTML = cards.join("") || `<div class="placeholder">${t("project_compare_empty")}</div>`;
+function applyProjectCompareViewState(view) {
+  const safe = view && typeof view === "object" ? view : {};
+  if (Array.isArray(safe.selectedSamples)) projectCompareSelectedSamples = safe.selectedSamples;
+  if (Object.prototype.hasOwnProperty.call(safe, "plotData")) projectComparePlotData = safe.plotData;
+  if (Object.prototype.hasOwnProperty.call(safe, "plotLoading")) projectComparePlotLoading = Boolean(safe.plotLoading);
+  if (Object.prototype.hasOwnProperty.call(safe, "targetCurrent")) projectCompareTargetCurrent = String(safe.targetCurrent || "");
+}
+
+function getFilteredProjectCompareSamples(summary) {
+  return projectComparePage.filterSamples({
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+    summary,
+  });
+}
+
+function syncProjectCompareSelection(summary) {
+  const view = projectComparePage.syncSelection({
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+    summary,
+  });
+  applyProjectCompareViewState(view);
+  return view.samples || [];
+}
+
+function renderProjectCompareSelectionCount() {
+  projectComparePage.renderSelectionCount({
+    byId,
+    selectedSamples: projectCompareSelectedSamples,
+    t,
+  });
+}
+
+function projectCompareNeedsTargetCurrent() {
+  return projectComparePage.needsTargetCurrent({
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+  });
+}
+
+function getProjectCompareAvailableTargetCurrents(metric = projectCompareMetric) {
+  return projectComparePage.availableTargetCurrents({
+    model: projectCompareModel,
+    state: {
+      ...getProjectCompareViewState(),
+      metric,
+    },
+  });
+}
+
+function syncProjectCompareControls() {
+  const view = projectComparePage.syncControls({
+    byId,
+    escapeHtml,
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+    t,
+  });
+  applyProjectCompareViewState(view);
+}
+
+function renderProjectCompareSummary(summary) {
+  projectComparePage.renderSummary({
+    byId,
+    escapeHtml,
+    formatMetric,
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+    summary,
+    t,
+  });
 }
 
 function renderProjectCompareTable(summary) {
-  const wrap = byId("project-compare-table");
-  if (!wrap) return;
-  const samples = getFilteredProjectCompareSamples(summary);
-  if (!samples.length) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_compare_empty")}</div>`;
-    renderProjectCompareSelectionCount();
-    return;
-  }
-  wrap.innerHTML = `
-    <table class="lsv-summary-table compare-table">
-      <thead>
-        <tr>
-          <th>${escapeHtml(t("project_compare_col_sample"))}</th>
-          <th>${escapeHtml(t("project_compare_col_eta"))}</th>
-          <th>${escapeHtml(t("project_compare_col_tafel"))}</th>
-          <th>${escapeHtml(t("project_compare_col_count"))}</th>
-          <th>${escapeHtml(t("project_compare_col_time"))}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${samples
-          .map((it) => {
-            const sampleName = String(it.sample_name || "-");
-            const sampleToken = encodeURIComponent(sampleName);
-            const checked = projectCompareSelectedSamples.includes(sampleName) ? "checked" : "";
-            const etaText =
-              it.overpotential_10 !== undefined && it.overpotential_10 !== null
-                ? `${formatMetric(it.overpotential_10, 3)} mV`
-                : it.potential_10 !== undefined && it.potential_10 !== null
-                  ? `${formatMetric(it.potential_10, 3)} V`
-                  : "-";
-            const tafelText = it.tafel_slope !== undefined && it.tafel_slope !== null ? formatMetric(it.tafel_slope, 3) : "-";
-            return `
-              <tr>
-                <td>
-                  <label class="compare-sample-cell compare-sample-check">
-                    <input class="project-compare-sample" type="checkbox" data-sample-name="${sampleToken}" ${checked}>
-                    <span>${escapeHtml(sampleName)}</span>
-                  </label>
-                </td>
-                <td>${escapeHtml(etaText)}</td>
-                <td>${escapeHtml(tafelText)}</td>
-                <td>${escapeHtml(String(it.record_count ?? "-"))}</td>
-                <td>${escapeHtml(String(it.latest_time || "-"))}</td>
-              </tr>
-            `;
-          })
-          .join("")}
-      </tbody>
-    </table>
-  `;
-  renderProjectCompareSelectionCount();
-  bindProjectCompareSelection();
+  projectComparePage.renderTable({
+    byId,
+    escapeHtml,
+    formatMetric,
+    model: projectCompareModel,
+    onSelectionChange: (view) => {
+      applyProjectCompareViewState(view);
+      projectComparePlotData = null;
+      renderProjectCompareSelectionCount();
+      renderProjectComparePlot();
+    },
+    state: getProjectCompareViewState(),
+    summary,
+    t,
+  });
 }
 
 function renderProjectComparePlot() {
-  const wrap = byId("project-compare-plot");
-  if (!wrap) return;
-  syncProjectCompareControls();
-  if (projectComparePlotLoading) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_compare_plot_loading")}</div>`;
-    return;
-  }
-  if (!projectCompareSelectedSamples.length) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_compare_plot_empty")}</div>`;
-    return;
-  }
-  if (!projectComparePlotData || !projectComparePlotData.image_data_url) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_compare_plot_empty")}</div>`;
-    return;
-  }
-  const plot = projectComparePlotData;
-  const warnings = Array.isArray(plot.warnings) ? plot.warnings.filter((item) => String(item || "").trim()) : [];
-  wrap.innerHTML = `
-    <div class="project-compare-plot-preview">
-      <img alt="${escapeHtml(t("project_compare_plot_title"))}" src="${plot.image_data_url}">
-      <div class="project-compare-plot-meta">
-        <span>${escapeHtml(t("project_compare_plot_traces"))}: ${escapeHtml(String(plot.trace_count || 0))}</span>
-        ${plot.metric_label ? `<span>${escapeHtml(String(plot.metric_label))}</span>` : ""}
-        <span>${escapeHtml(t("project_compare_plot_generated_at"))}: ${escapeHtml(String(plot.generated_at || "-"))}</span>
-      </div>
-      <div class="project-compare-plot-actions">
-        <button class="btn mini" type="button" data-copy-path="${escapeHtml(String(plot.plot_path || ""))}">${escapeHtml(t("btn_copy_path"))}</button>
-        <button class="btn mini" type="button" data-open-path="${escapeHtml(String(plot.plot_path || ""))}">${escapeHtml(t("btn_open_file"))}</button>
-        <button class="btn mini" type="button" data-open-dir="${escapeHtml(String(plot.plot_path || ""))}">${escapeHtml(t("btn_open_dir"))}</button>
-      </div>
-      ${warnings.length ? `<ul class="project-compare-plot-warnings">${warnings.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>` : ""}
-    </div>
-  `;
-  bindProjectFileActions(wrap);
+  const view = projectComparePage.renderPlot({
+    bindFileActions: bindProjectFileActions,
+    byId,
+    escapeHtml,
+    model: projectCompareModel,
+    state: getProjectCompareViewState(),
+    t,
+  });
+  applyProjectCompareViewState(view);
 }
 
 async function generateProjectComparePlot() {
@@ -2380,15 +2454,13 @@ async function generateProjectComparePlot() {
   renderProjectComparePlot();
   setProjectStatus(t("project_compare_plot_loading"));
   try {
-    const params = new URLSearchParams();
-    params.set("include_archived", projectIncludeArchived ? "1" : "0");
-    params.set("chart_type", projectCompareChartType);
-    params.set("metric", projectCompareMetric);
-    if (projectCompareNeedsTargetCurrent()) {
-      params.set("target_current", projectCompareTargetCurrent);
-    }
-    projectCompareSelectedSamples.forEach((name) => params.append("sample", name));
-    const resp = await fetch(`/api/v1/projects/${encodeURIComponent(selectedProjectId)}/lsv-compare-plot?${params.toString()}`);
+    const resp = await projectApi.lsvComparePlot(selectedProjectId, {
+      includeArchived: projectIncludeArchived,
+      chartType: projectCompareChartType,
+      metric: projectCompareMetric,
+      targetCurrent: projectCompareNeedsTargetCurrent() ? projectCompareTargetCurrent : undefined,
+      samples: projectCompareSelectedSamples,
+    });
     const data = await resp.json();
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || t("project_compare_plot_failed"));
@@ -2412,17 +2484,16 @@ async function generateProjectComparePlot() {
   }
 }
 
-async function loadLatestProjectComparePlot(silent = true) {
+async function loadLatestProjectComparePlot(silent = true, isCurrent = () => true) {
   if (!selectedProjectId) return;
   try {
-    const params = new URLSearchParams();
-    params.set("chart_type", projectCompareChartType);
-    params.set("metric", projectCompareMetric);
-    if (projectCompareNeedsTargetCurrent() && projectCompareTargetCurrent) {
-      params.set("target_current", projectCompareTargetCurrent);
-    }
-    const resp = await fetch(`/api/v1/projects/${encodeURIComponent(selectedProjectId)}/lsv-compare-plot/latest?${params.toString()}`);
+    const resp = await projectApi.latestLsvComparePlot(selectedProjectId, {
+      chartType: projectCompareChartType,
+      metric: projectCompareMetric,
+      targetCurrent: projectCompareNeedsTargetCurrent() && projectCompareTargetCurrent ? projectCompareTargetCurrent : undefined,
+    });
     const data = await resp.json().catch(() => ({}));
+    if (!isCurrent()) return;
     if (!resp.ok || data.status !== "success") {
       projectComparePlotData = null;
       renderProjectComparePlot();
@@ -2439,6 +2510,7 @@ async function loadLatestProjectComparePlot(silent = true) {
     renderProjectCompareSelectionCount();
     renderProjectComparePlot();
   } catch (err) {
+    if (!isCurrent()) return;
     projectComparePlotData = null;
     renderProjectComparePlot();
     if (!silent) {
@@ -2447,7 +2519,7 @@ async function loadLatestProjectComparePlot(silent = true) {
   }
 }
 
-async function loadProjectCompareTargetCurrents(projectId) {
+async function loadProjectCompareTargetCurrents(projectId, isCurrent = () => true) {
   const targetProjectId = String(projectId || "").trim();
   if (!targetProjectId) {
     projectCompareTargetCurrents = {
@@ -2459,10 +2531,9 @@ async function loadProjectCompareTargetCurrents(projectId) {
     return;
   }
   try {
-    const resp = await fetch(
-      `/api/v1/projects/${encodeURIComponent(targetProjectId)}/lsv-target-currents?include_archived=${projectIncludeArchived ? "1" : "0"}`
-    );
+    const resp = await projectApi.lsvTargetCurrents(targetProjectId, { includeArchived: projectIncludeArchived });
     const data = await resp.json().catch(() => ({}));
+    if (!isCurrent()) return;
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || "failed to load target currents");
     }
@@ -2472,6 +2543,7 @@ async function loadProjectCompareTargetCurrents(projectId) {
       overpotential_target_currents: Array.isArray(data.overpotential_target_currents) ? data.overpotential_target_currents : [],
     };
   } catch (_err) {
+    if (!isCurrent()) return;
     projectCompareTargetCurrents = {
       target_currents: [],
       potential_target_currents: [],
@@ -2482,34 +2554,7 @@ async function loadProjectCompareTargetCurrents(projectId) {
 }
 
 function collectProjectOutputFiles(history) {
-  const groups = [];
-  const seenGroup = new Map();
-  (Array.isArray(history) ? history : []).forEach((record) => {
-    const groupKey = String(record.run_id || historyRecordKey(record));
-    let group = seenGroup.get(groupKey);
-    if (!group) {
-      group = {
-        key: groupKey,
-        title: record.timestamp || groupKey,
-        sub: `${record.type || "-"} | ${record.sample_name || record.file_name || "-"}`,
-        type: String(record.type || "").toUpperCase(),
-        files: [],
-      };
-      seenGroup.set(groupKey, group);
-      groups.push(group);
-    }
-    if (Array.isArray(record.output_files)) {
-      record.output_files.forEach((item) => {
-        const text = String(item || "").trim();
-        if (text && !group.files.includes(text)) group.files.push(text);
-      });
-    }
-    if (record.summary_path) {
-      const text = String(record.summary_path || "").trim();
-      if (text && !group.files.includes(text)) group.files.push(text);
-    }
-  });
-  return groups.filter((group) => group.files.length > 0);
+  return projectPage.collectProjectOutputFiles(history, historyRecordKey);
 }
 
 async function copyTextToClipboard(text) {
@@ -2541,11 +2586,7 @@ async function requestOpenPath(pathValue, revealOnly = false) {
   const target = String(pathValue || "").trim();
   if (!target) return;
   try {
-    const resp = await fetch("/api/v1/system/open-path", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: target, reveal_only: revealOnly }),
-    });
+    const resp = await systemApi.openPath(target, revealOnly);
     const data = await resp.json();
     if (!resp.ok || data.status !== "success") {
       throw new Error(data.message || t("project_open_dir_failed"));
@@ -2577,68 +2618,298 @@ function bindProjectFileActions(root) {
 }
 
 function renderProjectOutputFiles(history) {
-  const wrap = byId("project-output-files");
-  if (!wrap) return;
-  const groups = collectProjectOutputFiles(history).filter((group) => {
-    if (!projectOutputTypeFilter) return true;
-    return String(group.type || "").toUpperCase() === projectOutputTypeFilter;
+  projectPage.renderProjectOutputFiles({
+    bindFileActions: bindProjectFileActions,
+    escapeHtml,
+    history,
+    historyRecordKey,
+    outputTypeFilter: projectOutputTypeFilter,
+    t,
+    wrap: byId("project-output-files"),
   });
-  if (!groups.length) {
-    wrap.innerHTML = `<div class="placeholder">${t("project_no_output_files")}</div>`;
-    return;
+}
+
+function resetProjectCompareState() {
+  projectCompareSelectedSamples = [];
+  projectComparePlotData = null;
+  projectComparePlotLoading = false;
+  projectCompareTargetCurrents = projectWorkspace.emptyTargetCurrents();
+}
+
+function projectPreferencesContext() {
+  return {
+    byId, t, escapeHtml, processingApi, setProjectStatus,
+    getTemplateItems: () => templateItems,
+    setTemplateItems: (items) => { templateContext().setTemplateItems(items); renderTemplateOptions(); },
+    getCurrentState: getCurrentTemplateState,
+    isProcessing: () => Boolean(activeProcessJobId || (byId("proc-run") && byId("proc-run").disabled)),
+    applyTemplate: (template) => {
+      byId("tmpl-select").value = template.name;
+      processTemplates.applyState(templateContext(), template.state || {});
+      byId("tmpl-name").value = template.name;
+      const warnings = processTemplates.getLastApplyWarnings();
+      setTemplateStatus(t(warnings.length ? "template_loaded_with_warnings" : "template_loaded"));
+    },
+    enterProject: (project) => {
+      byId("proc-project").value = project.name;
+      switchTab("pro");
+      setProjectStatus(t("project_status_applied"));
+    },
+  };
+}
+
+function getProjectHistoryFilters() {
+  return { q: textValue("project-results-search"), type: textValue("project-results-type"), dateFrom: textValue("project-results-date-from"), dateTo: textValue("project-results-date-to") };
+}
+
+function projectHistoryFilterKey() {
+  return JSON.stringify([selectedProjectId, projectIncludeArchived, getProjectHistoryFilters()]);
+}
+
+function resetProjectHistoryFilters() {
+  clearTimeout(projectFilterTimer);
+  ["project-results-search", "project-results-type", "project-results-date-from", "project-results-date-to"].forEach((id) => { const el = byId(id); if (el) el.value = ""; });
+  const status = byId("project-results-filter-status");
+  if (status) status.textContent = "";
+}
+
+function applyProjectHistoryFilters(debounce = false) {
+  clearTimeout(projectFilterTimer);
+  projectWorkspace.invalidateDetail();
+  selectedProjectHistoryKey = "";
+  if (projectWorkbench) projectWorkbench.clearSelection(projectWorkbenchContext());
+  const filters = getProjectHistoryFilters();
+  const invalid = filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo;
+  const status = byId("project-results-filter-status");
+  status.textContent = invalid ? t("project_filter_date_invalid") : Object.values(filters).some(Boolean) ? t("project_filters_scope") : "";
+  if (projectDetailState) projectDetailState = { ...projectDetailState, history: [], historyHasMore: false, historyNextCursor: "", historyTotal: 0, historyLoading: !invalid };
+  renderSelectedProjectDetail();
+  if (invalid || !selectedProjectId) return;
+  if (debounce) projectFilterTimer = setTimeout(loadSelectedProjectDetail, 300);
+  else loadSelectedProjectDetail();
+}
+
+function projectWorkspaceContext() {
+  return {
+    byId,
+    confirm: (message) => window.confirm(message),
+    getProjectIncludeArchived: () => projectIncludeArchived,
+    getProjectListStatus: () => projectListStatus,
+    getHistoryFilters: getProjectHistoryFilters,
+    resetHistoryFilters: resetProjectHistoryFilters,
+    getProjectItems: () => projectItems,
+    getSelectedProjectId: () => selectedProjectId,
+    loadLatestProjectComparePlot,
+    loadProjectCompareTargetCurrents,
+    projectApi,
+    renderProjectList,
+    renderSelectedProjectDetail,
+    resetProjectCompareState,
+    setProjectComparePlotData: (value) => {
+      projectComparePlotData = value || null;
+    },
+    setProjectComparePlotLoading: (value) => {
+      projectComparePlotLoading = Boolean(value);
+    },
+    setProjectCompareTargetCurrents: (value) => {
+      projectCompareTargetCurrents = value && typeof value === "object" ? value : projectWorkspace.emptyTargetCurrents();
+    },
+    setProjectDetailState: (value) => {
+      projectDetailState = value;
+    },
+    setProjectItems: (items) => {
+      projectItems = Array.isArray(items) ? items : [];
+      if (projectListStatus === "active") activeProjectItems = projectItems.slice();
+    },
+    setProjectListStatus: (value) => {
+      projectListStatus = value === "archived" ? "archived" : "active";
+      const toggle = byId("project-show-recycle");
+      if (toggle) toggle.checked = projectListStatus === "archived";
+    },
+    setProjectStatus,
+    setSelectedProjectHistoryKey: (value) => {
+      selectedProjectHistoryKey = String(value || "");
+    },
+    setSelectedProjectId: (value) => {
+      projectNavigationRevision += 1;
+      selectedProjectId = String(value || "");
+      if (window.ElectrochemDesktop) window.ElectrochemDesktop.changed();
+    },
+    syncProcessProjectOptions,
+    switchTab,
+    onProjectSaved: () => {
+      const dialog = byId("project-settings-dialog");
+      if (dialog && dialog.open) dialog.close();
+    },
+    t,
+    textValue,
+  };
+}
+
+function projectHistoryContext() {
+  return {
+    autoSelectHistory: !projectWorkbench,
+    getComparedRecordKeys: () => projectWorkbench ? projectWorkbench.selectedKeys() : [],
+    onToggleRecord: (key, selected) => projectWorkbench && projectWorkbench.toggleRecord(projectWorkbenchContext(), key, selected),
+    onHistoryRendered: () => projectWorkbench && projectWorkbench.refresh(projectWorkbenchContext()),
+    buildResultFromHistoryRecord,
+    byId,
+    confirm: (message) => window.confirm(message),
+    escapeHtml,
+    getProjectDetailState: () => projectDetailState,
+    getSelectedProjectHistoryKey: () => selectedProjectHistoryKey,
+    historyRecordKey,
+    loadSelectedProjectDetail,
+    loadStatsAndHistory,
+    projectApi,
+    projectPage,
+    renderProcessResult,
+    setProcStatus,
+    setProjectStatus,
+    setSelectedProjectHistoryKey: (value) => {
+      selectedProjectHistoryKey = String(value || "");
+    },
+    switchTab,
+    t: (key) => key === "project_no_history" && projectDetailState && projectDetailState.historyLoading ? t("project_loading") : key === "project_no_history" && Object.values(getProjectHistoryFilters()).some(Boolean) ? t("project_results_no_matches") : t(key),
+  };
+}
+
+function projectWorkbenchContext() {
+  return {
+    byId, escapeHtml, t, projectApi, processingApi, historyRecordKey,
+    recoveryApi: { list: projectApi.recoveryList, plan: projectApi.recoveryPlan, resume: projectApi.recoveryResume },
+    onRecoveryCompleted: async (job) => {
+      await loadStatsAndHistory();
+      await loadProjects(selectedProjectId || (job.result && job.result.project_id) || "");
+    },
+    bindFileActions: bindProjectFileActions,
+    getProjectDetailState: () => projectDetailState,
+    getSelectedProjectId: () => selectedProjectId,
+    getSelectedHistoryKey: () => selectedProjectHistoryKey,
+    setSelectedHistoryKey: (key) => { selectedProjectHistoryKey = String(key || ""); },
+    getProject: () => projectItems.find((item) => item.id === selectedProjectId),
+    getIncludeArchived: () => projectIncludeArchived,
+    hasHistoryFilters: () => Object.values(getProjectHistoryFilters()).some(Boolean),
+    setProjectEditForm,
+    renderHistory: () => renderProjectHistory(projectDetailState && projectDetailState.history || []),
+    renderProjectList: () => renderProjectList(projectItems),
+    loadSelectedProjectDetail,
+    loadStatsAndHistory,
+  };
+}
+
+function projectReplicatesContext() {
+  return { byId, t, escapeHtml, apiFetch: (...args) => window.ElectrochemApi.fetch(...args),
+    getSelectedProjectId: () => selectedProjectId,
+    getSelectedRecordKeys: () => projectWorkbench ? projectWorkbench.selectedKeys() : [],
+  };
+}
+
+async function prepareActionProject(card) {
+  const started = projectNavigationRevision;
+  const keys = [...new Set(card.record_keys || [])];
+  const requests = [projectApi.listProjects({ status: "all" }), ...keys.map((key) => projectApi.historyDetail(key))];
+  const responses = await Promise.all(requests);
+  const data = await Promise.all(responses.map((response) => projectWorkbench.readResponse(response)));
+  if (started !== projectNavigationRevision) throw new Error(t("assistant_action_navigation_changed"));
+  const project = (data[0].projects || []).find((item) => item.id === card.project_id);
+  if (!project) throw new Error(t("task_target_missing"));
+  const records = data.slice(1).map((item) => item.record);
+  if (records.some((record) => !record || record.project_id !== project.id)) throw new Error(t("assistant_action_project_mismatch"));
+  projectListStatus = project.status === "archived" ? "archived" : "active";
+  byId("project-show-recycle").checked = projectListStatus === "archived";
+  projectItems = data[0].projects.filter((item) => item.status === projectListStatus);
+  activeProjectItems = data[0].projects.filter((item) => item.status !== "archived");
+  resetProjectHistoryFilters();
+  projectIncludeArchived = records.some((record) => record.archived);
+  byId("project-include-archived").checked = projectIncludeArchived;
+  switchTab("project");
+  const navigation = selectProject(project.id);
+  const owned = projectNavigationRevision;
+  await navigation;
+  if (owned !== projectNavigationRevision || selectedProjectId !== project.id) throw new Error(t("assistant_action_navigation_changed"));
+  if (!projectDetailState) throw new Error(t("project_status_detail_failed"));
+  const selected = new Set(keys);
+  projectDetailState.history = [...records, ...(projectDetailState.history || []).filter((record) => !selected.has(historyRecordKey(record)))];
+  projectWorkbench.clearSelection(projectWorkbenchContext());
+  records.forEach((record) => projectWorkbench.toggleRecord(projectWorkbenchContext(), historyRecordKey(record), true));
+  if (records.length) selectedProjectHistoryKey = historyRecordKey(records[0]);
+  renderSelectedProjectDetail();
+  return { records, isCurrent: () => owned === projectNavigationRevision && selectedProjectId === project.id };
+}
+
+async function applyAssistantParameters(card) {
+  if (activeProcessJobId || byId("proc-run").disabled) throw new Error(t("assistant_action_busy"));
+  const live = await buildAssistantActionContext();
+  if (activeProcessJobId || byId("proc-run").disabled) throw new Error(t("assistant_action_busy"));
+  if (!assistantActions.guardMatches(card, live)) throw new Error(t("assistant_action_stale"));
+  const bindings = processSchemaClient.CONTROL_BINDINGS || {};
+  const updates = (card.changes || []).map((change) => {
+    const control = bindings[change.key] && byId(bindings[change.key]);
+    if (!control || ["ir_eis_file", "coupled_products_file", "coupled_peak_method_file"].includes(change.key)) throw new Error(t("assistant_action_invalid"));
+    return { control, value: change.after, previous: control.type === "checkbox" ? control.checked : control.value };
+  });
+  updates.forEach(({ control, value }) => { if (control.type === "checkbox") control.checked = Boolean(value); else control.value = value === null || value === undefined ? "" : String(value); });
+  try { collectProcessPayload(); }
+  catch (error) {
+    updates.forEach(({ control, previous }) => { if (control.type === "checkbox") control.checked = previous; else control.value = previous; });
+    throw error;
   }
-  wrap.innerHTML = groups
-    .map((group, index) => {
-      const title = group.key.startsWith("proj_") || group.key.includes("|")
-        ? `${t("project_output_group_prefix")} ${index + 1}`
-        : `${t("project_output_group_prefix")} ${index + 1}`;
-      return `
-        <div class="output-group">
-          <div class="output-group-head">
-            <div class="name">${escapeHtml(title)}</div>
-            <div class="meta">${escapeHtml(String(group.title || "-"))} | ${escapeHtml(String(group.sub || "-"))}</div>
-          </div>
-          <div class="output-group-files">
-            ${group.files
-              .map((filePath) => {
-                const pathText = String(filePath || "");
-                const parts = pathText.split(/[/\\]/);
-                const name = parts.length ? parts[parts.length - 1] : pathText;
-                return `
-                  <div class="output-file-item">
-                    <div class="name">${escapeHtml(name || pathText)}</div>
-                    <div class="path">${escapeHtml(pathText)}</div>
-                    <div class="file-actions">
-                      <button class="btn mini" type="button" data-copy-path="${escapeHtml(pathText)}">${escapeHtml(t("btn_copy_path"))}</button>
-                      <button class="btn mini" type="button" data-open-path="${escapeHtml(pathText)}">${escapeHtml(t("btn_open_file"))}</button>
-                      <button class="btn mini" type="button" data-open-dir="${escapeHtml(pathText)}">${escapeHtml(t("btn_open_dir"))}</button>
-                    </div>
-                  </div>
-                `;
-              })
-              .join("")}
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-  bindProjectFileActions(wrap);
+  syncFeatureBlocks(); syncProcessModulePanels(); syncPotentialConversionUI(); syncAllMatchFieldMeta();
+  markProcessChanged();
+  appliedProcessTemplateName = "";
+  switchTab("pro");
+  setProcStatus(t("assistant_action_preflight"));
+  refreshAssistantContextPreview();
+}
+
+async function openAssistantResults(card) {
+  const state = await prepareActionProject(card);
+  if (!state.isCurrent()) return;
+  projectWorkbench.setView(projectWorkbenchContext(), "results");
+  if (state.records.length) {
+    selectedProjectHistoryKey = historyRecordKey(state.records[0]);
+    renderProjectHistory(projectDetailState.history || []);
+    byId("project-history-detail-panel").scrollIntoView({ block: "nearest" });
+  }
+}
+
+function assistantActionsContext() {
+  return {
+    getContext: buildAssistantActionContext, applyParameters: applyAssistantParameters, t, escapeHtml,
+    openComparison: async (card) => { const result = await prepareActionProject(card); if (result.isCurrent()) await projectWorkbench.compareSelected(projectWorkbenchContext()); },
+    openReplay: async (card) => { const result = await prepareActionProject(card); if (result.isCurrent()) await projectReplay.open(projectWorkbenchContext(), card.record_keys.length ? "record" : "run", { run_id: card.run_id, record_key: card.record_keys[0] }, card.params); },
+    openReport: async (card) => { const result = await prepareActionProject(card); if (!result.isCurrent()) return; byId("project-report-scope").value = "selected"; projectWorkbench.setView(projectWorkbenchContext(), "reports"); await projectWorkbench.loadReportRuns(projectWorkbenchContext()); },
+    openResults: openAssistantResults,
+  };
+}
+
+function taskCenterContext() {
+  return { t, escapeHtml, apiFetch: (...args) => window.ElectrochemApi.fetch(...args),
+    openRecovery: () => projectRecovery.open(projectWorkbenchContext()),
+    openTask: async (task) => {
+      const ref = task.reference || {};
+      if (ref.conversation_id) { await openConversation(ref.conversation_id); openAssistantDrawer(); }
+      else if (ref.project_id) await openAssistantResults(ref);
+      else throw new Error(t("task_target_missing"));
+    },
+  };
 }
 
 function renderSelectedProjectDetail() {
-  const titleEl = byId("project-detail-title");
-  const metaEl = byId("project-detail-meta");
-  const useBtn = byId("project-use-btn");
-  const delBtn = byId("project-delete-btn");
-  const exportBtn = byId("project-export-report-btn");
   const project = projectItems.find((it) => it.id === selectedProjectId);
+  const hasProject = projectPage.renderProjectHeader({ byId, project, t });
+  const archivedProject = Boolean(project && project.status === "archived");
+  const archiveButton = byId("project-delete-btn");
+  const restoreButton = byId("project-restore-btn");
+  const permanentButton = byId("project-delete-permanent-btn");
+  if (archiveButton) archiveButton.hidden = archivedProject;
+  if (restoreButton) restoreButton.hidden = !archivedProject;
+  if (permanentButton) permanentButton.hidden = !archivedProject;
+  if (projectWorkbench) projectWorkbench.refresh(projectWorkbenchContext());
+  if (byId("project-replicates-open")) byId("project-replicates-open").disabled = !hasProject;
 
-  if (!project) {
-    if (titleEl) titleEl.textContent = t("project_none");
-    if (metaEl) metaEl.textContent = t("project_pick_hint");
-    if (useBtn) useBtn.disabled = true;
-    if (delBtn) delBtn.disabled = true;
-    if (exportBtn) exportBtn.disabled = true;
+  if (!hasProject) {
     selectedProjectHistoryKey = "";
     projectCompareSelectedSamples = [];
     projectComparePlotData = null;
@@ -2651,6 +2922,7 @@ function renderSelectedProjectDetail() {
     setProjectEditForm(null);
     renderProjectStats({});
     renderProjectHistory([]);
+    renderProjectHistoryPagination(null);
     renderProjectLSVSummary(null);
     renderProjectCompareSummary(null);
     renderProjectCompareTable(null);
@@ -2660,26 +2932,11 @@ function renderSelectedProjectDetail() {
     return;
   }
 
-  if (useBtn) useBtn.disabled = false;
-  if (delBtn) delBtn.disabled = false;
-  if (exportBtn) exportBtn.disabled = false;
-  setProjectEditForm(project);
-  if (titleEl) titleEl.textContent = String(project.name || t("project_none"));
-  if (metaEl) {
-    const parts = [
-      `${t("project_label_created")}: ${project.created_at || "-"}`,
-      `${t("project_label_updated")}: ${project.updated_at || "-"}`,
-      `${t("project_label_files")}: ${project.file_count ?? 0}`,
-    ];
-    const desc = String(project.description || "").trim();
-    if (desc) parts.push(`${t("project_label_desc")}: ${desc}`);
-    metaEl.textContent = parts.join(" | ");
-  }
-
   const state = projectDetailState && typeof projectDetailState === "object" ? projectDetailState : {};
   syncProjectCompareSelection(state.lsv || null);
   renderProjectStats(state.stats || {});
   renderProjectHistory(state.history || []);
+  renderProjectHistoryPagination(state);
   renderProjectLSVSummary(state.lsv || null);
   renderProjectCompareSummary(state.lsv || null);
   renderProjectCompareTable(state.lsv || null);
@@ -2688,328 +2945,186 @@ function renderSelectedProjectDetail() {
 }
 
 function renderProjectList(items) {
-  const listEl = byId("project-list");
-  if (!listEl) return;
-  if (!Array.isArray(items) || !items.length) {
-    listEl.innerHTML = `<div class="placeholder">${t("project_empty")}</div>`;
-    return;
-  }
-  listEl.innerHTML = items
-    .map((it) => {
-      const active = it.id === selectedProjectId ? "active" : "";
-      const rawColor = typeof it.color === "string" ? it.color.trim() : "";
-      const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor) ? rawColor : "#155e45";
-      const tags = Array.isArray(it.tags) ? it.tags.filter((x) => String(x || "").trim()).slice(0, 3) : [];
-      const tagsHtml = tags.length
-        ? `<div class="project-tags">${tags.map((tag) => `<span>${escapeHtml(String(tag))}</span>`).join("")}</div>`
-        : "";
-      return `
-        <div class="project-item ${active}" data-project-id="${String(it.id || "")}">
-          <div class="name"><span class="project-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(
-            String(it.name || "-")
-          )}</div>
-          <div class="meta">${escapeHtml(t("project_label_updated"))}: ${escapeHtml(
-            String(it.updated_at || "-")
-          )} | ${escapeHtml(t("project_label_files"))}: ${escapeHtml(String(it.file_count ?? 0))}</div>
-          ${tagsHtml}
-        </div>
-      `;
-    })
-    .join("");
-  listEl.querySelectorAll(".project-item").forEach((el) => {
-    el.addEventListener("click", () => {
-      selectProject(el.getAttribute("data-project-id") || "");
-    });
+  const keyword = textValue("project-list-search").toLowerCase();
+  const visibleItems = (Array.isArray(items) ? items : projectItems).filter((item) => !keyword || `${item.name || ""} ${(item.tags || []).join(" ")}`.toLowerCase().includes(keyword));
+  projectPage.renderProjectList({
+    escapeHtml,
+    items: visibleItems,
+    listEl: byId("project-list"),
+    onSelect: selectProject,
+    selectedProjectId,
+    t,
   });
 }
 
 async function loadSelectedProjectDetail() {
-  if (!selectedProjectId) return;
-  const projectId = selectedProjectId;
-  projectComparePlotData = null;
-  projectComparePlotLoading = false;
-  setProjectStatus(t("project_status_detail_loading"));
+  await projectWorkspace.loadSelectedProjectDetail(projectWorkspaceContext());
+}
+
+async function loadMoreProjectHistory() {
+  const state = projectDetailState && typeof projectDetailState === "object" ? projectDetailState : null;
+  if (!selectedProjectId || !state || !state.historyHasMore || !state.historyNextCursor) return;
+  if (state.historyLoadingMore) return;
+  state.historyLoadingMore = true;
+  const filterKey = projectHistoryFilterKey();
+  const button = byId("project-history-load-more");
+  if (button) button.disabled = true;
   try {
-    const [statsResp, historyResp, lsvResp] = await Promise.all([
-      fetch(`/api/v1/stats?project=${encodeURIComponent(projectId)}&include_archived=${projectIncludeArchived ? "1" : "0"}`),
-      fetch(`/api/v1/history?project=${encodeURIComponent(projectId)}&limit=30&include_archived=${projectIncludeArchived ? "1" : "0"}`),
-      fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/lsv-summary?page=1&page_size=15&sort=eta`),
-    ]);
-    const [statsData, historyData, lsvData] = await Promise.all([
-      statsResp.json().catch(() => ({})),
-      historyResp.json().catch(() => ({})),
-      lsvResp.json().catch(() => ({})),
-    ]);
-    if (projectId !== selectedProjectId) return;
-    projectDetailState = {
-      stats: statsResp.ok && statsData.status === "success" ? statsData.data || {} : {},
-      history: historyResp.ok && historyData.status === "success" ? historyData.records || [] : [],
-      lsv: lsvResp.ok && lsvData.status === "success" ? lsvData.lsv_summary || {} : null,
-    };
-    await loadProjectCompareTargetCurrents(projectId);
+    const resp = await projectApi.history({
+      projectId: selectedProjectId,
+      limit: 30,
+      cursor: state.historyNextCursor,
+      includeArchived: projectIncludeArchived,
+      ...getProjectHistoryFilters(),
+    });
+    const payload = await resp.json();
+    if (projectDetailState !== state || filterKey !== projectHistoryFilterKey()) return;
+    if (!resp.ok || payload.status !== "success") throw new Error(payload.message || t("status_load_failed"));
+    const existing = new Set((state.history || []).map((record) => historyRecordKey(record)));
+    (payload.records || []).forEach((record) => {
+      if (!existing.has(historyRecordKey(record))) state.history.push(record);
+    });
+    state.historyNextCursor = payload.next_cursor || "";
+    state.historyHasMore = Boolean(payload.has_more);
+    state.historyTotal = Number(payload.total || state.history.length);
     renderSelectedProjectDetail();
-    await loadLatestProjectComparePlot(true);
-    setProjectStatus("");
   } catch (err) {
-    if (projectId !== selectedProjectId) return;
-    projectCompareTargetCurrents = {
-      target_currents: [],
-      potential_target_currents: [],
-      overpotential_target_currents: [],
-    };
-    projectDetailState = { stats: {}, history: [], lsv: null };
-    renderSelectedProjectDetail();
-    setProjectStatus(`${t("project_status_detail_failed")}: ${err.message}`);
+    if (projectDetailState === state && filterKey === projectHistoryFilterKey()) setProjectStatus(`${t("status_load_failed")}: ${err.message}`);
+  } finally {
+    state.historyLoadingMore = false;
+    if (button && projectDetailState === state) button.disabled = false;
   }
 }
 
 async function selectProject(projectId) {
-  const targetId = String(projectId || "").trim();
-  selectedProjectId = targetId;
-  projectDetailState = null;
-  selectedProjectHistoryKey = "";
-  projectCompareSelectedSamples = [];
-  projectComparePlotData = null;
-  projectComparePlotLoading = false;
-  projectCompareTargetCurrents = {
-    target_currents: [],
-    potential_target_currents: [],
-    overpotential_target_currents: [],
-  };
-  renderProjectList(projectItems);
-  renderSelectedProjectDetail();
-  if (!targetId) return;
-  await loadSelectedProjectDetail();
+  await projectWorkspace.selectProject(projectWorkspaceContext(), projectId);
 }
 
 async function loadProjects(preferredProjectId = "") {
-  setProjectStatus(t("project_status_loading"));
+  await projectWorkspace.loadProjects(projectWorkspaceContext(), preferredProjectId);
+}
+
+function formatStorageBytes(value) {
+  const bytes = Math.max(0, Number(value || 0));
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+async function loadStorageSummary() {
+  const summaryEl = byId("storage-summary");
+  if (!summaryEl) return;
+  summaryEl.textContent = t("storage_loading");
   try {
-    const resp = await fetch("/api/v1/projects?status=active");
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_status_load_failed"));
-    }
-    projectItems = Array.isArray(data.projects) ? data.projects : [];
-    syncProcessProjectOptions();
-    renderProjectList(projectItems);
-    if (!projectItems.length) {
-      selectedProjectId = "";
-      projectDetailState = null;
-      renderSelectedProjectDetail();
-      setProjectStatus("");
-      return;
-    }
-    const preferred = String(preferredProjectId || selectedProjectId || "").trim();
-    const picked =
-      preferred && projectItems.some((it) => it.id === preferred) ? preferred : String(projectItems[0].id || "");
-    await selectProject(picked);
+    const response = await projectApi.storageSummary();
+    const data = await response.json();
+    if (!response.ok || data.status !== "success") throw new Error(data.message || t("status_load_failed"));
+    summaryEl.textContent = t("storage_summary")
+      .replace("{referenced_runs}", String(data.referenced_runs || 0))
+      .replace("{referenced_bytes}", formatStorageBytes(data.referenced_bytes))
+      .replace("{orphaned_runs}", String(data.orphaned_runs || 0))
+      .replace("{orphaned_bytes}", formatStorageBytes(data.orphaned_bytes));
+    const cleanup = byId("storage-cleanup-btn");
+    if (cleanup) cleanup.disabled = !Number(data.orphaned_runs || 0);
   } catch (err) {
-    projectItems = [];
-    selectedProjectId = "";
-    projectDetailState = null;
-    syncProcessProjectOptions();
-    renderProjectList([]);
-    renderSelectedProjectDetail();
-    setProjectStatus(`${t("project_status_load_failed")}: ${err.message}`);
+    summaryEl.textContent = `${t("status_load_failed")}: ${err.message}`;
+  }
+}
+
+async function cleanupManagedStorage() {
+  if (!window.confirm(t("storage_cleanup_confirm"))) return;
+  const cleanupButton = byId("storage-cleanup-btn");
+  if (cleanupButton) cleanupButton.disabled = true;
+  try {
+    const response = await projectApi.cleanupStorage();
+    const data = await response.json();
+    if (!response.ok || data.status !== "success") {
+      throw new Error(data.message || t("status_load_failed"));
+    }
+    setProjectStatus(
+      t("storage_cleanup_done")
+        .replace("{count}", String((data.removed || []).length))
+        .replace("{bytes}", formatStorageBytes(data.bytes_reclaimed)),
+    );
+    await loadStorageSummary();
+  } catch (err) {
+    setProjectStatus(`${t("status_load_failed")}: ${err.message}`);
+    if (cleanupButton) cleanupButton.disabled = false;
   }
 }
 
 async function createProject() {
-  const name = textValue("project-create-name");
-  if (!name) {
-    setProjectStatus(t("project_name_required"));
-    return;
-  }
-  setProjectStatus(t("project_status_create_running"));
-  try {
-    const resp = await fetch("/api/v1/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description: "Created from ElectroChem v6 UI" }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_status_create_failed"));
-    }
-    byId("project-create-name").value = "";
-    const projectId = String(data.project_id || (data.project && data.project.id) || "");
-    await loadProjects(projectId);
-    setProjectStatus(t("project_status_create_success"));
-  } catch (err) {
-    setProjectStatus(`${t("project_status_create_failed")}: ${err.message}`);
-  }
+  await projectWorkspace.createProject(projectWorkspaceContext());
 }
 
 async function deleteCurrentProject() {
-  if (!selectedProjectId) return;
-  if (!window.confirm(t("project_confirm_delete"))) return;
-  setProjectStatus(t("project_status_delete_running"));
-  try {
-    const resp = await fetch(`/api/v1/projects/${encodeURIComponent(selectedProjectId)}/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_status_delete_failed"));
-    }
-    selectedProjectId = "";
-    projectDetailState = null;
-    await loadProjects("");
-    setProjectStatus(t("project_status_delete_success"));
-  } catch (err) {
-    setProjectStatus(`${t("project_status_delete_failed")}: ${err.message}`);
-  }
+  await projectWorkspace.deleteCurrentProject(projectWorkspaceContext());
+}
+
+async function restoreCurrentProject() {
+  await projectWorkspace.restoreCurrentProject(projectWorkspaceContext());
+}
+
+async function permanentlyDeleteCurrentProject() {
+  await projectWorkspace.permanentlyDeleteCurrentProject(projectWorkspaceContext());
 }
 
 function applyCurrentProjectToForms() {
-  const project = projectItems.find((it) => it.id === selectedProjectId);
-  if (!project || !project.name) return;
-  const name = String(project.name);
-  if (byId("proc-project")) byId("proc-project").value = name;
-  if (byId("project-name")) byId("project-name").value = name;
-  setProjectStatus(t("project_status_applied"));
+  const project = projectItems.find((item) => item.id === selectedProjectId);
+  if (projectPreferences) return projectPreferences.enterProject(projectPreferencesContext(), project);
+  return projectWorkspace.applyCurrentProjectToForms(projectWorkspaceContext());
 }
 
 async function saveCurrentProject() {
-  if (!selectedProjectId) return;
-  const name = textValue("project-edit-name");
-  const description = textValue("project-edit-desc");
-  const color = textValue("project-edit-color");
-  const tags = textValue("project-edit-tags")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (!name) {
-    setProjectStatus(t("project_name_required"));
-    return;
-  }
-  if (color && !/^#[0-9a-fA-F]{3,8}$/.test(color)) {
-    setProjectStatus(t("project_color_invalid"));
-    return;
-  }
-  setProjectStatus(t("project_status_save_running"));
-  try {
-    const resp = await fetch(`/api/v1/projects/${encodeURIComponent(selectedProjectId)}/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description, tags, color: color || undefined }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_status_save_failed"));
-    }
-    await loadProjects(selectedProjectId);
-    const active = projectItems.find((it) => it.id === selectedProjectId);
-    if (active && active.name) {
-      if (byId("proc-project")) byId("proc-project").value = active.name;
-      if (byId("project-name")) byId("project-name").value = active.name;
-    }
-    setProjectStatus(t("project_status_save_success"));
-  } catch (err) {
-    setProjectStatus(`${t("project_status_save_failed")}: ${err.message}`);
-  }
+  await projectWorkspace.saveCurrentProject(projectWorkspaceContext());
 }
 
 function openSelectedProjectHistoryResult() {
-  const record = getSelectedProjectHistoryRecord();
-  if (!record) {
-    setProjectStatus(t("project_open_result_empty"));
-    return;
-  }
-  renderProcessResult(buildResultFromHistoryRecord(record));
-  setProcStatus(t("status_history_loaded"));
-  switchTab("pro");
-  setProjectStatus(t("project_open_result_done"));
+  projectHistoryWorkspace.openSelectedProjectHistoryResult(projectHistoryContext());
 }
 
 async function archiveSelectedProjectHistory() {
-  const record = getSelectedProjectHistoryRecord();
-  if (!record) {
-    setProjectStatus(t("project_open_result_empty"));
-    return;
-  }
-  if (!window.confirm(t("project_history_confirm_archive"))) return;
-  setProjectStatus(t("project_history_archive_running"));
-  try {
-    const resp = await fetch("/api/v1/history/archive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ history_key: historyRecordKey(record) }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_history_archive_failed"));
-    }
-    selectedProjectHistoryKey = "";
-    await loadSelectedProjectDetail();
-    await loadStatsAndHistory();
-    setProjectStatus(t("project_history_archive_success"));
-  } catch (err) {
-    setProjectStatus(`${t("project_history_archive_failed")}: ${err.message}`);
-  }
+  await projectHistoryWorkspace.archiveSelectedProjectHistory(projectHistoryContext());
 }
 
 async function deleteSelectedProjectHistory() {
-  const record = getSelectedProjectHistoryRecord();
-  if (!record) {
-    setProjectStatus(t("project_open_result_empty"));
-    return;
-  }
-  if (!window.confirm(t("project_history_confirm_delete"))) return;
-  setProjectStatus(t("project_history_delete_running"));
-  try {
-    const resp = await fetch("/api/v1/history/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ history_key: historyRecordKey(record) }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_history_delete_failed"));
-    }
-    selectedProjectHistoryKey = "";
-    await loadSelectedProjectDetail();
-    await loadStatsAndHistory();
-    setProjectStatus(t("project_history_delete_success"));
-  } catch (err) {
-    setProjectStatus(`${t("project_history_delete_failed")}: ${err.message}`);
-  }
+  await projectHistoryWorkspace.deleteSelectedProjectHistory(projectHistoryContext());
 }
 
 async function exportCurrentProjectReport() {
-  if (!selectedProjectId) return;
-  setProjectStatus(t("project_status_detail_loading"));
-  try {
-    const resp = await fetch(
-      `/api/v1/projects/${encodeURIComponent(selectedProjectId)}/report?include_archived=${projectIncludeArchived ? "1" : "0"}`
-    );
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("project_export_report_failed"));
-    }
-    setProjectStatus(`${t("project_export_report_success")}: ${data.path || data.file_name || ""}`);
-  } catch (err) {
-    setProjectStatus(`${t("project_export_report_failed")}: ${err.message}`);
-  }
+  if (projectWorkbench) return projectWorkbench.exportReport(projectWorkbenchContext());
+  return projectWorkspace.exportCurrentProjectReport(projectWorkspaceContext());
 }
 
-async function loadStatsAndHistory() {
+async function loadStatsAndHistory(options = {}) {
+  const append = Boolean(options && options.append === true);
   try {
-    const [statsResp, historyResp] = await Promise.all([
-      fetch("/api/v1/stats"),
-      fetch("/api/v1/history?limit=50"),
-    ]);
-    const statsData = await statsResp.json();
+    const cursor = append ? historyNextCursor : "";
+    if (append && (!historyHasMore || !cursor)) return;
+    const requests = [projectApi.history({ limit: 50, cursor })];
+    if (!append) requests.unshift(projectApi.stats());
+    const responses = await Promise.all(requests);
+    const statsResp = append ? null : responses[0];
+    const historyResp = append ? responses[0] : responses[1];
+    const statsData = statsResp ? await statsResp.json() : null;
     const historyData = await historyResp.json();
 
-    if (statsResp.ok && statsData.status === "success") {
+    if (statsResp && statsResp.ok && statsData.status === "success") {
       renderStats(statsData.data || {});
     }
     if (historyResp.ok && historyData.status === "success") {
-      renderHistory(historyData.records || []);
+      const incoming = historyData.records || [];
+      if (append) {
+        const existing = new Set(historyRecords.map((record) => historyRecordKey(record)));
+        renderHistory(historyRecords.concat(incoming.filter((record) => !existing.has(historyRecordKey(record)))));
+      } else {
+        renderHistory(incoming);
+      }
+      historyNextCursor = historyData.next_cursor || "";
+      historyHasMore = Boolean(historyData.has_more);
+      historyTotal = Number(historyData.total || historyRecords.length);
+      renderHistoryPagination();
     }
   } catch (_err) {
     // silent refresh errors
@@ -3022,17 +3137,202 @@ function getSelectedProcessTypes() {
   );
 }
 
+function processTypeCardDescription(card) {
+  return processPage.processTypeCardDescription(card, t);
+}
+
+function renderProcessTypeCards(schema) {
+  const container = byId("process-type-checks") || document.querySelector(".dtype-checks");
+  processPage.renderProcessTypeCards({
+    container,
+    escapeHtml,
+    processSchemaClient,
+    schema,
+    selectedTypes: getSelectedProcessTypes(),
+    t,
+  });
+}
+
+function setResultTab(tabName) {
+  activeResultTab = processPage.setResultTab(tabName);
+}
+
+function setPreflightItem(key, state, label) {
+  processPage.setPreflightItem({ byId, key, label: label || t("preflight_status_pending"), state });
+}
+
+function setPreflightFileDetailOpen(open) {
+  preflightFileDetailOpen = Boolean(open);
+  const toggle = document.querySelector('[data-preflight-item="files"]');
+  if (toggle) toggle.setAttribute("aria-expanded", preflightFileDetailOpen ? "true" : "false");
+  renderPreflightFileDetail();
+}
+
+function renderPreflightFileDetail() {
+  const moduleDescriptors = processSchemaClient.moduleList(processParameterSchema);
+  processPage.renderPreflightFileDetail({
+    detail: byId("preflight-file-detail"),
+    escapeHtml,
+    fileNameOnly,
+    moduleDescriptors,
+    open: preflightFileDetailOpen,
+    preflightModel,
+    scan: latestPreflightScan,
+    selectedTypes: getSelectedProcessTypes(),
+    t,
+    toggleLabel: byId("preflight-files-state"),
+  });
+}
+
+function renderPreflightChecks(preflight, state = "pending", message = "") {
+  latestPreflightScan = processPage.renderPreflightChecks({
+    byId,
+    message,
+    preflight,
+    preflightModel,
+    state,
+    t,
+  });
+  renderPreflightFileDetail();
+}
+
+function syncProcessModulePanels() {
+  expandedProcessModules = processPage.syncProcessModulePanels({
+    expandedModules: expandedProcessModules,
+    selectedTypes: getSelectedProcessTypes(),
+    t,
+  });
+}
+
+function toggleProcessModuleExpansion(dtype) {
+  expandedProcessModules = processPage.toggleModuleExpansion(dtype, expandedProcessModules);
+  syncProcessModulePanels();
+}
+
+function keepActiveProcessStepVisible(btn) {
+  processPage.keepActiveProcessStepVisible(btn);
+}
+
+function setActiveProcessStep(stepKey, options = {}) {
+  activeProcessStepKey = processPage.setActiveProcessStep({
+    currentStepKey: activeProcessStepKey,
+    keepVisible: options.keepVisible,
+    stepKey,
+  });
+}
+
+function getProcessStepEntries() {
+  return processPage.getProcessStepEntries({ byId });
+}
+
+function refreshProcessScrollSpy() {
+  processScrollSpyTicking = false;
+  const panel = byId("tab-pro");
+  if (!panel || !panel.classList.contains("active")) return;
+  const entries = getProcessStepEntries();
+  if (!entries.length) return;
+  const probeY = window.scrollY + Math.min(260, Math.max(120, window.innerHeight * 0.32));
+  let active = entries[0];
+  entries.forEach((entry) => {
+    if (entry.top <= probeY) active = entry;
+  });
+  setActiveProcessStep(active.key);
+}
+
+function requestProcessScrollSpyUpdate() {
+  if (processScrollSpyTicking) return;
+  processScrollSpyTicking = true;
+  window.requestAnimationFrame(refreshProcessScrollSpy);
+}
+
+function setProcessStepStatus(stepKey, status) {
+  processPage.setProcessStepStatus({ stepKey, status, t });
+}
+
+function updateProcessStepState() {
+  const dataTypes = getSelectedProcessTypes();
+  const hasFolder = Boolean(textValue("proc-folder"));
+  const activeInputFiles = processSourceSelection.toInputFiles(processSourceItems, dataTypes);
+  const primaryTypes = dataTypes.filter((dataType) => dataType !== "COUPLED");
+  const hasSource = hasFolder && (!primaryTypes.length || activeInputFiles.length > 0);
+  const hasTypes = dataTypes.length > 0;
+  const hasTemplate = Boolean(appliedProcessTemplateName);
+  const validationErrors = hasTypes ? collectProcessValidationErrors(dataTypes) : [];
+  const coupledPeakMode = schemaControlValue("pro-coupled-input-mode", "coupled_input_mode") === "peak_analysis";
+  const coupledMethodSource = schemaControlValue(
+    "pro-coupled-peak-method-source",
+    "coupled_peak_method_source"
+  );
+  const coupledMissing = dataTypes.includes("COUPLED") && (
+    !textValue("pro-coupled-products-file")
+    || (
+      coupledPeakMode
+      && coupledMethodSource === "file"
+      && !textValue("pro-coupled-peak-method-file")
+    )
+  );
+
+  setProcessStepStatus("source", hasSource ? "complete" : "issue");
+  setProcessStepStatus("template", hasTemplate ? "complete" : "optional");
+  setProcessStepStatus("type", !hasSource ? "pending" : (hasTypes ? "complete" : "issue"));
+  setProcessStepStatus(
+    "basic",
+    !hasSource || !hasTypes ? "pending" : (validationErrors.length && !coupledMissing ? "issue" : "complete")
+  );
+  setProcessStepStatus(
+    "modules",
+    !hasSource || !hasTypes ? "pending" : (!coupledMissing ? "complete" : "issue")
+  );
+  setProcessStepStatus("preflight", !hasSource || !hasTypes ? "pending" : processPreflightState);
+  setProcessStepStatus("result", !hasSource || !hasTypes ? "pending" : processRunState);
+}
+
+function markProcessChanged() {
+  const state = processRuntime.resetState();
+  processPreflightState = state.preflightState;
+  processRunState = state.runState;
+  renderPreflightChecks(null, "pending");
+  updateProcessStepState();
+}
+
+function handleProcessStepClick(event) {
+  const btn = event.target.closest(".process-step");
+  if (!btn) return;
+  const targetId = btn.dataset.stepTarget || "";
+  const target = byId(targetId);
+  setActiveProcessStep(btn.dataset.stepKey || "", { keepVisible: true });
+  if (targetId === "proc-result-panel") {
+    setResultTab("current");
+  }
+  if (target) {
+    if (target.tagName === "DETAILS") {
+      target.open = true;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    requestProcessScrollSpyUpdate();
+  }
+}
+
 function toggleDataTypePanels() {
   const selected = new Set(getSelectedProcessTypes());
   document.querySelectorAll(".dtype-panel").forEach((panel) => {
     panel.classList.toggle("hidden", !selected.has(panel.dataset.dtype));
   });
   syncFeatureBlocks();
+  syncProcessModulePanels();
+  updateProcessStepState();
+  requestProcessScrollSpyUpdate();
 }
 
 function syncFeatureBlocks() {
-  const advancedMode = byId("pro-advanced-mode");
-  const isAdvanced = advancedMode && advancedMode.checked;
+  document.querySelectorAll(".dtype-panel").forEach((panel) => {
+    const dtype = String(panel.dataset.dtype || "").toLowerCase();
+    const advancedToggle = byId(`pro-${dtype}-advanced-mode`);
+    const advancedEnabled = advancedToggle ? advancedToggle.checked : true;
+    panel.querySelectorAll(".advanced-group").forEach((group) => {
+      group.style.display = advancedEnabled ? "" : "none";
+    });
+  });
   document.querySelectorAll(".feature-body[data-feature-toggle]").forEach((body) => {
     const toggleId = body.getAttribute("data-feature-toggle");
     const toggle = byId(toggleId);
@@ -3041,300 +3341,293 @@ function syncFeatureBlocks() {
     const featureBlock = body.closest(".feature-block");
     if (featureBlock) {
       featureBlock.classList.toggle("inactive", !enabled);
-      // Hide the entire feature-block in basic mode
-      featureBlock.style.display = isAdvanced ? "" : "none";
     }
     body.querySelectorAll("input, select, textarea").forEach((el) => {
       el.disabled = !enabled;
     });
   });
+  syncIrCompensationUI();
+  syncCoupledInputUI();
 }
 
-async function pickFolder() {
-  const initial = textValue("proc-folder") || undefined;
-  setProcStatus(t("proc_pick_opening"));
+async function loadMoreHistory() {
+  const button = byId("history-load-more");
+  if (button) button.disabled = true;
+  await loadStatsAndHistory({ append: true });
+  if (button) button.disabled = false;
+}
+
+function closeProcessSourcePicker() {
+  const picker = byId("proc-data-picker");
+  if (picker) picker.open = false;
+}
+
+function sourceDiscoveryParams() {
+  const params = { recursive_scan: boolValue("pro-recursive-scan") };
+  processSourceSelection.PRIMARY_TYPES.forEach((dataType) => {
+    const key = dataType.toLowerCase();
+    const match = textValue(`pro-${key}-match`);
+    const pattern = textValue(`pro-${key}-prefix`);
+    if (match) params[`${key}_match`] = match;
+    if (pattern) params[`${key}_prefix`] = pattern;
+  });
+  return params;
+}
+
+function renderProcessSourceList() {
+  const container = byId("proc-source-list");
+  const summary = byId("proc-source-summary");
+  if (!container || !summary) return;
+  const activeTypes = getSelectedProcessTypes();
+  const activeFiles = processSourceSelection.toInputFiles(processSourceItems, activeTypes);
+  if (!processSourceItems.length) {
+    container.replaceChildren();
+    summary.textContent = t("source_not_selected_hint");
+    return;
+  }
+  const summaryTemplate = t("source_selected_summary");
+  summary.textContent = summaryTemplate
+    .replace("{total}", String(processSourceItems.length))
+    .replace("{active}", String(activeFiles.length));
+  container.innerHTML = processSourceItems.map((item, index) => {
+    const options = [
+      `<option value="">${escapeHtml(t("source_type_unassigned"))}</option>`,
+      ...processSourceSelection.PRIMARY_TYPES.map((dataType) => (
+        `<option value="${dataType}"${item.data_type === dataType ? " selected" : ""}>${dataType}</option>`
+      )),
+    ].join("");
+    const conflict = item.status === "conflict" ? ` · ${escapeHtml(t("source_match_conflict"))}` : "";
+    return `
+      <div class="source-file-item" data-source-index="${index}">
+        <input class="source-file-enabled" type="checkbox" ${item.enabled ? "checked" : ""} aria-label="${escapeHtml(item.name)}">
+        <div class="source-file-copy" title="${escapeHtml(item.path)}">
+          <span class="source-file-name">${escapeHtml(item.name)}${conflict}</span>
+          <span class="source-file-path">${escapeHtml(item.folder)}</span>
+        </div>
+        <select class="source-file-type" aria-label="${escapeHtml(t("source_file_type"))}">${options}</select>
+        <button class="source-file-remove" type="button">${escapeHtml(t("source_remove"))}</button>
+      </div>`;
+  }).join("");
+}
+
+function enableDiscoveredProcessTypes(items) {
+  let changed = false;
+  (items || []).forEach((item) => {
+    if (!item.data_type) return;
+    const checkbox = document.querySelector(`.proc-type-check[value="${item.data_type}"]`);
+    if (checkbox && !checkbox.checked) {
+      checkbox.checked = true;
+      expandedProcessModules.add(item.data_type);
+      changed = true;
+    }
+  });
+  if (changed) toggleDataTypePanels();
+}
+
+function disableUnusedSourceType(dataType) {
+  if (!processSourceSelection.PRIMARY_TYPES.includes(dataType)) return;
+  if (processSourceItems.some((item) => item.data_type === dataType)) return;
+  const checkbox = document.querySelector(`.proc-type-check[value="${dataType}"]`);
+  if (checkbox && checkbox.checked) {
+    checkbox.checked = false;
+    expandedProcessModules.delete(dataType);
+    toggleDataTypePanels();
+  }
+}
+
+async function discoverAndMergeProcessSources(payload, origin, replaceOrigin = false) {
+  setProcStatus(t("source_discovering"));
+  const resp = await processingApi.discoverInputs({
+    ...payload,
+    data_types: getSelectedProcessTypes(),
+    params: sourceDiscoveryParams(),
+    recursive_scan: boolValue("pro-recursive-scan"),
+  });
+  const data = await resp.json();
+  if (!resp.ok || data.status !== "success") {
+    throw new Error(data.message || t("source_pick_failed"));
+  }
+  processSourceItems = processSourceSelection.merge(processSourceItems, data.files || [], {
+    origin,
+    replaceOrigin,
+  });
+  enableDiscoveredProcessTypes(processSourceItems);
+  const folderInput = byId("proc-folder");
+  if (folderInput && !folderInput.value) {
+    folderInput.value = data.folder_path || processSourceSelection.preferredFolder(processSourceItems, "");
+  }
+  renderProcessSourceList();
+  markProcessChanged();
+  return data;
+}
+
+async function pickProcessFiles() {
+  if (window.ElectrochemDesktop && window.ElectrochemDesktop.isEnabled()) {
+    closeProcessSourcePicker();
+    return window.ElectrochemDesktop.chooseFiles();
+  }
+  closeProcessSourcePicker();
+  setProcStatus(t("source_pick_files_opening"));
   try {
-    const resp = await fetch("/api/v1/system/select-folder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initial_dir: initial }),
-    });
+    const resp = await systemApi.selectFiles(textValue("proc-folder") || undefined, [".txt", ".csv"]);
     const data = await resp.json();
     if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("proc_pick_failed"));
+      throw new Error(data.message || t("source_pick_failed"));
     }
-    byId("proc-folder").value = data.folder_path || "";
-    setProcStatus(t("proc_pick_success"));
+    await discoverAndMergeProcessSources(
+      { file_paths: data.file_paths || [] },
+      `manual:${Date.now()}`,
+      false
+    );
+    setProcStatus(t("source_pick_success"));
   } catch (err) {
-    setProcStatus(`${t("proc_pick_failed")}: ${err.message}`);
+    setProcStatus(`${t("source_pick_failed")}: ${err.message}`);
+  }
+}
+
+async function pickProcessFolder() {
+  closeProcessSourcePicker();
+  setProcStatus(t("source_pick_folder_opening"));
+  try {
+    const resp = await systemApi.selectFolder(textValue("proc-folder") || undefined);
+    const data = await resp.json();
+    if (!resp.ok || data.status !== "success") {
+      throw new Error(data.message || t("source_pick_failed"));
+    }
+    const folderPath = String(data.folder_path || "");
+    const folderInput = byId("proc-folder");
+    if (folderInput) folderInput.value = folderPath;
+    if (!processSourceFolders.includes(folderPath)) processSourceFolders.push(folderPath);
+    const discovered = await discoverAndMergeProcessSources(
+      { folder_path: folderPath },
+      `folder:${folderPath}`,
+      true
+    );
+    setProcStatus(discovered.count ? t("source_pick_success") : t("source_empty_folder"));
+  } catch (err) {
+    setProcStatus(`${t("source_pick_failed")}: ${err.message}`);
+  }
+}
+
+async function refreshProcessSourceFolders() {
+  if (!processSourceFolders.length) return;
+  try {
+    for (const folderPath of processSourceFolders) {
+      await discoverAndMergeProcessSources(
+        { folder_path: folderPath },
+        `folder:${folderPath}`,
+        true
+      );
+    }
+    setProcStatus(t("source_pick_success"));
+  } catch (err) {
+    setProcStatus(`${t("source_pick_failed")}: ${err.message}`);
+  }
+}
+
+function clearProcessSources() {
+  processSourceItems = [];
+  processSourceFolders = [];
+  const folderInput = byId("proc-folder");
+  if (folderInput) folderInput.value = "";
+  renderProcessSourceList();
+  markProcessChanged();
+}
+
+async function pickIrEisFile() {
+  const initial = textValue("pro-lsv-ir-eis-file") || textValue("proc-folder") || undefined;
+  setProcStatus(t("ir_eis_picker_opening"));
+  try {
+    const resp = await systemApi.selectFile(initial, [".txt", ".csv"]);
+    const data = await resp.json();
+    if (!resp.ok || data.status !== "success") {
+      throw new Error(data.message || t("ir_eis_picker_failed"));
+    }
+    const input = byId("pro-lsv-ir-eis-file");
+    if (input) input.value = data.file_path || "";
+    markProcessChanged();
+    setProcStatus(t("ir_eis_picker_success"));
+  } catch (err) {
+    setProcStatus(`${t("ir_eis_picker_failed")}: ${err.message}`);
   }
 }
 
 function collectProcessPayload() {
-  const folder = textValue("proc-folder");
-  if (!folder) {
-    throw new Error(t("proc_folder_required"));
+  if (!processParameterSchema) {
+    throw new Error(t("proc_schema_unavailable"));
   }
+  return processPayloadBuilder.collectPayload(processPayloadContext());
+}
 
-  const dataTypes = getSelectedProcessTypes();
-  if (!dataTypes.length) {
-    throw new Error(t("proc_type_required"));
-  }
-  const validationErrors = collectProcessValidationErrors(dataTypes);
-  if (validationErrors.length) {
-    throw new Error(`${t("proc_param_invalid")}: ${validationErrors[0]}`);
-  }
-
-  const payload = {
-    folder_path: folder,
-    data_type: dataTypes[0],
-    data_types: dataTypes,
-    recursive_scan: boolValue("pro-recursive-scan"),
-    output_run_dir_enabled: boolValue("pro-output-run-dir"),
+function processRuntimeContext() {
+  return {
+    byId,
+    collectProcessPayload,
+    formatPreflightSummary,
+    getActiveProcessJobId: () => activeProcessJobId,
+    loadProjects: () => loadProjects(selectedProjectId),
+    loadStatsAndHistory,
+    processingApi,
+    renderPreflightChecks,
+    renderProcessError,
+    renderProcessResult,
+    runPreflight,
+    setProcStatus,
+    setActiveProcessJob,
+    setProcessSubmitting,
+    updateProcessJobProgress,
+    setProcessPreflightState: (state) => {
+      processPreflightState = state;
+    },
+    setProcessRunState: (state) => {
+      processRunState = state;
+    },
+    t,
+    updateProcessStepState,
   };
-
-  const projectName = textValue("proc-project");
-  if (projectName) payload.project_name = projectName;
-
-  const params = {
-    plot_grid: boolValue("pro-plot-grid"),
-    use_abs_current: boolValue("pro-use-abs-current"),
-    recursive_scan: payload.recursive_scan,
-    output_run_dir_enabled: payload.output_run_dir_enabled,
-  };
-  const potentialMode = getPotentialMode();
-  params.potential_mode = potentialMode;
-  addIfSet(params, "font_family", textValue("plot-font-family"));
-  addIfSet(params, "font_size", numberValue("plot-font-size"));
-  addIfSet(params, "area", numberValue("pro-area"));
-  if (potentialMode === "formula_rhe") {
-    addIfSet(params, "rhe_ph", numberValue("pro-rhe-ph"));
-    addIfSet(params, "reference_electrode_preset", textValue("pro-ref-preset"));
-    addIfSet(params, "reference_electrode_potential", getReferenceElectrodePotential());
-  } else {
-    addIfSet(params, "potential_offset", numberValue("pro-offset"));
-  }
-
-  if (dataTypes.includes("LSV")) {
-    const target = textValue("pro-lsv-target");
-    const tafel = textValue("pro-lsv-tafel");
-
-    addIfSet(payload, "target_current", target);
-    addIfSet(payload, "tafel_range", tafel);
-
-    addIfSet(params, "lsv_target_current", target);
-    addIfSet(params, "tafel_range", tafel);
-    addIfSet(params, "lsv_match", textValue("pro-lsv-match") || "prefix");
-    addIfSet(params, "lsv_prefix", textValue("pro-lsv-prefix") || "LSV");
-    addIfSet(params, "lsv_title", textValue("pro-lsv-title"));
-    addIfSet(params, "lsv_xlabel", textValue("pro-lsv-xlabel"));
-    addIfSet(params, "lsv_ylabel", textValue("pro-lsv-ylabel"));
-    addIfSet(params, "lsv_line_width", numberValue("pro-lsv-line-width"));
-    params.tafel_enabled = boolValue("pro-lsv-tafel-enabled");
-    params.lsv_mark_targets = boolValue("pro-lsv-mark-targets");
-    params.lsv_export_data = boolValue("pro-lsv-export-data");
-    params.lsv_combine_all = boolValue("pro-lsv-combine-all");
-    params.export_tafel_plot = boolValue("pro-lsv-export-tafel");
-    params.lsv_quality_check = boolValue("pro-lsv-quality-check");
-    if (params.lsv_quality_check) {
-      addIfSet(params, "lsv_quality_min_points_issue", numberValue("pro-lsv-quality-min-points-issue"));
-      addIfSet(params, "lsv_quality_min_points_warning", numberValue("pro-lsv-quality-min-points-warning"));
-      addIfSet(params, "lsv_quality_outlier_warning_pct", numberValue("pro-lsv-quality-outlier-warning-pct"));
-      addIfSet(params, "lsv_quality_min_potential_span", numberValue("pro-lsv-quality-min-potential-span"));
-      addIfSet(params, "lsv_quality_noise_warning", numberValue("pro-lsv-quality-noise-warning"));
-      addIfSet(params, "lsv_quality_noise_critical", numberValue("pro-lsv-quality-noise-critical"));
-      addIfSet(params, "lsv_quality_jump_warning", numberValue("pro-lsv-quality-jump-warning"));
-      addIfSet(params, "lsv_quality_jump_critical", numberValue("pro-lsv-quality-jump-critical"));
-      addIfSet(params, "lsv_quality_local_variation_factor", numberValue("pro-lsv-quality-local-factor"));
-    }
-
-    const overpotentialEnabled = boolValue("pro-lsv-overpotential-enabled");
-    params.overpotential_enabled = overpotentialEnabled;
-    if (overpotentialEnabled) {
-      addIfSet(params, "eq_potential", numberValue("pro-lsv-eq-potential"));
-    }
-
-    const irEnabled = boolValue("pro-lsv-ir-enabled");
-    params.ir_compensation_enabled = irEnabled;
-    if (irEnabled) {
-      addIfSet(params, "ir_method", textValue("pro-lsv-ir-method") || "auto");
-      addIfSet(params, "ir_manual_ohm", numberValue("pro-lsv-ir-manual"));
-      addIfSet(params, "ir_linear_points", numberValue("pro-lsv-ir-points"));
-    }
-
-    const onsetEnabled = boolValue("pro-lsv-onset-enabled");
-    params.onset_enabled = onsetEnabled;
-    if (onsetEnabled) {
-      addIfSet(params, "onset_current", textValue("pro-lsv-onset-current"));
-    }
-
-    const halfwaveEnabled = boolValue("pro-lsv-halfwave-enabled");
-    params.halfwave_enabled = halfwaveEnabled;
-    if (halfwaveEnabled) {
-      addIfSet(params, "halfwave_current", textValue("pro-lsv-halfwave-current"));
-    }
-  }
-
-  if (dataTypes.includes("CV")) {
-    addIfSet(params, "cv_match", textValue("pro-cv-match") || "prefix");
-    addIfSet(params, "cv_prefix", textValue("pro-cv-prefix") || "CV");
-    addIfSet(params, "cv_title", textValue("pro-cv-title"));
-    addIfSet(params, "cv_xlabel", textValue("pro-cv-xlabel"));
-    addIfSet(params, "cv_ylabel", textValue("pro-cv-ylabel"));
-    addIfSet(params, "cv_line_width", numberValue("pro-cv-line-width"));
-    params.cv_quality_check = boolValue("pro-cv-quality-check");
-    const cvPeaksEnabled = boolValue("pro-cv-peaks-enabled");
-    params.cv_peaks_enabled = cvPeaksEnabled;
-    if (cvPeaksEnabled) {
-      addIfSet(params, "cv_peaks_smooth", numberValue("pro-cv-peaks-smooth"));
-      addIfSet(params, "cv_peaks_min_height", numberValue("pro-cv-peaks-height"));
-      addIfSet(params, "cv_peaks_min_dist", numberValue("pro-cv-peaks-dist"));
-      addIfSet(params, "cv_peaks_max", numberValue("pro-cv-peaks-max"));
-    }
-    if (params.cv_quality_check) {
-      addIfSet(params, "cv_quality_min_points_warning", numberValue("pro-cv-quality-min-points-warning"));
-      addIfSet(params, "cv_quality_cycle_tolerance", numberValue("pro-cv-quality-cycle-tolerance"));
-    }
-  }
-
-  if (dataTypes.includes("EIS")) {
-    addIfSet(params, "eis_match", textValue("pro-eis-match") || "prefix");
-    addIfSet(params, "eis_prefix", textValue("pro-eis-prefix") || "EIS");
-    addIfSet(params, "eis_title", textValue("pro-eis-title"));
-    addIfSet(params, "eis_xlabel", textValue("pro-eis-xlabel"));
-    addIfSet(params, "eis_ylabel", textValue("pro-eis-ylabel"));
-    addIfSet(params, "eis_line_width", numberValue("pro-eis-line-width"));
-    params.plot_nyquist = boolValue("pro-eis-plot-nyquist");
-    params.plot_bode = boolValue("pro-eis-plot-bode");
-    params.eis_randles_fit = boolValue("pro-eis-randles-fit");
-  }
-
-  if (dataTypes.includes("ECSA")) {
-    addIfSet(params, "ecsa_match", textValue("pro-ecsa-match") || "prefix");
-    addIfSet(params, "ecsa_prefix", textValue("pro-ecsa-prefix") || "ECSA");
-    addIfSet(params, "ecsa_title", textValue("pro-ecsa-title"));
-    addIfSet(params, "ecsa_xlabel", textValue("pro-ecsa-xlabel"));
-    addIfSet(params, "ecsa_ylabel", textValue("pro-ecsa-ylabel"));
-    addIfSet(params, "ecsa_line_width", numberValue("pro-ecsa-line-width"));
-    addIfSet(params, "ecsa_ev", numberValue("pro-ecsa-ev"));
-    addIfSet(params, "ecsa_last_n", numberValue("pro-ecsa-last-n"));
-    params.ecsa_avg_last_n = boolValue("pro-ecsa-avg-last-n");
-    addIfSet(params, "ecsa_cs_value", numberValue("pro-ecsa-cs-value"));
-    addIfSet(params, "ecsa_cs_unit", textValue("pro-ecsa-cs-unit") || "uF/cm2");
-    params.ecsa_use_abs_delta = boolValue("pro-ecsa-use-abs");
-  }
-
-  payload.params = params;
-  return payload;
 }
 
 function formatPreflightSummary(preflight) {
-  const scan = preflight && typeof preflight === "object" ? preflight : {};
-  const byType = scan.by_type && typeof scan.by_type === "object" ? scan.by_type : {};
-  const parts = ["LSV", "CV", "EIS", "ECSA"].map((dtype) => {
-    const item = byType[dtype] || {};
-    return `${dtype}: ${Number(item.matched || 0)}`;
+  const moduleDescriptors = processSchemaClient.moduleList(processParameterSchema);
+  return processRuntime.formatPreflightSummary({
+    moduleDescriptors,
+    preflight,
+    preflightModel,
+    selectedTypes: getSelectedProcessTypes(),
+    t,
   });
-  const warnings = Array.isArray(scan.warnings) && scan.warnings.length
-    ? ` | ${scan.warnings.join("; ")}`
-    : "";
-  return `${t("preflight_summary")}: ${parts.join(", ")} | ${t("preflight_text_files")}: ${Number(scan.text_files || 0)} | ${t("preflight_work_units")}: ${Number(scan.work_units || 0)}${warnings}`;
 }
 
 async function runPreflight(silent = false) {
-  let payload;
-  try {
-    payload = collectProcessPayload();
-  } catch (err) {
-    if (!silent) setProcStatus(err.message);
-    renderProcessError(err.message);
-    return null;
-  }
-  const target = byId("proc-preflight");
-  if (target && !silent) target.textContent = t("preflight_running");
-  try {
-    const resp = await fetch("/api/v1/process/preflight", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("preflight_failed"));
-    }
-    const text = formatPreflightSummary(data.preflight || {});
-    if (target) target.textContent = text;
-    if (!silent) setProcStatus(text);
-    return data.preflight || null;
-  } catch (err) {
-    const msg = `${t("preflight_failed")}: ${err.message}`;
-    if (target) target.textContent = msg;
-    if (!silent) setProcStatus(msg);
-    return null;
-  }
+  return processRuntime.runPreflight(processRuntimeContext(), { silent });
 }
 
 async function exportDiagnostics() {
-  setProcStatus(t("diagnostics_running"));
-  try {
-    const resp = await fetch("/api/v1/diagnostics/export", { method: "POST" });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("diagnostics_failed"));
-    }
-    setProcStatus(`${t("diagnostics_done")}: ${data.path || data.file_name || "-"}`);
-    if (data.path) {
-      renderProcessResult({
-        summary: t("diagnostics_done"),
-        data_types: [],
-        processing: { output_files: [data.path] },
-        quality_summary: { included_files: Array.isArray(data.included_files) ? data.included_files.length : 0 },
-      });
-    }
-  } catch (err) {
-    setProcStatus(`${t("diagnostics_failed")}: ${err.message}`);
-  }
+  return processRuntime.exportDiagnostics(processRuntimeContext());
 }
 
 async function runProcess() {
-  let payload;
-  try {
-    payload = collectProcessPayload();
-  } catch (err) {
-    setProcStatus(err.message);
-    renderProcessError(err.message);
-    return;
-  }
-
-  setProcStatus(t("proc_running"));
-  await runPreflight(true);
-  try {
-    const resp = await fetch("/api/v1/process", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-    if (!resp.ok || data.status !== "success") {
-      throw new Error(data.message || t("proc_failed"));
-    }
-    const result = data.result || {};
-    const files = ((result.processing || {}).output_files || []).slice(0, 5);
-    const summary = result.summary || "Done";
-    setProcStatus(`${t("proc_success")}: ${summary}${files.length ? ` | output: ${files.join(", ")}` : ""}`);
-    renderProcessResult(result);
-    await loadStatsAndHistory();
-    await loadProjects(selectedProjectId);
-  } catch (err) {
-    setProcStatus(`${t("proc_failed")}: ${err.message}`);
-    renderProcessError(err.message);
-  }
+  if (window.ElectrochemDesktop && window.ElectrochemDesktop.isLocked()) return;
+  return processRuntime.runProcess(processRuntimeContext());
 }
 
 function bindEvents() {
   byId("tab-btn-pro").addEventListener("click", () => switchTab("pro"));
-  byId("tab-btn-ai").addEventListener("click", () => switchTab("ai"));
   byId("tab-btn-project").addEventListener("click", () => switchTab("project"));
+  document.querySelectorAll(".side-mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.sideTab || "pro"));
+  });
+  byId("assistant-fab").addEventListener("click", openAssistantDrawer);
+  byId("assistant-close").addEventListener("click", closeAssistantDrawer);
+  byId("assistant-history-toggle").addEventListener("click", toggleAssistantHistory);
+  byId("assistant-suggest-btn").addEventListener("click", prepareProfessionalAdvicePrompt);
+  byId("assistant-database-suggest").addEventListener("click", prepareDatabaseAdvicePrompt);
+  const processStepper = document.querySelector(".process-stepper");
+  if (processStepper) {
+    processStepper.addEventListener("click", handleProcessStepClick);
+  }
+  window.addEventListener("scroll", requestProcessScrollSpyUpdate, { passive: true });
+  window.addEventListener("resize", requestProcessScrollSpyUpdate);
   byId("help-docs-btn").addEventListener("click", openHelpPanel);
   byId("help-panel-close").addEventListener("click", closeHelpPanel);
   byId("help-panel-mask").addEventListener("click", closeHelpPanel);
@@ -3356,6 +3649,10 @@ function bindEvents() {
     currentLang = e.target.value || "zh";
     localStorage.setItem("electrochem_v6_lang", currentLang);
     applyI18n();
+    if (projectRecovery) projectRecovery.refresh(projectWorkbenchContext());
+    if (taskCenter) taskCenter.refresh();
+    if (!byId("assistant-drawer").classList.contains("hidden")) refreshAssistantContextPreview();
+    renderProcessSourceList();
     fetchHealth();
     if (currentConversationId) {
       openConversation(currentConversationId, true);
@@ -3382,11 +3679,23 @@ function bindEvents() {
       applyConversationFilter();
     }
   });
-  byId("history-refresh").addEventListener("click", loadStatsAndHistory);
-  byId("project-refresh").addEventListener("click", () => loadProjects(selectedProjectId));
+  byId("history-refresh").addEventListener("click", () => loadStatsAndHistory());
+  byId("history-load-more").addEventListener("click", loadMoreHistory);
+  byId("project-refresh").addEventListener("click", () => {
+    loadProjects(selectedProjectId);
+    loadStorageSummary();
+  });
+  byId("storage-refresh-btn").addEventListener("click", loadStorageSummary);
+  byId("storage-cleanup-btn").addEventListener("click", cleanupManagedStorage);
   byId("project-include-archived").addEventListener("change", (e) => {
     projectIncludeArchived = Boolean(e.target.checked);
-    loadSelectedProjectDetail();
+    applyProjectHistoryFilters();
+  });
+  byId("project-show-recycle").addEventListener("change", (e) => {
+    projectListStatus = e.target.checked ? "archived" : "active";
+    selectedProjectId = "";
+    projectDetailState = null;
+    loadProjects("");
   });
   byId("project-output-type-filter").addEventListener("change", (e) => {
     projectOutputTypeFilter = String(e.target.value || "").toUpperCase();
@@ -3440,20 +3749,35 @@ function bindEvents() {
     renderProjectComparePlot();
   });
   byId("project-compare-generate-btn").addEventListener("click", generateProjectComparePlot);
-  byId("project-create-btn").addEventListener("click", createProject);
+  byId("project-create-btn").addEventListener("click", () => {
+    projectWorkspace.openProjectCreateDialog(projectWorkspaceContext());
+    if (projectPreferences) projectPreferences.prepareCreate(projectPreferencesContext());
+  });
+  byId("project-results-filter-form").addEventListener("submit", (event) => { event.preventDefault(); applyProjectHistoryFilters(); });
+  byId("project-results-search").addEventListener("input", () => applyProjectHistoryFilters(true));
+  ["project-results-type", "project-results-date-from", "project-results-date-to"].forEach((id) => byId(id).addEventListener("change", () => applyProjectHistoryFilters()));
+  byId("project-results-filter-clear").addEventListener("click", () => { resetProjectHistoryFilters(); applyProjectHistoryFilters(); });
+  byId("project-create-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    createProject();
+  });
+  for (const id of ["project-create-close", "project-create-cancel"]) {
+    byId(id).addEventListener("click", () => projectWorkspace.closeProjectCreateDialog(projectWorkspaceContext()));
+  }
+  byId("project-create-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    projectWorkspace.closeProjectCreateDialog(projectWorkspaceContext());
+  });
   byId("project-export-report-btn").addEventListener("click", exportCurrentProjectReport);
   byId("project-use-btn").addEventListener("click", applyCurrentProjectToForms);
   byId("project-save-btn").addEventListener("click", saveCurrentProject);
   byId("project-delete-btn").addEventListener("click", deleteCurrentProject);
+  byId("project-restore-btn").addEventListener("click", restoreCurrentProject);
+  byId("project-delete-permanent-btn").addEventListener("click", permanentlyDeleteCurrentProject);
   byId("project-open-result-btn").addEventListener("click", openSelectedProjectHistoryResult);
   byId("project-archive-history-btn").addEventListener("click", archiveSelectedProjectHistory);
   byId("project-delete-history-btn").addEventListener("click", deleteSelectedProjectHistory);
-  byId("project-create-name").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      createProject();
-    }
-  });
+  byId("project-history-load-more").addEventListener("click", loadMoreProjectHistory);
   byId("project-edit-name").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -3461,6 +3785,7 @@ function bindEvents() {
     }
   });
   byId("llm-reload").addEventListener("click", loadLLMConfig);
+  byId("llm-test").addEventListener("click", testLLMConnection);
   byId("llm-save").addEventListener("click", saveLLMConfig);
   byId("prompt-apply-template").addEventListener("click", applyPromptTemplate);
   byId("prompt-save").addEventListener("click", savePromptSettings);
@@ -3468,29 +3793,114 @@ function bindEvents() {
     applyLLMProviderPreset(textValue("llm-provider"));
   });
 
-  byId("conv-new").addEventListener("click", () => {
-    currentConversationId = null;
-    byId("conv-title").textContent = t("conv_new");
-    byId("conv-meta").textContent = t("conv_new_hint");
-    renderMessages([]);
-    setSendStatus(t("conv_new"));
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".inline-help")) closeInlineHelpPopovers();
   });
 
+  byId("conv-new").addEventListener("click", startNewConversation);
+
   byId("send-btn").addEventListener("click", sendMessage);
+  byId("chat-log").addEventListener("click", handleAssistantApprovalClick);
+  byId("msg-input").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    sendMessage();
+  });
   byId("proc-run").addEventListener("click", runProcess);
   byId("proc-preflight-btn").addEventListener("click", () => runPreflight(false));
   byId("proc-diagnostics").addEventListener("click", exportDiagnostics);
-  byId("proc-folder-pick").addEventListener("click", pickFolder);
+  byId("proc-pick-files").addEventListener("click", pickProcessFiles);
+  byId("proc-pick-folder").addEventListener("click", pickProcessFolder);
+  byId("proc-source-clear").addEventListener("click", clearProcessSources);
+  byId("proc-source-list").addEventListener("change", (event) => {
+    const row = event.target.closest("[data-source-index]");
+    if (!row) return;
+    const index = Number(row.dataset.sourceIndex);
+    const item = processSourceItems[index];
+    if (!item) return;
+    if (event.target.classList.contains("source-file-enabled")) {
+      item.enabled = Boolean(event.target.checked);
+    }
+    if (event.target.classList.contains("source-file-type")) {
+      const previousType = item.data_type;
+      item.data_type = String(event.target.value || "").toUpperCase();
+      if (item.data_type) {
+        item.enabled = true;
+        enableDiscoveredProcessTypes([item]);
+      }
+      if (previousType && previousType !== item.data_type) disableUnusedSourceType(previousType);
+    }
+    renderProcessSourceList();
+    markProcessChanged();
+  });
+  byId("proc-source-list").addEventListener("click", (event) => {
+    const button = event.target.closest(".source-file-remove");
+    if (!button) return;
+    const row = button.closest("[data-source-index]");
+    const index = row ? Number(row.dataset.sourceIndex) : -1;
+    if (index < 0 || !processSourceItems[index]) return;
+    const removedType = processSourceItems[index].data_type;
+    processSourceItems.splice(index, 1);
+    disableUnusedSourceType(removedType);
+    renderProcessSourceList();
+    markProcessChanged();
+  });
+  byId("pro-recursive-scan").addEventListener("change", refreshProcessSourceFolders);
+  byId("pro-lsv-ir-eis-file-btn").addEventListener("click", pickIrEisFile);
   byId("tmpl-load").addEventListener("click", loadSelectedTemplate);
+  byId("tmpl-select").addEventListener("change", () => {
+    if (textValue("tmpl-select") !== appliedProcessTemplateName) {
+      appliedProcessTemplateName = "";
+      updateProcessStepState();
+    }
+  });
   byId("tmpl-save").addEventListener("click", () => {
     saveTemplate(false);
   });
   byId("tmpl-delete").addEventListener("click", deleteSelectedTemplate);
 
-  document.querySelectorAll(".proc-type-check").forEach((el) => {
-    el.addEventListener("change", () => {
+  const processTypeChecks = byId("process-type-checks") || document.querySelector(".dtype-checks");
+  if (processTypeChecks) {
+    processTypeChecks.addEventListener("change", (event) => {
+      const el = event.target.closest(".proc-type-check");
+      if (!el) return;
+      const dtype = String(el.value || "").toUpperCase();
+      if (el.checked) {
+        expandedProcessModules.add(dtype);
+      } else {
+        expandedProcessModules.delete(dtype);
+      }
+      markProcessChanged();
       toggleDataTypePanels();
+      renderProcessSourceList();
     });
+  }
+
+  document.querySelectorAll(".dtype-panel .mode-panel-head").forEach((head) => {
+    head.addEventListener("click", () => {
+      const panel = head.closest(".dtype-panel");
+      if (panel) toggleProcessModuleExpansion(panel.dataset.dtype || "");
+    });
+    head.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const panel = head.closest(".dtype-panel");
+      if (panel) toggleProcessModuleExpansion(panel.dataset.dtype || "");
+    });
+  });
+
+  document.querySelectorAll(".result-tab").forEach((btn) => {
+    btn.addEventListener("click", () => setResultTab(btn.dataset.resultTab || "current"));
+  });
+
+  const preflightFilesToggle = document.querySelector('[data-preflight-item="files"]');
+  if (preflightFilesToggle) {
+    preflightFilesToggle.addEventListener("click", () => setPreflightFileDetailOpen(!preflightFileDetailOpen));
+  }
+
+  document.querySelectorAll("#tab-pro input, #tab-pro select, #tab-pro textarea").forEach((el) => {
+    el.addEventListener("input", markProcessChanged);
+    el.addEventListener("change", markProcessChanged);
   });
 
   document.querySelectorAll(".feature-body[data-feature-toggle]").forEach((body) => {
@@ -3501,10 +3911,44 @@ function bindEvents() {
     }
   });
 
-  const advancedModeEl = byId("pro-advanced-mode");
-  if (advancedModeEl) {
-    advancedModeEl.addEventListener("change", syncFeatureBlocks);
+  document.querySelectorAll(".module-advanced-check").forEach((el) => {
+    el.addEventListener("change", syncFeatureBlocks);
+  });
+
+  ["pro-lsv-ir-source", "pro-lsv-ir-scope"].forEach((id) => {
+    const el = byId(id);
+    if (el) el.addEventListener("change", syncIrCompensationUI);
+  });
+
+  const coupledInputMode = byId("pro-coupled-input-mode");
+  if (coupledInputMode) {
+    coupledInputMode.addEventListener("change", syncCoupledInputUI);
   }
+  const coupledPeakMethodSource = byId("pro-coupled-peak-method-source");
+  if (coupledPeakMethodSource) {
+    coupledPeakMethodSource.addEventListener("change", syncCoupledPeakMethodSourceUI);
+  }
+  const feProductAdd = byId("fe-product-add");
+  if (feProductAdd) {
+    feProductAdd.addEventListener("click", () => {
+      addFeProductRow();
+      markProcessChanged();
+    });
+  }
+  const feProductList = byId("fe-product-list");
+  if (feProductList) {
+    feProductList.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-fe-product-remove]");
+      if (!remove || remove.disabled) return;
+      const row = remove.closest("[data-fe-product-row]");
+      if (row) row.remove();
+      renumberFeProductRows();
+      markProcessChanged();
+    });
+    feProductList.addEventListener("input", markProcessChanged);
+    feProductList.addEventListener("change", markProcessChanged);
+  }
+  renumberFeProductRows();
 
   const potentialModeEl = byId("pro-potential-mode");
   if (potentialModeEl) {
@@ -3514,70 +3958,106 @@ function bindEvents() {
   if (refPresetEl) {
     refPresetEl.addEventListener("change", syncPotentialConversionUI);
   }
-  ["pro-offset", "pro-rhe-ph", "pro-ref-custom"].forEach((id) => {
+  ["pro-offset", "pro-rhe-ph", "pro-rhe-temperature", "pro-ref-custom"].forEach((id) => {
     const el = byId(id);
     if (el) el.addEventListener("input", renderPotentialOffsetPreview);
   });
 
-  // ECSA material preset → auto-fill Cs value
-  const ecsaMaterialPresets = {
-    "Pt": 20, "Carbon": 20, "IrO2": 40, "RuO2": 35,
-    "NiFeOOH": 60, "MnO2": 40, "CoOx": 50,
-  };
   const ecsaMaterialEl = byId("pro-ecsa-material");
   if (ecsaMaterialEl) {
     ecsaMaterialEl.addEventListener("change", () => {
       const val = ecsaMaterialEl.value;
-      if (val !== "custom" && ecsaMaterialPresets[val] != null) {
+      const presets = processParameterSchema && processParameterSchema.presets;
+      const materials = presets && Array.isArray(presets.ecsa_materials) ? presets.ecsa_materials : [];
+      const selected = materials.find((item) => String(item.key) === val);
+      if (selected && selected.specific_capacitance_uf_cm2 != null) {
         const csInput = byId("pro-ecsa-cs-value");
-        if (csInput) csInput.value = ecsaMaterialPresets[val];
+        if (csInput) csInput.value = selected.specific_capacitance_uf_cm2;
       }
     });
   }
 
-  [
-    ["lsv", "LSV"],
-    ["cv", "CV"],
-    ["eis", "EIS"],
-    ["ecsa", "ECSA"],
-  ].forEach(([baseId, defaultToken]) => {
+  document.querySelectorAll("[data-match-label]").forEach((label) => {
+    const baseId = String(label.dataset.matchLabel || "").trim().toLowerCase();
     const el = byId(`pro-${baseId}-match`);
     if (el) {
-      el.addEventListener("change", () => {
-        syncMatchFieldMeta(baseId, defaultToken);
-      });
+      el.addEventListener("change", () => syncMatchFieldMeta(baseId));
     }
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    closeInlineHelpPopovers();
     closeHelpPanel();
     closeSystemPanel();
     closeAISettingsPanel();
+    closeAssistantDrawer();
   });
 }
 
 function init() {
+  const desktop = window.ElectrochemDesktop;
+  if (desktop && desktop.requested() && !desktop.isEnabled()) {
+    desktop.bootstrap().then(init).catch(() => {});
+    return;
+  }
+  const restored = desktop && desktop.isEnabled() ? desktop.getWorkspace() : null;
   currentLang = localStorage.getItem("electrochem_v6_lang") || "zh";
+  themeManager.init();
+  if (window.ElectrochemAppearance) window.ElectrochemAppearance.init({ byId, t });
   applyI18n();
   bindEvents();
-  switchTab("pro");
+  if (projectWorkbench) projectWorkbench.init(projectWorkbenchContext);
+  if (projectReplay) projectReplay.init(projectWorkbenchContext);
+  if (projectPreferences) projectPreferences.init(projectPreferencesContext);
+  if (projectRecovery) projectRecovery.init(projectWorkbenchContext);
+  if (projectReplicates) projectReplicates.init(projectReplicatesContext);
+  if (assistantActions) assistantActions.init(assistantActionsContext());
+  if (taskCenter) taskCenter.init(taskCenterContext);
+  if (desktop) desktop.init({
+    getWorkspace: () => ({
+      tab: byId("tab-project").classList.contains("active") ? "project" : "pro",
+      project_id: selectedProjectId,
+      conversation_id: currentConversationId || "",
+      assistant_open: !byId("assistant-drawer").classList.contains("hidden"),
+    }),
+    openAISettings: openAISettingsPanel,
+    openSystem: openSystemPanel,
+    isProcessing: () => Boolean(activeProcessJobId || (byId("proc-run") && byId("proc-run").disabled)),
+    importPaths: async (paths) => {
+      switchTab("pro");
+      await discoverAndMergeProcessSources({ file_paths: paths }, `desktop:${Date.now()}`, false);
+      setProcStatus(t("source_pick_success"));
+    },
+  });
+  switchTab(restored ? restored.tab : "pro");
   toggleDataTypePanels();
   syncFeatureBlocks();
+  syncProcessModulePanels();
+  setResultTab("current");
+  renderPreflightChecks(null, "pending");
+  renderProcessSourceList();
   syncAllMatchFieldMeta();
   syncPotentialConversionUI();
   renderResultPlaceholder();
   byId("conv-title").textContent = t("conv_none");
   byId("conv-meta").textContent = t("conv_auto_create");
   fetchHealth();
-  loadConversations();
+  if (restored && restored.conversation_id) conversationAutoSelect = false;
+  const conversationsReady = loadConversations();
   loadStatsAndHistory();
-  loadProjects();
+  const projectsReady = loadProjects(restored ? restored.project_id : "");
+  loadStorageSummary();
   loadPromptSettings();
   loadLLMConfig();
   loadTemplates();
+  loadProcessingParameterSchema();
+  requestProcessScrollSpyUpdate();
+  const restoredConversation = restored && restored.conversation_id ? openConversation(restored.conversation_id, true).then((opened) => {
+    if (opened === false && currentConversationId === restored.conversation_id) startNewConversation();
+  }) : Promise.resolve();
+  if (restored && restored.assistant_open) openAssistantDrawer();
+  if (desktop && desktop.isEnabled()) Promise.allSettled([conversationsReady, projectsReady, restoredConversation]).then(() => desktop.markReady());
 }
 
 init();
-
-

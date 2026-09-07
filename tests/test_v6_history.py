@@ -1,139 +1,134 @@
-"""Tests for store/history.py — pure functions and filter logic."""
+"""Tests for the SQLite-backed history service adapter."""
+
 from __future__ import annotations
 
-from electrochem_v6.store.history import (
-    _filter_records,
-    _normalize_history_payload,
-    _record_key,
-)
-
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  _normalize_history_payload                                             ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
-
-class TestNormalizeHistoryPayload:
-    def test_list_input(self):
-        result = _normalize_history_payload([{"a": 1}])
-        assert result["records"] == [{"a": 1}]
-        assert result["version"] == "1.0"
-
-    def test_dict_with_records(self):
-        result = _normalize_history_payload({"records": [{"b": 2}], "version": "2.0"})
-        assert result["records"] == [{"b": 2}]
-        assert result["version"] == "2.0"
-
-    def test_dict_without_records(self):
-        result = _normalize_history_payload({"foo": "bar"})
-        assert result["records"] == []
-        assert result["version"] == "1.0"
-
-    def test_dict_records_not_list(self):
-        result = _normalize_history_payload({"records": "oops"})
-        assert result["records"] == []
-
-    def test_non_dict_non_list(self):
-        result = _normalize_history_payload(42)
-        assert result["records"] == []
-
-    def test_none_input(self):
-        result = _normalize_history_payload(None)
-        assert result["records"] == []
+import electrochem_v6.store.history as history
 
 
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  _record_key                                                            ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
+class FakeDatabase:
+    def __init__(self) -> None:
+        self.filter_kwargs = None
+        self.stats_kwargs = None
+        self.update_result = 1
+        self.update_calls = []
+        self.attach_kwargs = None
 
-class TestRecordKey:
-    def test_full_record(self):
-        rec = {"timestamp": "2024-01-01 12:00", "type": "LSV", "file_path": "/data/lsv.txt"}
-        key = _record_key(rec)
-        assert key == "2024-01-01 12:00|LSV|/data/lsv.txt"
+    def filter_history(self, **kwargs):
+        self.filter_kwargs = kwargs
+        return [
+            {"timestamp": "2026-07-22 10:00:00", "type": "LSV", "project_id": "P1"},
+            {"timestamp": "2026-07-21 10:00:00", "type": "CV", "project_id": "P1"},
+        ]
 
-    def test_file_name_fallback(self):
-        rec = {"timestamp": "T1", "type": "CV", "file_name": "cv.txt"}
-        assert _record_key(rec) == "T1|CV|cv.txt"
+    def get_history_stats(self, **kwargs):
+        self.stats_kwargs = kwargs
+        return {"total": 2, "by_type": {"LSV": 1, "CV": 1}}
 
-    def test_sample_name_fallback(self):
-        rec = {"timestamp": "T1", "type": "EIS", "sample_name": "sample_A"}
-        assert _record_key(rec) == "T1|EIS|sample_A"
+    def update_history_by_key(self, history_key, action):
+        self.update_calls.append((history_key, action))
+        return self.update_result
 
-    def test_empty_record(self):
-        assert _record_key({}) == "||"
-
-
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  _filter_records                                                        ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
-
-SAMPLE_RECORDS = [
-    {"timestamp": "T1", "type": "LSV", "project_id": "P1", "results": {"eta": 0.30}},
-    {"timestamp": "T2", "type": "CV",  "project_id": "P1", "results": {"area": 1.5}},
-    {"timestamp": "T3", "type": "EIS", "project_id": "P2", "results": {"Rs": 8.0}},
-    {"timestamp": "T4", "type": "LSV", "project_id": "P1", "archived": True, "results": {"eta": 0.50}},
-    {"timestamp": "T5", "type": "ECSA", "project_id": "P2", "results": {"Cdl": 0.02}},
-]
+    def attach_run_outputs(self, **kwargs):
+        self.attach_kwargs = kwargs
+        return 2
 
 
-class TestFilterRecords:
-    def test_no_filter(self):
-        # archived=False by default → T4 excluded
-        result = _filter_records(SAMPLE_RECORDS)
-        assert len(result) == 4
+def test_list_history_forwards_sqlite_filters(monkeypatch):
+    database = FakeDatabase()
+    monkeypatch.setattr(history, "get_database", lambda: database)
 
-    def test_include_archived(self):
-        result = _filter_records(SAMPLE_RECORDS, include_archived=True)
-        assert len(result) == 5
+    response = history.list_history(
+        project_id="P1",
+        limit=25,
+        include_archived=True,
+        metric_key="eta",
+        metric_min=0.1,
+        metric_max=0.5,
+        data_type="LSV",
+    )
 
-    def test_by_project(self):
-        result = _filter_records(SAMPLE_RECORDS, project_id="P1")
-        types = {r["type"] for r in result}
-        assert "EIS" not in types
-        assert len(result) == 2  # T1, T2 (T4 archived)
+    assert response["status"] == "success"
+    assert len(response["records"]) == 2
+    assert database.filter_kwargs == {
+        "project_id": "P1",
+        "include_archived": True,
+        "data_type": "LSV",
+        "metric_key": "eta",
+        "metric_min": 0.1,
+        "metric_max": 0.5,
+        "limit": 25,
+    }
 
-    def test_by_project_with_archived(self):
-        result = _filter_records(SAMPLE_RECORDS, project_id="P1", include_archived=True)
-        assert len(result) == 3  # T1, T2, T4
 
-    def test_by_data_type(self):
-        result = _filter_records(SAMPLE_RECORDS, data_type="LSV")
-        assert len(result) == 1  # T1 only (T4 archived)
+def test_stats_and_project_report_use_public_database_contract(monkeypatch):
+    database = FakeDatabase()
+    monkeypatch.setattr(history, "get_database", lambda: database)
 
-    def test_by_data_type_case_insensitive(self):
-        result = _filter_records(SAMPLE_RECORDS, data_type="lsv")
-        assert len(result) == 1
+    stats = history.get_stats(project_id="P1", include_archived=False)
+    report = history.build_project_report(" P1 ", include_archived=True)
 
-    def test_metric_min(self):
-        result = _filter_records(SAMPLE_RECORDS, metric_key="eta", metric_min=0.25)
-        assert len(result) == 1  # T1 has eta=0.30
+    assert stats == {
+        "status": "success",
+        "data": {"total": 2, "by_type": {"LSV": 1, "CV": 1}},
+    }
+    assert report["status"] == "success"
+    assert report["report"]["project_id"] == "P1"
+    assert report["report"]["generated_at"] == "2026-07-22 10:00:00"
+    assert report["report"]["stats"]["total"] == 2
+    assert database.stats_kwargs == {"project_id": "P1", "include_archived": True}
 
-    def test_metric_max(self):
-        result = _filter_records(SAMPLE_RECORDS, metric_key="Rs", metric_max=10.0)
-        assert len(result) == 1  # T3 has Rs=8.0
 
-    def test_metric_range(self):
-        result = _filter_records(
-            SAMPLE_RECORDS, metric_key="eta", metric_min=0.20, metric_max=0.40,
-        )
-        assert len(result) == 1
+def test_history_update_rejects_empty_and_reports_not_found(monkeypatch):
+    database = FakeDatabase()
+    monkeypatch.setattr(history, "get_database", lambda: database)
 
-    def test_metric_key_missing(self):
-        """Records without the metric key are excluded."""
-        result = _filter_records(SAMPLE_RECORDS, metric_key="nonexistent", metric_min=0.0)
-        assert len(result) == 0
+    assert history.archive_history_record(" ")["status"] == "error"
+    database.update_result = 0
+    missing = history.delete_history_record("missing")
 
-    def test_non_dict_items_skipped(self):
-        records = [{"type": "LSV", "timestamp": "T"}, "not a dict", 42]
-        result = _filter_records(records)
-        assert len(result) == 1
+    assert missing == {
+        "status": "error",
+        "message": "history record not found",
+        "updated": 0,
+    }
+    assert database.update_calls == [("missing", "delete")]
 
-    def test_combined_filters(self):
-        result = _filter_records(
-            SAMPLE_RECORDS,
-            project_id="P1",
-            data_type="LSV",
-            include_archived=True,
-            metric_key="eta",
-            metric_min=0.40,
-        )
-        assert len(result) == 1  # only T4 (eta=0.50, archived but included)
+
+def test_archive_and_delete_forward_actions(monkeypatch):
+    database = FakeDatabase()
+    monkeypatch.setattr(history, "get_database", lambda: database)
+
+    archived = history.archive_history_record("run-a")
+    deleted = history.delete_history_record("run-b")
+
+    assert archived == {"status": "success", "updated": 1, "action": "archive"}
+    assert deleted == {"status": "success", "updated": 1, "action": "delete"}
+    assert database.update_calls == [("run-a", "archive"), ("run-b", "delete")]
+
+
+def test_attach_run_outputs_normalizes_files(monkeypatch):
+    database = FakeDatabase()
+    monkeypatch.setattr(history, "get_database", lambda: database)
+
+    response = history.attach_run_outputs(
+        run_id=" run-1 ",
+        output_files=[" result.csv ", "", "plot.png"],
+        summary_path="summary.json",
+        quality_summary={"passed": 2},
+    )
+
+    assert response == {"status": "success", "updated": 2}
+    assert database.attach_kwargs == {
+        "run_id": "run-1",
+        "output_files": ["result.csv", "plot.png"],
+        "summary_path": "summary.json",
+        "quality_summary": {"passed": 2},
+    }
+    assert history.attach_run_outputs(run_id="", output_files=[])["status"] == "error"
+
+
+def test_project_report_requires_project_id():
+    assert history.build_project_report(" ") == {
+        "status": "error",
+        "message": "missing project id",
+    }

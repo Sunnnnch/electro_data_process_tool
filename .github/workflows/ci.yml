@@ -3,32 +3,40 @@ name: CI
 on:
   push:
     branches: [main]
-    tags-ignore: ["v*"]     # skip CI when release workflow pushes a tag
   pull_request:
 
 permissions:
-  contents: write           # semantic-release needs to push tags
+  contents: read
 
 jobs:
   test:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Install Playwright browser and verify MCP SDK
+        run: |
+          python -m playwright install chromium
+          python -c "from mcp.server.fastmcp import FastMCP; from mcp.client.stdio import stdio_client"
 
       - name: Lint (ruff)
         run: ruff check src/ tests/ --output-format=github
@@ -48,154 +56,6 @@ jobs:
 
       - name: Run tests
         env:
+          ELECTROCHEM_REQUIRE_PLAYWRIGHT: "1"
           PYTHONUTF8: "1"
         run: python -m pytest tests/ -q --tb=short --cov=src/electrochem_v6 --cov-report=term-missing --cov-fail-under=65
-
-  # ── Auto-release: bump version, build, publish GitHub Release ──
-  release:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          python -m pip install --upgrade pip
-          pip install python-semantic-release
-          pip install -r requirements-dev.txt
-
-      # ── Determine next version via semantic-release ──
-      - name: Detect next version
-        id: semver
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PYTHONUTF8: "1"
-        run: |
-          $next = python -m semantic_release version --print 2>&1 |
-                  Select-String -Pattern '^\d+\.\d+\.\d+' |
-                  Select-Object -First 1
-          if ($next) {
-            $ver = $next.ToString().Trim()
-            echo "VERSION=$ver"        >> $env:GITHUB_OUTPUT
-            echo "TAG=v$ver"           >> $env:GITHUB_OUTPUT
-            echo "SHOULD_RELEASE=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Next version: $ver"
-          } else {
-            echo "SHOULD_RELEASE=false" >> $env:GITHUB_OUTPUT
-            Write-Host "No release needed"
-          }
-
-      # ── Bump version in config.py, commit, tag, push ──
-      - name: Bump and tag
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PYTHONUTF8: "1"
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          python -m semantic_release version --no-vcs-release --no-push
-          git push origin main
-          git push origin "v${{ steps.semver.outputs.VERSION }}"
-
-      # ── Build portable (onedir) ──
-      - name: Build portable
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        shell: pwsh
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          & packaging/build_onedir.ps1
-
-      # ── Package ZIP ──
-      - name: Package ZIP
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        id: zip
-        shell: pwsh
-        run: |
-          $ver  = "${{ steps.semver.outputs.VERSION }}"
-          $name = "ElectroChemV6-$ver-win64"
-          $src  = "dist/ElectroChemV6"
-          $zip  = "dist/$name.zip"
-          Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
-          echo "ZIP_PATH=$zip"     >> $env:GITHUB_OUTPUT
-          echo "ZIP_NAME=$name.zip" >> $env:GITHUB_OUTPUT
-
-      # ── Build Inno Setup installer (optional) ──
-      - name: Install Inno Setup
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        shell: pwsh
-        continue-on-error: true
-        run: choco install innosetup -y --no-progress
-
-      - name: Build installer
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        id: installer
-        shell: pwsh
-        continue-on-error: true
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          $ver = "${{ steps.semver.outputs.VERSION }}"
-          $iss = "packaging/installer.iss"
-          (Get-Content $iss) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content $iss
-          & packaging/build_installer.ps1
-          $exe = Get-ChildItem "dist_installer/ElectroChemV6-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($exe) {
-            echo "EXE_PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-            echo "HAS_INSTALLER=true"        >> $env:GITHUB_OUTPUT
-          } else {
-            echo "HAS_INSTALLER=false"       >> $env:GITHUB_OUTPUT
-          }
-
-      # ── Extract release notes from CHANGELOG ──
-      - name: Extract release notes
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        id: notes
-        shell: pwsh
-        run: |
-          $ver = "${{ steps.semver.outputs.VERSION }}"
-          $content = Get-Content CHANGELOG.md -Raw -Encoding utf8
-          $pattern = '(?ms)^## ' + [regex]::Escape($ver) + '\s*$(.+?)(?=\r?\n## |\z)'
-          if ($content -match $pattern) {
-            $Matches[1].Trim() | Out-File release_notes.md -Encoding utf8
-          } else {
-            # Fallback: auto-generate notes from git commits since last tag
-            $prevTag = git describe --tags --abbrev=0 HEAD~ 2>$null
-            if ($prevTag) {
-              $commits = git log "$prevTag..HEAD" --pretty=format:'- %s' --no-merges 2>$null
-            } else {
-              $commits = git log -20 --pretty=format:'- %s' --no-merges 2>$null
-            }
-            $body = "## What's Changed`n`n$($commits -join "`n")`n"
-            $body | Out-File release_notes.md -Encoding utf8
-          }
-
-      # ── Create GitHub Release with assets ──
-      - name: Create GitHub Release
-        if: steps.semver.outputs.SHOULD_RELEASE == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.semver.outputs.TAG }}
-          name: "v${{ steps.semver.outputs.VERSION }}"
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-          files: |
-            ${{ steps.zip.outputs.ZIP_PATH }}
-            ${{ steps.installer.outputs.HAS_INSTALLER == 'true' && steps.installer.outputs.EXE_PATH || '' }}

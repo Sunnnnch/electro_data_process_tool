@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电化学数据处理工作台主题预览</title>
+  <style>
+    :root {
+      --font: "Inter", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      --radius: 8px;
+      --shadow: 0 22px 56px rgba(10, 20, 28, 0.22);
+      --border-w: 1px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--page-bg);
+      transition: background 180ms ease, color 180ms ease;
+    }
+
+    body[data-theme="ocean"] {
+      --page-bg:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        radial-gradient(circle at 84% 18%, rgba(20, 126, 106, 0.36), transparent 34%),
+        linear-gradient(135deg, #0b2634 0%, #0f3b45 45%, #0a463b 100%);
+      --grid-size: 28px 28px, 28px 28px, auto, auto;
+      --app-bg: rgba(237, 244, 247, 0.88);
+      --chrome: #0b2b3a;
+      --chrome-2: #113f4a;
+      --surface: #f4f8fa;
+      --surface-2: #e8f0f3;
+      --surface-3: #dce9ec;
+      --text: #0f1b24;
+      --muted: #516879;
+      --line: #c1d1d8;
+      --line-strong: #8fa8b4;
+      --primary: #0e6a4e;
+      --primary-2: #084733;
+      --blue: #155e95;
+      --amber: #af6d16;
+      --danger: #b42318;
+      --good: #087443;
+      --panel-shadow: 0 16px 42px rgba(8, 34, 45, 0.18);
+    }
+
+    body[data-theme="lab"] {
+      --page-bg: linear-gradient(135deg, #eef5f7 0%, #f8fbfb 48%, #e6f0ed 100%);
+      --grid-size: auto;
+      --app-bg: #f9fbfb;
+      --chrome: #ffffff;
+      --chrome-2: #eff5f7;
+      --surface: #ffffff;
+      --surface-2: #f2f6f7;
+      --surface-3: #e6eef1;
+      --text: #10202d;
+      --muted: #5c6f7c;
+      --line: #d3dee3;
+      --line-strong: #b2c4ce;
+      --primary: #0f6b5e;
+      --primary-2: #0a5147;
+      --blue: #2563eb;
+      --amber: #b7791f;
+      --danger: #b42318;
+      --good: #0f7a4d;
+      --panel-shadow: 0 14px 36px rgba(44, 68, 79, 0.11);
+    }
+
+    body[data-theme="dark"] {
+      --page-bg:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(135deg, #111714 0%, #182324 42%, #221f19 100%);
+      --grid-size: 30px 30px, 30px 30px, auto;
+      --app-bg: rgba(22, 30, 30, 0.94);
+      --chrome: #0f1514;
+      --chrome-2: #172321;
+      --surface: #1b2424;
+      --surface-2: #202d2c;
+      --surface-3: #273635;
+      --text: #eef6f2;
+      --muted: #a3b4ae;
+      --line: #344541;
+      --line-strong: #55706a;
+      --primary: #26a06f;
+      --primary-2: #1a754f;
+      --blue: #64a7e8;
+      --amber: #d79a3b;
+      --danger: #ff786e;
+      --good: #49c487;
+      --panel-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+    }
+
+    body[data-theme="instrument"] {
+      --page-bg:
+        linear-gradient(rgba(30, 55, 50, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(30, 55, 50, 0.045) 1px, transparent 1px),
+        linear-gradient(135deg, #d9e0db 0%, #edf0e8 44%, #cbd7d3 100%);
+      --grid-size: 34px 34px, 34px 34px, auto;
+      --app-bg: #e9eee9;
+      --chrome: #23342f;
+      --chrome-2: #344840;
+      --surface: #f5f6ef;
+      --surface-2: #e5e8dc;
+      --surface-3: #d6dccd;
+      --text: #18231f;
+      --muted: #5a655d;
+      --line: #bbc6b8;
+      --line-strong: #8da08e;
+      --primary: #24715b;
+      --primary-2: #184c3d;
+      --blue: #315f7d;
+      --amber: #b57416;
+      --danger: #a73524;
+      --good: #267247;
+      --panel-shadow: 0 10px 0 rgba(35, 52, 47, 0.14), 0 20px 38px rgba(44, 56, 50, 0.12);
+      --radius: 2px;
+    }
+
+    body[data-theme="pixel"] {
+      --page-bg:
+        linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(120deg, #112d3c 0%, #0f3b3b 55%, #0b2b33 100%);
+      --grid-size: 24px 24px, 24px 24px, auto;
+      --app-bg: #eef5f6;
+      --chrome: #102c3a;
+      --chrome-2: #143f4d;
+      --surface: #f7fbfb;
+      --surface-2: #e2ecee;
+      --surface-3: #c9d9dc;
+      --text: #071821;
+      --muted: #4b6270;
+      --line: #9eb5bb;
+      --line-strong: #071821;
+      --primary: #0f7658;
+      --primary-2: #0b543f;
+      --blue: #2269a8;
+      --amber: #b47316;
+      --danger: #b42318;
+      --good: #0f7658;
+      --panel-shadow: 6px 6px 0 rgba(7, 24, 33, 0.26);
+      --radius: 0;
+      --border-w: 3px;
+      --font: "Courier New", "Microsoft YaHei", monospace;
+    }
+
+    body {
+      background-size: var(--grid-size);
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      width: min(1740px, calc(100vw - 40px));
+      min-height: calc(100vh - 40px);
+      margin: 20px auto;
+      overflow: hidden;
+      border: var(--border-w) solid var(--line-strong);
+      border-radius: calc(var(--radius) + 8px);
+      background: var(--app-bg);
+      box-shadow: var(--shadow);
+    }
+
+    .topbar {
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 330px minmax(420px, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 18px;
+      border-bottom: var(--border-w) solid var(--line-strong);
+      background: linear-gradient(135deg, var(--chrome), var(--chrome-2));
+      color: #f6fbfb;
+    }
+
+    body[data-theme="lab"] .topbar {
+      color: var(--text);
+      background: linear-gradient(135deg, var(--chrome), var(--chrome-2));
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      background: var(--primary);
+      color: #fff;
+      font-weight: 800;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.24);
+    }
+
+    .brand strong, .brand span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand strong { font-size: 18px; }
+    .brand span { margin-top: 3px; color: color-mix(in srgb, currentColor 72%, transparent); font-size: 12px; }
+
+    .tabs, .tools, .theme-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tabs { justify-content: center; }
+    .tools { justify-content: flex-end; }
+
+    .tab, .tool, .theme-pill {
+      min-height: 38px;
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 0 14px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      border-color: color-mix(in srgb, var(--primary) 70%, var(--line));
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .tool.status {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    body[data-theme="lab"] .tool.status { color: var(--text); background: var(--surface); }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      margin-right: 7px;
+      border-radius: 999px;
+      background: var(--good);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent);
+    }
+
+    .theme-strip {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 18px;
+      border-bottom: var(--border-w) solid var(--line);
+      background: var(--surface);
+    }
+
+    .theme-strip strong {
+      font-size: 14px;
+    }
+
+    .theme-pills {
+      overflow: auto;
+      padding-bottom: 2px;
+    }
+
+    .theme-pill {
+      white-space: nowrap;
+      min-height: 34px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .theme-pill.active {
+      color: #fff;
+      background: var(--text);
+      border-color: var(--text);
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 284px minmax(680px, 1fr) 344px;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .rail, .main, .result {
+      min-width: 0;
+    }
+
+    .rail {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+    }
+
+    .panel {
+      overflow: hidden;
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--panel-shadow);
+    }
+
+    .panel.pad {
+      padding: 14px;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .panel-title small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mode-list, .step-list, .history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .side-btn, .step-btn {
+      width: 100%;
+      border: var(--border-w) solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-weight: 700;
+    }
+
+    .side-btn {
+      min-height: 46px;
+      padding: 0 13px;
+    }
+
+    .side-btn.active {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+      color: var(--primary);
+    }
+
+    body[data-theme="pixel"] .side-btn.active,
+    body[data-theme="dark"] .side-btn.active {
+      color: #fff;
+      background: var(--primary);
+    }
+
+    .step-btn {
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+    }
+
+    .step-btn.active {
+      border-color: var(--line-strong);
+      background: var(--surface-2);
+    }
+
+    .step-no {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      background: var(--surface-3);
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .step-ok .step-no {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .step-warn .step-no {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .step-copy span, .step-copy small {
+      display: block;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .step-copy span { font-size: 14px; }
+    .step-copy small { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .step-warn .step-copy small { color: var(--danger); }
+
+    .main {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .main-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      padding: 20px;
+      border-bottom: var(--border-w) solid var(--line);
+      background: var(--surface);
+    }
+
+    .main-head h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    .main-head p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .run-btn, .btn {
+      min-height: 42px;
+      border: var(--border-w) solid color-mix(in srgb, var(--primary) 52%, var(--line));
+      border-radius: var(--radius);
+      background: var(--primary);
+      color: #fff;
+      padding: 0 18px;
+      font-weight: 800;
+    }
+
+    .btn.secondary {
+      border-color: var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    .btn.blue {
+      border-color: color-mix(in srgb, var(--blue) 60%, var(--line));
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .content {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .group {
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 88%, var(--surface-2));
+      overflow: hidden;
+    }
+
+    .group-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 14px 10px;
+    }
+
+    .group-head h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .group-head span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 14px 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    input, select {
+      width: 100%;
+      height: 42px;
+      min-width: 0;
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 12px;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 17%, transparent);
+    }
+
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-12 { grid-column: span 12; }
+
+    .folder-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 146px;
+      gap: 10px;
+    }
+
+    .checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 0 14px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .checks input {
+      width: 17px;
+      height: 17px;
+      margin: 0 6px 0 0;
+      vertical-align: middle;
+      accent-color: var(--primary);
+    }
+
+    .method-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 14px 14px;
+    }
+
+    .method {
+      min-height: 86px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 12px;
+    }
+
+    .method.active {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+      box-shadow: inset 4px 0 0 var(--primary);
+    }
+
+    .method input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--primary);
+    }
+
+    .method strong, .method small {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+
+    .method strong { font-size: 17px; }
+    .method small { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.35; }
+
+    .module-stack {
+      display: grid;
+      gap: 10px;
+      padding: 0 14px 14px;
+    }
+
+    .module {
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .module.lsv { box-shadow: inset 4px 0 0 var(--primary); }
+    .module.cv { box-shadow: inset 4px 0 0 var(--blue); }
+    .module.eis { box-shadow: inset 4px 0 0 var(--amber); }
+
+    .module-head {
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 11px 13px 11px 16px;
+      border-bottom: var(--border-w) solid var(--line);
+      background: color-mix(in srgb, var(--surface) 78%, var(--surface-2));
+    }
+
+    .module-badge {
+      min-width: 50px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      background: var(--text);
+      color: var(--surface);
+      padding: 8px 10px;
+      font-weight: 900;
+    }
+
+    .module-title strong, .module-title small {
+      display: block;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .module-title strong { font-size: 17px; }
+    .module-title small { margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
+
+    .module-state {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .module-body {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 10px;
+      padding: 13px;
+    }
+
+    .divider-title {
+      grid-column: span 12;
+      margin-top: 2px;
+      padding-top: 8px;
+      border-top: var(--border-w) solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+    }
+
+    .preflight {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 14px 14px;
+    }
+
+    .preflight-card {
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 11px;
+    }
+
+    .preflight-card span, .preflight-card strong {
+      display: block;
+    }
+
+    .preflight-card span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .preflight-card strong {
+      margin-top: 8px;
+      color: var(--good);
+      font-size: 18px;
+    }
+
+    .preflight-card.warn strong { color: var(--danger); }
+
+    .action-bar {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-top: var(--border-w) solid var(--line);
+      background: var(--surface-2);
+    }
+
+    .action-bar span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .action-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .result {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .stat {
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      padding: 11px;
+      min-height: 78px;
+    }
+
+    .stat span, .stat strong {
+      display: block;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .stat strong {
+      margin-top: 8px;
+      font-size: 27px;
+    }
+
+    .result-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .result-tab {
+      min-height: 38px;
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .result-tab.active {
+      background: var(--text);
+      color: var(--surface);
+      border-color: var(--text);
+    }
+
+    .summary-box, .history-item {
+      border: var(--border-w) solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      padding: 12px;
+    }
+
+    .summary-box h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    .summary-box p, .history-item span {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.7;
+    }
+
+    .history-list {
+      max-height: 376px;
+      overflow: auto;
+    }
+
+    .history-item strong, .history-item span {
+      display: block;
+    }
+
+    .history-item strong {
+      font-size: 14px;
+    }
+
+    .history-item span {
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 1320px) {
+      .workspace {
+        grid-template-columns: 260px minmax(620px, 1fr);
+      }
+      .result {
+        grid-column: 1 / -1;
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+      .method-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 920px) {
+      .app {
+        width: 100%;
+        min-height: 100vh;
+        margin: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      .topbar {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .tabs, .tools { justify-content: flex-start; flex-wrap: wrap; }
+      .theme-strip {
+        grid-template-columns: 1fr;
+      }
+      .workspace, .result {
+        grid-template-columns: 1fr;
+      }
+      .fields, .module-body {
+        grid-template-columns: 1fr;
+      }
+      .span-3, .span-4, .span-5, .span-6, .span-7, .span-12, .divider-title {
+        grid-column: span 1;
+      }
+      .folder-row, .preflight, .method-grid {
+        grid-template-columns: 1fr;
+      }
+      .action-bar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .action-buttons .btn {
+        flex: 1 1 150px;
+      }
+    }
+  </style>
+</head>
+<body data-theme="ocean">
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">EC</div>
+        <div>
+          <strong>电化学数据处理软件 V6</strong>
+          <span>主题系统预览</span>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="工作模式">
+        <button class="tab active" type="button">专业模式</button>
+        <button class="tab" type="button">数据分析助手</button>
+        <button class="tab" type="button">项目管理</button>
+      </nav>
+      <div class="tools">
+        <button class="tool status" type="button"><span class="status-dot"></span>在线</button>
+        <button class="tool" type="button">使用说明</button>
+        <button class="tool" type="button">中文</button>
+      </div>
+    </header>
+
+    <section class="theme-strip">
+      <strong>主题预览</strong>
+      <div class="theme-pills" aria-label="主题切换">
+        <button class="theme-pill active" type="button" data-theme-target="ocean">专业深海</button>
+        <button class="theme-pill" type="button" data-theme-target="lab">实验室浅色</button>
+        <button class="theme-pill" type="button" data-theme-target="dark">高对比暗色</button>
+        <button class="theme-pill" type="button" data-theme-target="instrument">仪器面板</button>
+        <button class="theme-pill" type="button" data-theme-target="pixel">像素终端</button>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <aside class="rail">
+        <section class="panel pad">
+          <h2 class="panel-title">工作模式 <small>MODE</small></h2>
+          <div class="mode-list">
+            <button class="side-btn active" type="button">专业模式</button>
+            <button class="side-btn" type="button">数据分析助手</button>
+            <button class="side-btn" type="button">项目管理</button>
+          </div>
+        </section>
+
+        <section class="panel pad">
+          <h2 class="panel-title">处理流程 <small>FLOW</small></h2>
+          <div class="step-list">
+            <button class="step-btn step-warn active" type="button">
+              <span class="step-no">1</span>
+              <span class="step-copy"><span>选择数据源</span><small>需检查</small></span>
+            </button>
+            <button class="step-btn" type="button">
+              <span class="step-no">2</span>
+              <span class="step-copy"><span>选择模板</span><small>可选</small></span>
+            </button>
+            <button class="step-btn step-ok" type="button">
+              <span class="step-no">3</span>
+              <span class="step-copy"><span>选择处理方式</span><small>已完成</small></span>
+            </button>
+            <button class="step-btn step-ok" type="button">
+              <span class="step-no">4</span>
+              <span class="step-copy"><span>通用参数</span><small>已完成</small></span>
+            </button>
+            <button class="step-btn step-ok" type="button">
+              <span class="step-no">5</span>
+              <span class="step-copy"><span>模块参数</span><small>已完成</small></span>
+            </button>
+            <button class="step-btn" type="button">
+              <span class="step-no">6</span>
+              <span class="step-copy"><span>预检</span><small>未完成</small></span>
+            </button>
+            <button class="step-btn" type="button">
+              <span class="step-no">7</span>
+              <span class="step-copy"><span>运行与结果</span><small>未完成</small></span>
+            </button>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div class="main-head">
+            <div>
+              <h1>专业数据处理</h1>
+              <p>批量处理 LSV / CV / EIS / ECSA / COUPLED 数据，统一管理参数、预检和结果。</p>
+            </div>
+            <button class="run-btn" type="button">运行处理</button>
+          </div>
+
+          <div class="content">
+            <section class="group">
+              <div class="group-head">
+                <h2>数据源与项目</h2>
+                <span>DATA SOURCE</span>
+              </div>
+              <div class="fields">
+                <div class="field span-12">
+                  <label for="folder">数据文件夹路径</label>
+                  <div class="folder-row">
+                    <input id="folder" type="text" value="D:\data\HER_2026">
+                    <button class="btn blue" type="button">选择文件夹</button>
+                  </div>
+                </div>
+                <div class="field span-6">
+                  <label for="project">关联项目</label>
+                  <select id="project">
+                    <option>HER_2026_main</option>
+                    <option>不关联项目</option>
+                  </select>
+                </div>
+                <div class="field span-6">
+                  <label for="template">参数模板</label>
+                  <select id="template">
+                    <option>LSV_常用模板 [内置]</option>
+                    <option>HER 三电极模板</option>
+                  </select>
+                </div>
+              </div>
+              <div class="checks">
+                <label><input type="checkbox">递归扫描子目录</label>
+                <label><input type="checkbox" checked>输出到独立批次目录</label>
+              </div>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <h2>处理方式</h2>
+                <span>METHODS</span>
+              </div>
+              <div class="method-grid">
+                <label class="method active">
+                  <input type="checkbox" checked>
+                  <span><strong>LSV</strong><small>极化曲线 / Tafel / 目标电流</small></span>
+                </label>
+                <label class="method active">
+                  <input type="checkbox" checked>
+                  <span><strong>CV</strong><small>循环伏安 / 峰检测 / 质量检查</small></span>
+                </label>
+                <label class="method">
+                  <input type="checkbox">
+                  <span><strong>EIS</strong><small>阻抗谱 / Nyquist / Bode</small></span>
+                </label>
+                <label class="method">
+                  <input type="checkbox">
+                  <span><strong>ECSA</strong><small>双电层电容 / 扫描速率拟合</small></span>
+                </label>
+                <label class="method">
+                  <input type="checkbox">
+                  <span><strong>COUPLED</strong><small>法拉第效率 / 产物选择性</small></span>
+                </label>
+              </div>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <h2>通用参数</h2>
+                <span>COMMON</span>
+              </div>
+              <div class="fields">
+                <div class="field span-4">
+                  <label for="area">电极面积 (cm2)</label>
+                  <input id="area" type="text" value="1.0">
+                </div>
+                <div class="field span-4">
+                  <label for="mode">电位换算方式</label>
+                  <select id="mode">
+                    <option>手动偏移</option>
+                    <option>RHE 换算</option>
+                  </select>
+                </div>
+                <div class="field span-4">
+                  <label for="font">图中文字大小</label>
+                  <input id="font" type="text" value="12">
+                </div>
+              </div>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <h2>模块参数</h2>
+                <span>MODULES</span>
+              </div>
+              <div class="module-stack">
+                <article class="module lsv">
+                  <div class="module-head">
+                    <span class="module-badge">LSV</span>
+                    <span class="module-title">
+                      <strong>极化曲线处理</strong>
+                      <small>文件识别: prefix LSV / 目标电流: 10,100 / Tafel: 可选</small>
+                    </span>
+                    <span class="module-state">展开</span>
+                  </div>
+                  <div class="module-body">
+                    <div class="divider-title">数据识别</div>
+                    <div class="field span-6">
+                      <label>文件匹配方式</label>
+                      <select><option>prefix 文件前缀</option><option>contains 包含关键词</option></select>
+                    </div>
+                    <div class="field span-6">
+                      <label>文件前缀</label>
+                      <input type="text" placeholder="默认 LSV">
+                    </div>
+                    <div class="divider-title">核心计算</div>
+                    <div class="field span-6">
+                      <label>目标电流</label>
+                      <input type="text" placeholder="例如 10,100">
+                    </div>
+                    <div class="field span-6">
+                      <label>Tafel 区间</label>
+                      <input type="text" placeholder="例如 1-10">
+                    </div>
+                    <div class="divider-title">绘图导出</div>
+                    <div class="field span-4">
+                      <label>图标题</label>
+                      <input type="text" value="LSV of {sample}">
+                    </div>
+                    <div class="field span-4">
+                      <label>X 轴标题</label>
+                      <input type="text" value="Potential (V)">
+                    </div>
+                    <div class="field span-4">
+                      <label>Y 轴标题</label>
+                      <input type="text" value="Current Density">
+                    </div>
+                  </div>
+                </article>
+
+                <article class="module cv">
+                  <div class="module-head">
+                    <span class="module-badge">CV</span>
+                    <span class="module-title">
+                      <strong>循环伏安处理</strong>
+                      <small>文件识别: prefix CV / 峰检测: 默认 / 质量检查: 开启</small>
+                    </span>
+                    <span class="module-state">收起</span>
+                  </div>
+                </article>
+
+                <article class="module eis">
+                  <div class="module-head">
+                    <span class="module-badge">EIS</span>
+                    <span class="module-title">
+                      <strong>阻抗谱处理</strong>
+                      <small>Nyquist: 开启 / Bode: 可选 / Randles: 可选</small>
+                    </span>
+                    <span class="module-state">收起</span>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="group">
+              <div class="group-head">
+                <h2>预检与运行</h2>
+                <span>PREFLIGHT</span>
+              </div>
+              <div class="preflight">
+                <div class="preflight-card warn"><span>数据文件识别</span><strong>需检查</strong></div>
+                <div class="preflight-card"><span>参数完整性</span><strong>通过</strong></div>
+                <div class="preflight-card"><span>输出目录</span><strong>正常</strong></div>
+                <div class="preflight-card warn"><span>可运行状态</span><strong>否</strong></div>
+              </div>
+            </section>
+          </div>
+
+          <div class="action-bar">
+            <span>当前批次: HER_2026_main / 已选择 LSV, CV</span>
+            <div class="action-buttons">
+              <button class="btn blue" type="button">预检</button>
+              <button class="btn" type="button">运行处理</button>
+              <button class="btn secondary" type="button">导出诊断包</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="result">
+        <section class="panel pad">
+          <h2 class="panel-title">处理概览 <small>STATUS</small></h2>
+          <div class="stats">
+            <div class="stat"><span>总记录</span><strong>137</strong></div>
+            <div class="stat"><span>LSV</span><strong>68</strong></div>
+            <div class="stat"><span>CV</span><strong>25</strong></div>
+            <div class="stat"><span>EIS</span><strong>22</strong></div>
+          </div>
+        </section>
+
+        <section class="panel pad">
+          <h2 class="panel-title">结果面板 <small>RESULT</small></h2>
+          <div class="result-tabs">
+            <button class="result-tab active" type="button">当前结果</button>
+            <button class="result-tab" type="button">历史记录</button>
+          </div>
+          <div class="summary-box">
+            <h3>最近一次运行</h3>
+            <p>摘要：暂无结果<br>输出文件：-<br>质量摘要：-</p>
+          </div>
+        </section>
+
+        <section class="panel pad">
+          <h2 class="panel-title">历史记录 <small>LOG</small></h2>
+          <div class="history-list">
+            <div class="history-item"><strong>3 | CV</strong><span>2026-03-11 16:07:54</span></div>
+            <div class="history-item"><strong>3 | LSV</strong><span>2026-03-11 16:07:53</span></div>
+            <div class="history-item"><strong>2 | LSV</strong><span>2026-03-11 16:07:52</span></div>
+            <div class="history-item"><strong>2 | CV</strong><span>2026-03-11 16:07:52</span></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const labels = {
+      ocean: "专业深海",
+      lab: "实验室浅色",
+      dark: "高对比暗色",
+      instrument: "仪器面板",
+      pixel: "像素终端"
+    };
+
+    function setTheme(theme) {
+      document.body.dataset.theme = theme;
+      document.querySelectorAll(".theme-pill").forEach((button) => {
+        button.classList.toggle("active", button.dataset.themeTarget === theme);
+      });
+      document.title = `${labels[theme]} - 电化学数据处理工作台主题预览`;
+    }
+
+    document.querySelectorAll(".theme-pill").forEach((button) => {
+      button.addEventListener("click", () => setTheme(button.dataset.themeTarget));
+    });
+  </script>
+</body>
+</html>

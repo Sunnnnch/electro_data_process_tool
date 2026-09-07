@@ -2,124 +2,111 @@
 
 from __future__ import annotations
 
-import json
-import logging
-import os
-import shutil
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, Iterator, Optional, Sequence
 
-from .legacy_runtime import _USE_SQLITE, get_history_manager_v6
-from .legacy_runtime import SqliteHistoryManager as _SqliteHM
+from .runtime import get_database
 
 __all__ = [
     "list_history",
+    "list_history_page",
+    "get_history_detail",
+    "iter_project_archive_records",
     "get_stats",
     "archive_history_record",
     "delete_history_record",
     "build_project_report",
     "attach_run_outputs",
+    "attach_run_provenance",
 ]
 
-_logger = logging.getLogger(__name__)
 
-
-def _normalize_history_payload(payload: Any) -> Dict[str, Any]:
-    if isinstance(payload, list):
-        return {"records": payload, "version": "1.0"}
-    if not isinstance(payload, dict):
-        return {"records": [], "version": "1.0"}
-    if not isinstance(payload.get("records"), list):
-        payload["records"] = []
-    payload.setdefault("version", "1.0")
-    return payload
-
-
-def _write_history_payload(hist_mgr: Any, payload: Dict[str, Any]) -> None:
-    safe_payload = hist_mgr._to_json_safe(payload) if hasattr(hist_mgr, "_to_json_safe") else payload
-    # Create backup before writing
-    history_file = str(hist_mgr.history_file)
-    if os.path.exists(history_file):
-        try:
-            shutil.copy2(history_file, history_file + ".bak")
-        except Exception:
-            _logger.warning("Failed to create history backup before write")
-    if hasattr(hist_mgr, "_atomic_write_payload"):
-        hist_mgr._atomic_write_payload(safe_payload)
-        return
-    with open(history_file, "w", encoding="utf-8") as f:
-        json.dump(safe_payload, f, ensure_ascii=False, indent=2)
-
-def _record_key(record: Dict[str, Any]) -> str:
-    file_value = record.get("file_path") or record.get("file_name") or record.get("sample_name") or ""
-    return f"{record.get('timestamp', '')}|{record.get('type', '')}|{file_value}"
-
-
-def _filter_records(records: list[Dict[str, Any]], project_id: Optional[str] = None, include_archived: bool = False,
-                    metric_key: Optional[str] = None, metric_min: Optional[float] = None, metric_max: Optional[float] = None,
-                    data_type: Optional[str] = None) -> list[Dict[str, Any]]:
-    items = [item for item in records if isinstance(item, dict)]
-    if project_id:
-        items = [item for item in items if item.get("project_id") == project_id]
-    if not include_archived:
-        items = [item for item in items if not bool(item.get("archived", False))]
-    if data_type:
-        dt_upper = data_type.strip().upper()
-        items = [item for item in items if str(item.get("type") or "").upper() == dt_upper]
-    if metric_key and (metric_min is not None or metric_max is not None):
-        filtered = []
-        for item in items:
-            results = item.get("results") or {}
-            val = results.get(metric_key)
-            if val is None:
-                continue
-            try:
-                fval = float(val)
-            except (ValueError, TypeError):
-                continue
-            if metric_min is not None and fval < metric_min:
-                continue
-            if metric_max is not None and fval > metric_max:
-                continue
-            filtered.append(item)
-        items = filtered
-    return items
-
-
-def list_history(project_id: Optional[str] = None, limit: int = 100, include_archived: bool = False,
-                 metric_key: Optional[str] = None, metric_min: Optional[float] = None, metric_max: Optional[float] = None,
-                 data_type: Optional[str] = None) -> Dict[str, Any]:
-    if _USE_SQLITE:
-        hist_mgr = get_history_manager_v6()
-        assert isinstance(hist_mgr, _SqliteHM)
-        records = hist_mgr.db.filter_history(
-            project_id=project_id, include_archived=include_archived,
-            data_type=data_type, metric_key=metric_key, metric_min=metric_min, metric_max=metric_max,
+def list_history(
+    project_id: Optional[str] = None,
+    limit: Optional[int] = 100,
+    include_archived: bool = False,
+    metric_key: Optional[str] = None,
+    metric_min: Optional[float] = None,
+    metric_max: Optional[float] = None,
+    data_type: Optional[str] = None,
+    q: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    filters = {key: value for key, value in (("q", q), ("date_from", date_from), ("date_to", date_to)) if value is not None}
+    try:
+        records = get_database().filter_history(
+            project_id=project_id,
+            include_archived=include_archived,
+            data_type=data_type,
+            metric_key=metric_key,
+            metric_min=metric_min,
+            metric_max=metric_max,
             limit=limit,
+            **filters,
         )
-        return {"status": "success", "records": records}
-    hist_mgr = get_history_manager_v6()
-    records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived,
-                              metric_key=metric_key, metric_min=metric_min, metric_max=metric_max, data_type=data_type)
-    records = sorted(records, key=lambda x: x.get("timestamp", ""), reverse=True)
-    safe_limit = max(1, min(int(limit), 500))
-    return {"status": "success", "records": records[:safe_limit]}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc), "records": []}
+    return {"status": "success", "records": records}
+
+
+def list_history_page(
+    project_id: Optional[str] = None,
+    limit: int = 50,
+    cursor: Optional[str] = None,
+    include_archived: bool = False,
+    metric_key: Optional[str] = None,
+    metric_min: Optional[float] = None,
+    metric_max: Optional[float] = None,
+    data_type: Optional[str] = None,
+    q: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    filters = {key: value for key, value in (("q", q), ("date_from", date_from), ("date_to", date_to)) if value is not None}
+    try:
+        page = get_database().filter_history_page(
+            project_id=project_id,
+            include_archived=include_archived,
+            data_type=data_type,
+            metric_key=metric_key,
+            metric_min=metric_min,
+            metric_max=metric_max,
+            limit=limit,
+            cursor=cursor,
+            **filters,
+        )
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc), "records": []}
+    return {"status": "success", **page}
+
+
+def get_history_detail(record_key: str) -> Dict[str, Any]:
+    safe_key = str(record_key or "").strip()
+    if not safe_key:
+        return {"status": "error", "message": "missing history key"}
+    record = get_database().get_history_record(safe_key)
+    if record is None:
+        return {"status": "error", "message": "history record not found"}
+    return {"status": "success", "record": record}
+
+
+def iter_project_archive_records(
+    project_id: str,
+    *,
+    include_archived: bool = False,
+) -> Iterator[Dict[str, Any]]:
+    return get_database().iter_history_archive_records(
+        project_id=str(project_id),
+        include_archived=include_archived,
+    )
 
 
 def get_stats(project_id: Optional[str] = None, include_archived: bool = False) -> Dict[str, Any]:
-    if _USE_SQLITE:
-        hist_mgr = get_history_manager_v6()
-        assert isinstance(hist_mgr, _SqliteHM)
-        stats = hist_mgr.db.get_history_stats(project_id=project_id, include_archived=include_archived)
-        return {"status": "success", "data": stats}
-    hist_mgr = get_history_manager_v6()
-    records = _filter_records(hist_mgr.get_all_records(), project_id=project_id, include_archived=include_archived)
-    stats = {
-        "total_files": len(records),
-        "lsv_count": sum(1 for item in records if str(item.get("type") or "").upper() == "LSV"),
-        "cv_count": sum(1 for item in records if str(item.get("type") or "").upper() == "CV"),
-        "eis_count": sum(1 for item in records if str(item.get("type") or "").upper() == "EIS"),
-        "ecsa_count": sum(1 for item in records if str(item.get("type") or "").upper() == "ECSA"),
-    }
+    stats = get_database().get_history_stats(
+        project_id=project_id,
+        include_archived=include_archived,
+    )
     return {"status": "success", "data": stats}
 
 
@@ -128,44 +115,7 @@ def _update_history_records(*, match_key: str, action: str) -> Dict[str, Any]:
     if not safe_key:
         return {"status": "error", "message": "missing history key", "updated": 0}
 
-    if _USE_SQLITE:
-        hist_mgr = get_history_manager_v6()
-        assert isinstance(hist_mgr, _SqliteHM)
-        updated = hist_mgr.db.update_history_by_key(safe_key, action)
-        if updated == 0:
-            return {"status": "error", "message": "history record not found", "updated": 0}
-        return {"status": "success", "updated": updated, "action": action}
-
-    hist_mgr = get_history_manager_v6()
-    updated = 0
-    with hist_mgr.lock:
-        try:
-            with open(hist_mgr.history_file, "r", encoding="utf-8") as f:
-                payload = _normalize_history_payload(json.load(f))
-        except Exception as exc:
-            return {"status": "error", "message": f"read history failed: {exc}", "updated": 0}
-        records = payload.get("records", [])
-        if not isinstance(records, list):
-            records = []
-        next_records = []
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            if _record_key(record) == safe_key:
-                if action == "archive":
-                    record["archived"] = True
-                    updated += 1
-                    next_records.append(record)
-                    continue
-                if action == "delete":
-                    updated += 1
-                    continue
-            next_records.append(record)
-        payload["records"] = next_records
-        try:
-            _write_history_payload(hist_mgr, payload)
-        except Exception as exc:
-            return {"status": "error", "message": f"write history failed: {exc}", "updated": 0}
+    updated = get_database().update_history_by_key(safe_key, action)
     if updated == 0:
         return {"status": "error", "message": "history record not found", "updated": 0}
     return {"status": "success", "updated": updated, "action": action}
@@ -175,24 +125,145 @@ def archive_history_record(history_key: str) -> Dict[str, Any]:
     return _update_history_records(match_key=history_key, action="archive")
 
 
-def delete_history_record(history_key: str) -> Dict[str, Any]:
-    return _update_history_records(match_key=history_key, action="delete")
+def delete_history_record(history_key: str, *, delete_artifacts: bool = False) -> Dict[str, Any]:
+    safe_key = str(history_key or "").strip()
+    record = get_database().get_history_record(safe_key) if safe_key and delete_artifacts else None
+    result = _update_history_records(match_key=safe_key, action="delete")
+    cleanup = {"removed": [], "skipped": [], "bytes_reclaimed": 0}
+    if (
+        result.get("status") == "success"
+        and delete_artifacts
+        and record
+        and record.get("artifact_owner") == "application"
+        and record.get("artifact_root")
+    ):
+        from electrochem_v6.core.storage_service import remove_managed_artifact_roots
+
+        cleanup = remove_managed_artifact_roots([str(record["artifact_root"])])
+    if delete_artifacts:
+        result["artifact_cleanup"] = cleanup
+    return result
 
 
-def build_project_report(project_id: str, include_archived: bool = False) -> Dict[str, Any]:
+def build_project_report(
+    project_id: str,
+    include_archived: bool = False,
+    *,
+    run_ids: Optional[Sequence[str]] = None,
+    record_keys: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
     safe_project_id = str(project_id or "").strip()
     if not safe_project_id:
         return {"status": "error", "message": "missing project id"}
-    records_resp = list_history(project_id=safe_project_id, limit=500, include_archived=include_archived)
+    if run_ids is not None and record_keys is not None:
+        return {"status": "error", "message": "select run_ids or record_keys, not both"}
+    for name, values in (("run_ids", run_ids), ("record_keys", record_keys)):
+        if values is not None and (
+            not isinstance(values, (list, tuple)) or not values
+            or any(not isinstance(item, str) or not item.strip() for item in values)
+        ):
+            return {"status": "error", "message": f"{name} must be a non-empty list of identifiers"}
+    # None is the public database contract for an unlimited query. A report
+    # must never silently inherit list-page limits or a 'recent 20' slice.
+    records_resp = list_history(project_id=safe_project_id, limit=None, include_archived=include_archived)
     stats_resp = get_stats(project_id=safe_project_id, include_archived=include_archived)
     records = records_resp.get("records") or []
     stats = stats_resp.get("data") or {}
+    requested_runs = list(dict.fromkeys(str(item).strip() for item in run_ids or []))
+    requested_keys = list(dict.fromkeys(str(item).strip() for item in record_keys or []))
+    available_count = len(records)
+    # Runs are durable independently of history. In particular COUPLED runs
+    # have normalized FE results even when no history row was produced.
+    from .run_recipes import get_run_recipe, list_run_recipes_page
+
+    recipe_summaries = []
+    offset = 0
+    while True:
+        page = list_run_recipes_page(safe_project_id, limit=500, offset=offset)
+        recipe_summaries.extend(page.get("runs") or [])
+        if not page.get("has_more"):
+            break
+        next_offset = page.get("next_offset")
+        if not isinstance(next_offset, int) or next_offset <= offset:
+            return {"status": "error", "message": "run pagination did not advance; report scope cannot be verified"}
+        offset = next_offset
+    recipe_ids = {str(item.get("run_id") or "") for item in recipe_summaries}
+    partially_deleted_runs = {str(item.get("run_id") or "") for item in recipe_summaries if item.get("history_partially_deleted")}
+    archived_runs: set[str] = set()
+    if not include_archived:
+        all_records = list_history(project_id=safe_project_id, limit=None, include_archived=True).get("records") or []
+        visible_keys = {str(item.get("record_key") or "") for item in records}
+        archived_runs = {
+            str(item["run_id"]) for item in all_records
+            if item.get("run_id") and str(item.get("record_key") or "") not in visible_keys
+        }
+    if requested_runs or requested_keys:
+        field, requested = ("run_id", requested_runs) if requested_runs else ("record_key", requested_keys)
+        available = {str(item.get(field) or "") for item in records}
+        if requested_runs:
+            available.update(recipe_ids - archived_runs - partially_deleted_runs)
+            deleted_selection = sorted(set(requested_runs) & partially_deleted_runs)
+            if deleted_selection:
+                return {"status": "error", "message": "selected runs have partially deleted history; select remaining record_keys to export", "missing_ids": deleted_selection}
+            archived_selection = sorted(set(requested_runs) & archived_runs)
+            if archived_selection:
+                return {"status": "error", "message": "selected runs contain archived history; include_archived is required for a complete run report", "missing_ids": archived_selection}
+        missing = [item for item in requested if item not in available]
+        if missing:
+            return {
+                "status": "error", "message": "selected report items are missing, archived, or outside this project",
+                "missing_ids": missing,
+            }
+        selected = set(requested)
+        records = [item for item in records if str(item.get(field) or "") in selected]
+        stats = {"total": len(records), "total_files": len(records)}
+        for data_type in ("LSV", "CV", "EIS", "ECSA", "COUPLED"):
+            stats[f"{data_type.lower()}_count"] = sum(str(item.get("type") or "").upper() == data_type for item in records)
+    actual_runs = list(dict.fromkeys(str(item["run_id"]) for item in records if item.get("run_id")))
+    selected_recipe_ids = [] if requested_keys else (
+        requested_runs if requested_runs else [str(item.get("run_id")) for item in recipe_summaries if str(item.get("run_id")) not in archived_runs | partially_deleted_runs]
+    )
+    recipes = []
+    for run_id in selected_recipe_ids:
+        if run_id not in recipe_ids:
+            continue  # Legacy history still reports its unavailable recipe.
+        recipe = get_run_recipe(run_id)
+        if not recipe or recipe.get("project_id") != safe_project_id:
+            return {"status": "error", "message": "run scope changed while building report; retry export"}
+        if recipe.get("history_partially_deleted"):
+            return {"status": "error", "message": "run history changed while building report; select remaining record_keys to export"}
+        recipes.append(recipe)
+        if run_id not in actual_runs:
+            actual_runs.append(run_id)
+    normalized_count = sum(len((item.get("manifest") or {}).get("processing_results") or []) for item in recipes)
+    scope = {
+        "mode": "run_ids" if requested_runs else "record_keys" if requested_keys else "project",
+        "project_id": safe_project_id,
+        "include_archived": bool(include_archived),
+        "requested_run_ids": requested_runs,
+        "requested_record_keys": requested_keys,
+        "record_keys": [str(item.get("record_key") or "") for item in records],
+        "run_ids": actual_runs,
+        "record_count": len(records), "run_count": len(actual_runs),
+        "records_without_run_id": sum(not item.get("run_id") for item in records),
+        "available_record_count": available_count,
+        "available_run_count": len(recipe_ids | {str(item.get("run_id")) for item in (records_resp.get("records") or []) if item.get("run_id")}),
+        "normalized_result_count": normalized_count,
+        "excluded_archived_run_ids": sorted(archived_runs) if not requested_keys else [],
+        "excluded_partially_deleted_run_ids": sorted(partially_deleted_runs) if not requested_keys else [],
+        "run_result_scope": "selected_runs_complete" if requested_runs else "selected_history_only" if requested_keys else "all_unarchived_runs_and_visible_history",
+        "truncated": False,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+    }
     report = {
         "project_id": safe_project_id,
         "generated_at": records[0].get("timestamp") if records else "",
         "include_archived": include_archived,
         "stats": stats,
-        "recent_records": records[:20],
+        "scope": scope,
+        "records": records,
+        "recent_records": records,
+        "runs": recipes,
     }
     return {"status": "success", "report": report}
 
@@ -209,42 +280,29 @@ def attach_run_outputs(
         return {"status": "error", "message": "missing run id", "updated": 0}
     safe_output_files = [str(item).strip() for item in output_files if str(item).strip()]
 
-    if _USE_SQLITE:
-        hist_mgr = get_history_manager_v6()
-        assert isinstance(hist_mgr, _SqliteHM)
-        updated = hist_mgr.db.attach_run_outputs(
-            run_id=safe_run_id,
-            output_files=safe_output_files,
-            summary_path=summary_path,
-            quality_summary=quality_summary,
-        )
-        return {"status": "success", "updated": updated}
+    updated = get_database().attach_run_outputs(
+        run_id=safe_run_id,
+        output_files=safe_output_files,
+        summary_path=summary_path,
+        quality_summary=quality_summary,
+    )
+    return {"status": "success", "updated": updated}
 
-    hist_mgr = get_history_manager_v6()
-    updated = 0
-    with hist_mgr.lock:
-        try:
-            with open(hist_mgr.history_file, "r", encoding="utf-8") as f:
-                payload = _normalize_history_payload(json.load(f))
-        except Exception as exc:
-            return {"status": "error", "message": f"read history failed: {exc}", "updated": 0}
-        records = payload.get("records", [])
-        if not isinstance(records, list):
-            records = []
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            if str(record.get("run_id") or "").strip() != safe_run_id:
-                continue
-            record["output_files"] = list(safe_output_files)
-            if summary_path:
-                record["summary_path"] = str(summary_path)
-            if isinstance(quality_summary, dict):
-                record["quality_summary"] = hist_mgr._to_json_safe(quality_summary) if hasattr(hist_mgr, "_to_json_safe") else quality_summary
-            updated += 1
-        payload["records"] = records
-        try:
-            _write_history_payload(hist_mgr, payload)
-        except Exception as exc:
-            return {"status": "error", "message": f"write history failed: {exc}", "updated": 0}
+
+def attach_run_provenance(
+    *,
+    run_id: str,
+    source_archive_path: Optional[str] = None,
+    artifact_root: Optional[str] = None,
+    artifact_owner: str = "application",
+) -> Dict[str, Any]:
+    safe_run_id = str(run_id or "").strip()
+    if not safe_run_id:
+        return {"status": "error", "message": "missing run id", "updated": 0}
+    updated = get_database().attach_run_provenance(
+        safe_run_id,
+        source_archive_path=source_archive_path,
+        artifact_root=artifact_root,
+        artifact_owner=artifact_owner,
+    )
     return {"status": "success", "updated": updated}

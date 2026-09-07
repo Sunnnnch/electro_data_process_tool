@@ -7,7 +7,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 Write-Host "[INFO] Running v6 stress smoke..."
-python v6_refactor_no_license/scripts/stress_smoke.py `
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+python (Join-Path $ScriptDir "stress_smoke.py") `
   --upload-workers $UploadWorkers `
   --upload-requests $UploadRequests `
   --conversation-turns $ConversationTurns `

@@ -10,7 +10,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
 SCRIPT_PATH = Path(__file__).resolve()
 V6_ROOT = SCRIPT_PATH.parents[1]
 SRC = V6_ROOT / "src"

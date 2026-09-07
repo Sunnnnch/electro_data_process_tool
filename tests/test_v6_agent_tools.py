@@ -5,8 +5,8 @@ from electrochem_v6.agent.tool_executor import (
     tool_get_current_project_history,
     tool_get_current_project_summary,
 )
-from electrochem_v6.store.legacy_runtime import get_history_manager_v6
 from electrochem_v6.store.projects import create_project
+from electrochem_v6.store.runtime import get_history_store
 
 
 def test_v6_agent_tools_query_current_project(tmp_path):
@@ -23,7 +23,7 @@ def test_v6_agent_tools_query_current_project(tmp_path):
         project_id = created.get("project_id")
         assert project_id
 
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         hist.add_record(
             {
                 "timestamp": "2026-02-28 20:00:00",

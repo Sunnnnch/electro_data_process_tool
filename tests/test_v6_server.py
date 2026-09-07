@@ -1,26 +1,60 @@
 import io
 import json
 import os
+import re
 import socket
+import time
 import uuid
 import zipfile
+from pathlib import Path
 from urllib import error, request
 
 import pytest
 
-# Force JSON storage backend for all tests — they were designed to verify
-# JSON-file persistence and should not be routed through SQLite.
-os.environ["ELECTROCHEM_V6_STORAGE"] = "json"
-
-import processing_core  # noqa: E402
-
 import electrochem_v6.core.process_service as process_service  # noqa: E402
 import electrochem_v6.server.routes_get as routes_get  # noqa: E402
 import electrochem_v6.server.routes_post as routes_post  # noqa: E402
+from electrochem_v6.core.processing_scan import matches_named_file  # noqa: E402
 from electrochem_v6.server import V6ServerManager  # noqa: E402
 from electrochem_v6.store.conversations import append_message, get_conversation  # noqa: E402
 from electrochem_v6.store.history import attach_run_outputs  # noqa: E402
-from electrochem_v6.store.legacy_runtime import _reset_singletons, get_history_manager_v6  # noqa: E402
+from electrochem_v6.store.runtime import get_history_store, reset_runtime  # noqa: E402
+
+
+def test_v6_background_process_job_routes(tmp_path, monkeypatch):
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "job-runtime"))
+    reset_runtime()
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/process/jobs",
+            method="POST",
+            payload={"folder_path": str(tmp_path / "missing"), "data_types": ["LSV"]},
+        )
+        assert status == 202
+        job_id = payload.get("job_id")
+        assert job_id
+
+        job = None
+        for _ in range(100):
+            status, detail = _read(f"http://127.0.0.1:{port}/api/v1/process/jobs/{job_id}")
+            assert status == 200
+            job = detail.get("job")
+            if job and job.get("status") in {"failed", "succeeded", "cancelled"}:
+                break
+            time.sleep(0.02)
+        assert job and job.get("status") == "failed"
+        assert "不存在" in str(job.get("error"))
+
+        status, listing = _read(f"http://127.0.0.1:{port}/api/v1/process/jobs?limit=10")
+        assert status == 200
+        assert any(item.get("job_id") == job_id for item in listing.get("jobs") or [])
+    finally:
+        manager.stop()
+        reset_runtime()
 
 
 def _get_free_port():
@@ -105,21 +139,112 @@ def test_v6_ui_manual_static_files():
     try:
         status, payload = _read(f"http://127.0.0.1:{port}/ui/static/help_manual.zh.md")
         assert status == 200
-        assert "\u8f6f\u4ef6\u7528\u9014" in payload.get("raw", "")
+        assert "智能电化学数据处理软件" in payload.get("raw", "")
+        assert "## 快速上手" in payload.get("raw", "")
 
         status, payload = _read(f"http://127.0.0.1:{port}/ui/static/help_manual.en.md")
         assert status == 200
-        assert "Software Purpose" in payload.get("raw", "")
+        assert "Intelligent Electrochemical Data Processing Software" in payload.get("raw", "")
+        assert "## Quick start" in payload.get("raw", "")
+    finally:
+        manager.stop()
+
+
+def test_v6_ui_injects_per_launch_session_token():
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        status, payload = _read(f"http://127.0.0.1:{port}/ui")
+        html = payload.get("raw", "")
+        assert status == 200
+        assert "__ELECTROCHEM_SESSION_TOKEN__" not in html
+        match = re.search(r'name="electrochem-session-token" content="([^"]+)"', html)
+        assert match is not None
+        assert match.group(1) == manager.session_token
+    finally:
+        manager.stop()
+
+
+def test_v6_server_rejects_cross_site_browser_post_and_accepts_ui_token():
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        url = f"http://127.0.0.1:{port}/api/v1/process"
+        status, _payload = _read(
+            url,
+            method="POST",
+            payload={"folder_path": "__missing__", "data_types": ["LSV"]},
+            headers={"Origin": "https://malicious.example", "Sec-Fetch-Site": "cross-site"},
+        )
+        assert status == 403
+
+        status, payload = _read(
+            url,
+            method="POST",
+            payload={"folder_path": "__missing__", "data_types": ["LSV"]},
+            headers={
+                "Origin": f"http://127.0.0.1:{port}",
+                "Sec-Fetch-Site": "same-origin",
+                "X-Electrochem-Session": manager.session_token,
+            },
+        )
+        assert status == 400
+        assert payload.get("status") == "error"
+    finally:
+        manager.stop()
+
+
+def test_v6_json_route_rejects_text_plain_payload():
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        status, payload = _read_raw(
+            f"http://127.0.0.1:{port}/api/v1/process",
+            data=b"{}",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert status == 400
+        assert "application/json" in payload.get("message", "")
     finally:
         manager.stop()
 
 
 def test_processing_core_filename_match_strategies():
-    assert processing_core._matches_named_file("LSV_sample01.csv", "prefix", "LSV") is True
-    assert processing_core._matches_named_file("sample_LSV_01.csv", "contains", "LSV") is True
-    assert processing_core._matches_named_file("sample_LSV_01.csv", "contains", "EIS") is False
-    assert processing_core._matches_named_file("sample-12-cv.txt", "regex", r"sample-\d+-cv") is True
-    assert processing_core._matches_named_file("sample-12-cv.txt", "regex", r"sample-(") is False
+    assert matches_named_file("LSV_sample01.csv", "prefix", "LSV") is True
+    assert matches_named_file("sample_LSV_01.csv", "contains", "LSV") is True
+    assert matches_named_file("sample_LSV_01.csv", "contains", "EIS") is False
+    assert matches_named_file("sample-12-cv.txt", "regex", r"sample-\d+-cv") is True
+    assert matches_named_file("sample-12-cv.txt", "regex", r"sample-(") is False
+
+
+def test_v6_process_modules_catalog_route():
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        status, payload = _read(f"http://127.0.0.1:{port}/api/v1/process/modules?data_types=LSV,FE")
+        assert status == 200
+        assert payload.get("status") == "success", payload
+        catalog = payload.get("catalog") or {}
+        modules = {item["key"]: item for item in catalog.get("modules") or []}
+        assert list(modules) == ["LSV", "COUPLED"]
+        assert modules["LSV"]["origin"] == "builtin"
+        assert modules["LSV"]["runner"] == {"kind": "module", "available": True}
+        assert modules["COUPLED"]["runner"] == {"kind": "module", "available": True}
+        assert modules["COUPLED"]["display_name"] == "COUPLED/FE"
+
+        status, payload = _read(f"http://127.0.0.1:{port}/api/v1/process/modules?data_types=UNKNOWN")
+        assert status == 400
+        assert payload.get("status") == "error"
+    finally:
+        manager.stop()
 
 
 def test_v6_health_and_ui_static():
@@ -134,11 +259,64 @@ def test_v6_health_and_ui_static():
 
         status, payload = _read(f"http://127.0.0.1:{port}/ui")
         assert status == 200
-        assert "ElectroChem v6 Workbench" in payload.get("raw", "")
+        ui_html = payload.get("raw", "")
+        assert "<title>ElectroChem｜智能电化学数据处理软件</title>" in ui_html
+        static_scripts = [
+            "/ui/static/theme.js",
+            "/ui/static/i18n.js",
+            "/ui/static/api.js",
+            "/ui/static/appearance.js",
+            "/ui/static/chart_preview.js",
+            "/ui/static/process_schema.js",
+            "/ui/static/process_source_selection.js",
+            "/ui/static/preflight_model.js",
+            "/ui/static/project_compare_model.js",
+            "/ui/static/process_result_model.js",
+            "/ui/static/assistant_context.js",
+            "/ui/static/assistant_prompt.js",
+            "/ui/static/assistant_api.js",
+            "/ui/static/llm_api.js",
+            "/ui/static/project_api.js",
+            "/ui/static/system_api.js",
+            "/ui/static/processing_api.js",
+            "/ui/static/app.js",
+        ]
+        script_positions = [ui_html.index(path) for path in static_scripts]
+        assert script_positions == sorted(script_positions)
+        assert script_positions[0] < ui_html.index('/ui/static/styles.css')
 
         status, payload = _read(f"http://127.0.0.1:{port}/ui/static/styles.css")
         assert status == 200
         assert "--bg-a" in payload.get("raw", "")
+
+        static_globals = {
+            "/ui/static/api.js": "window.ElectrochemApi",
+            "/ui/static/theme.js": "window.ElectrochemTheme",
+            "/ui/static/process_schema.js": "window.ElectrochemProcessingSchema",
+            "/ui/static/process_source_selection.js": "window.ElectrochemProcessSourceSelection",
+            "/ui/static/preflight_model.js": "window.ElectrochemPreflightModel",
+            "/ui/static/project_compare_model.js": "window.ElectrochemProjectCompareModel",
+            "/ui/static/process_result_model.js": "window.ElectrochemProcessResultModel",
+            "/ui/static/assistant_context.js": "window.ElectrochemAssistantContext",
+            "/ui/static/assistant_prompt.js": "window.ElectrochemAssistantPrompt",
+            "/ui/static/assistant_api.js": "window.ElectrochemAssistantApi",
+            "/ui/static/llm_api.js": "window.ElectrochemLLMApi",
+            "/ui/static/project_api.js": "window.ElectrochemProjectApi",
+            "/ui/static/system_api.js": "window.ElectrochemSystemApi",
+            "/ui/static/processing_api.js": "window.ElectrochemProcessingApi",
+        }
+        for path, expected_global in static_globals.items():
+            status, payload = _read(f"http://127.0.0.1:{port}{path}")
+            assert status == 200
+            assert expected_global in payload.get("raw", "")
+
+        status, payload = _read(f"http://127.0.0.1:{port}/ui/static/coupled_template_charge.csv")
+        assert status == 200
+        assert "sample,product,product_moles,n,charge" in payload.get("raw", "")
+
+        status, payload = _read(f"http://127.0.0.1:{port}/ui/static/coupled_template_current_time.csv")
+        assert status == 200
+        assert "sample,product,product_moles,n,current_mA,time_s" in payload.get("raw", "")
     finally:
         manager.stop()
 
@@ -181,6 +359,75 @@ def test_v6_projects_and_process_route():
         assert payload.get("project", {}).get("description") == "edited from test"
         assert payload.get("project", {}).get("tags") == ["alpha", "beta"]
         assert payload.get("project", {}).get("color") == "#123456"
+
+        sample_name = f"sample_{uuid.uuid4().hex[:8]}"
+        get_history_store().add_record(
+            {
+                "timestamp": "2026-08-27 10:00:00",
+                "type": "LSV",
+                "file_path": f"D:/raw/{sample_name}.txt",
+                "file_name": f"{sample_name}.txt",
+                "sample_name": sample_name,
+                "project_id": project_id,
+                "run_id": f"run_{uuid.uuid4().hex[:8]}",
+                "status": "success",
+                "results": {},
+            }
+        )
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/samples"
+        )
+        assert status == 200
+        sample = next(item for item in payload.get("samples") or [] if item.get("name") == sample_name)
+        assert sample.get("data_count") == 1
+
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/samples/{sample['id']}/update",
+            method="POST",
+            payload={"note": "0.5 M KOH", "tags": ["对照组", "复测"]},
+        )
+        assert status == 200
+        assert payload.get("sample", {}).get("note") == "0.5 M KOH"
+        assert payload.get("sample", {}).get("tags") == ["对照组", "复测"]
+
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/history?project={project_id}"
+        )
+        assert status == 200
+        linked = next(item for item in payload.get("records") or [] if item.get("sample_name") == sample_name)
+        assert linked.get("sample_note") == "0.5 M KOH"
+        assert linked.get("sample_tags") == ["对照组", "复测"]
+
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/delete",
+            method="POST",
+            payload={},
+        )
+        assert status == 200
+        assert payload.get("message") == "project archived"
+        status, payload = _read(f"http://127.0.0.1:{port}/api/v1/projects?status=archived")
+        assert any(item.get("id") == project_id for item in payload.get("projects") or [])
+
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/restore",
+            method="POST",
+            payload={},
+        )
+        assert status == 200
+        assert payload.get("status") == "success"
+
+        _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/delete",
+            method="POST",
+            payload={},
+        )
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/projects/{project_id}/delete-permanent",
+            method="POST",
+            payload={"delete_artifacts": True},
+        )
+        assert status == 200
+        assert payload.get("deleted", {}).get("projects") == 1
 
         status, payload = _read(
             f"http://127.0.0.1:{port}/api/v1/process",
@@ -296,12 +543,12 @@ def test_v6_process_folder_calculates_rhe_offset_from_formula(tmp_path, monkeypa
     output_csv.write_text("sample,file\nsample,LSV_demo\n", encoding="utf-8")
     captured = {}
 
-    def _fake_run_pipeline(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
+    def _fake_run_modules(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
         captured["folder_path"] = folder_path
         captured["gui_vars"] = dict(gui_vars)
         return {"lsv_csv": str(output_csv), "summary_path": "", "messages": [], "quality_summary": {}}
 
-    monkeypatch.setattr(process_service, "run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr(process_service, "_run_selected_modules", _fake_run_modules)
     monkeypatch.setattr(process_service, "attach_run_outputs", lambda **_kwargs: {"status": "success", "updated": 0})
     payload = process_service.process_folder(
         {
@@ -317,7 +564,14 @@ def test_v6_process_folder_calculates_rhe_offset_from_formula(tmp_path, monkeypa
     )
     assert payload.get("status") == "success"
     assert captured.get("gui_vars", {}).get("potential_mode") == "formula_rhe"
-    assert captured.get("gui_vars", {}).get("potential_offset") == pytest.approx(0.197 + 0.0591 * 13.6, rel=1e-9)
+    slope = 2.303 * 8.31446261815324 * (25.0 + 273.15) / 96485.33212
+    assert captured.get("gui_vars", {}).get("potential_offset") == pytest.approx(0.197 + slope * 13.6, rel=1e-9)
+    conversion = captured.get("gui_vars", {}).get("potential_conversion", {})
+    assert conversion.get("temperature_c") == pytest.approx(25.0)
+    assert conversion.get("nernst_slope_v_per_ph") == pytest.approx(slope)
+    run_report_path = payload.get("result", {}).get("manifest", {}).get("outputs", {}).get("run_report_path")
+    assert run_report_path and os.path.exists(run_report_path)
+    assert "2.303 * R * T / F" in open(run_report_path, encoding="utf-8").read()
 
 
 def test_v6_system_select_folder(monkeypatch):
@@ -339,6 +593,63 @@ def test_v6_system_select_folder(monkeypatch):
         assert status == 200
         assert payload.get("status") == "success"
         assert payload.get("folder_path") == "D:/demo"
+    finally:
+        manager.stop()
+
+
+def test_v6_system_select_file(monkeypatch):
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        def _fake_select_file_dialog(initial_path=None, extensions=None):
+            return {
+                "status": "success",
+                "file_path": initial_path or "D:/mock_data/EIS.txt",
+                "extensions": extensions,
+            }
+
+        monkeypatch.setattr(routes_post, "select_file_dialog", _fake_select_file_dialog)
+
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/system/select-file",
+            method="POST",
+            payload={"initial_path": "D:/demo/EIS.csv", "extensions": [".txt", ".csv"]},
+        )
+        assert status == 200
+        assert payload.get("status") == "success"
+        assert payload.get("file_path") == "D:/demo/EIS.csv"
+        assert payload.get("extensions") == [".txt", ".csv"]
+    finally:
+        manager.stop()
+
+
+def test_v6_system_select_files(monkeypatch):
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        def _fake_select_files_dialog(initial_path=None, extensions=None):
+            return {
+                "status": "success",
+                "file_paths": ["D:/demo/LSV_A.txt", "D:/demo/LSV_B.csv"],
+                "count": 2,
+                "extensions": extensions,
+            }
+
+        monkeypatch.setattr(routes_post, "select_files_dialog", _fake_select_files_dialog)
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/system/select-files",
+            method="POST",
+            payload={"initial_path": "D:/demo", "extensions": [".txt", ".csv"]},
+        )
+
+        assert status == 200
+        assert payload.get("status") == "success"
+        assert payload.get("count") == 2
+        assert payload.get("file_paths") == ["D:/demo/LSV_A.txt", "D:/demo/LSV_B.csv"]
     finally:
         manager.stop()
 
@@ -381,7 +692,7 @@ def test_v6_project_compare_plot_route(tmp_path, monkeypatch):
         os.environ["ELECTROCHEM_V6_CONVERSATION_FILE"] = str(tmp_path / "conversation.json")
         monkeypatch.setattr(process_service.os, "getcwd", lambda: str(tmp_path))
 
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         hist.add_record(
             {
                 "timestamp": "2026-02-28 18:00:00",
@@ -507,7 +818,7 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
     old_projects = os.environ.get("ELECTROCHEM_V6_PROJECTS_FILE")
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
     old_conv = os.environ.get("ELECTROCHEM_V6_CONVERSATION_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         os.environ["ELECTROCHEM_V6_PROJECTS_FILE"] = str(tmp_path / "projects.json")
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
@@ -520,9 +831,9 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
         output_csv.write_text("a,b\n1,2\n", encoding="utf-8")
         summary_path = data_dir / "summary.json"
 
-        def _fake_run_pipeline(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
+        def _fake_run_modules(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
             run_id = gui_vars.get("run_id")
-            hist = get_history_manager_v6()
+            hist = get_history_store()
             hist.add_record(
                 {
                     "timestamp": "2026-02-28 12:00:00",
@@ -544,19 +855,19 @@ def test_v6_process_route_persists_output_files_to_history(tmp_path, monkeypatch
                 "messages": [],
             }
 
-        monkeypatch.setattr(process_service, "run_pipeline", _fake_run_pipeline)
+        monkeypatch.setattr(process_service, "_run_selected_modules", _fake_run_modules)
         payload = process_service.process_folder(
             {"folder_path": str(data_dir), "data_type": "LSV", "project_name": "demo_project"}
         )
         assert payload.get("status") == "success"
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         records = hist.get_all_records()
         assert records
         record = records[-1]
         assert str(output_csv) in (record.get("output_files") or [])
         assert record.get("summary_path") == str(summary_path)
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_projects is None:
             os.environ.pop("ELECTROCHEM_V6_PROJECTS_FILE", None)
         else:
@@ -575,10 +886,10 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
     import numpy as np
 
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         hist.add_record(
             {
                 "timestamp": "2026-02-28 21:05:00",
@@ -601,7 +912,7 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
         assert record["data"]["curve"] == [0.1, 0.2, 0.3]
         assert record["data"]["nested"]["fit"] == [[1.0, 2.0], [3.0, 4.0]]
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -610,12 +921,12 @@ def test_v6_history_manager_serializes_numpy_payload(tmp_path):
 
 def test_v6_history_manager_migrates_legacy_list_file(tmp_path):
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         history_path = tmp_path / "history.json"
         history_path.write_text("[]", encoding="utf-8")
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(history_path)
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         hist.add_record(
             {
                 "timestamp": "2026-02-28 23:10:00",
@@ -633,7 +944,7 @@ def test_v6_history_manager_migrates_legacy_list_file(tmp_path):
         assert found
         assert found[0].get("sample_name") == "sample_legacy"
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -644,7 +955,7 @@ def test_v6_attach_run_outputs_serializes_quality_summary(tmp_path):
     import numpy as np
 
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         history_path = tmp_path / "history.json"
         history_path.write_text(
@@ -669,7 +980,7 @@ def test_v6_attach_run_outputs_serializes_quality_summary(tmp_path):
             encoding="utf-8",
         )
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(history_path)
-        get_history_manager_v6()
+        get_history_store()
         result = attach_run_outputs(
             run_id="run-qc-1",
             output_files=[str(tmp_path / "summary.json")],
@@ -677,24 +988,24 @@ def test_v6_attach_run_outputs_serializes_quality_summary(tmp_path):
             quality_summary={"missing_values": np.int64(0), "potential_range": np.array([0.1, 0.2])},
         )
         assert result.get("status") == "success"
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         records = hist.get_all_records()
         record = [r for r in records if r.get("run_id") == "run-qc-1"][0]
         assert record["quality_summary"]["missing_values"] == 0
         assert record["quality_summary"]["potential_range"] == [0.1, 0.2]
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
             os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = old_history
 
 
-def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, monkeypatch):
+def test_v6_process_folder_uses_sqlite_history_store(tmp_path, monkeypatch):
     old_projects = os.environ.get("ELECTROCHEM_V6_PROJECTS_FILE")
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
     old_conv = os.environ.get("ELECTROCHEM_V6_CONVERSATION_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         os.environ["ELECTROCHEM_V6_PROJECTS_FILE"] = str(tmp_path / "projects.json")
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(tmp_path / "history.json")
@@ -708,11 +1019,9 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
         summary_path = data_dir / "summary.json"
         summary_path.write_text("{}", encoding="utf-8")
 
-        import processing_core  # noqa: E402
-
-        def _fake_run_pipeline(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
-            hist = processing_core.get_history_manager()
-            assert str(hist.history_file) == str(tmp_path / "history.json")
+        def _fake_run_modules(folder_path, gui_vars, callbacks=None, resolve_start_line=None):
+            hist = get_history_store()
+            assert Path(hist.db.path).resolve() == (tmp_path / "electrochem_v6.db").resolve()
             hist.add_record(
                 {
                     "timestamp": "2026-02-28 12:30:00",
@@ -734,20 +1043,20 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
                 "messages": [],
             }
 
-        monkeypatch.setattr(process_service, "run_pipeline", _fake_run_pipeline)
+        monkeypatch.setattr(process_service, "_run_selected_modules", _fake_run_modules)
         payload = process_service.process_folder(
             {"folder_path": str(data_dir), "data_type": "LSV", "project_name": "bind_project"}
         )
-        assert payload.get("status") == "success"
+        assert payload.get("status") == "success", payload
 
-        hist = get_history_manager_v6()
+        hist = get_history_store()
         records = hist.get_all_records()
         assert len(records) >= 1
         record = [r for r in records if r.get("sample_name") == "sample_bind"][0]
         assert record.get("project_name") == "bind_project"
         assert str(output_csv) in (record.get("output_files") or [])
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_projects is None:
             os.environ.pop("ELECTROCHEM_V6_PROJECTS_FILE", None)
         else:
@@ -762,88 +1071,9 @@ def test_v6_process_folder_binds_processing_core_history_to_v6_store(tmp_path, m
             os.environ["ELECTROCHEM_V6_CONVERSATION_FILE"] = old_conv
 
 
-def test_run_pipeline_propagates_run_and_project_ids_to_all_types(tmp_path, monkeypatch):
-    data_dir = tmp_path / "pipeline_case"
-    data_dir.mkdir()
-    for name in ("LSV_demo.txt", "CV_demo.txt", "EIS_demo.txt", "ECSA_demo.txt"):
-        (data_dir / name).write_text("header\n1,2\n", encoding="utf-8")
-
-    captured = {}
-
-    monkeypatch.setattr(processing_core, "resolve_data_start_line", lambda path, gui_vars=None: 1)
-
-    def _fake_lsv(subfolder, file, params, project_id=None, enable_quality_check=True):
-        captured["lsv"] = {"params": dict(params), "project_id": project_id}
-        return {
-            "result_row": ["sample", "file", 0.123],
-            "quality_report": {"quality_level": "normal", "warnings": [], "issues": []},
-        }
-
-    def _fake_cv(subfolder, file, params):
-        captured["cv"] = dict(params)
-
-    def _fake_eis(subfolder, file, params):
-        captured["eis"] = dict(params)
-
-    def _fake_ecsa(subfolder, file_list, params, common):
-        captured["ecsa"] = {"params": dict(params), "common": dict(common)}
-        return [
-            "sample",
-            0.10,
-            1,
-            False,
-            5,
-            1.23,
-            0.01,
-            0.99,
-            2.34,
-            40.0,
-            "uF/cm2",
-            40.0,
-            0.56,
-            1.12,
-            "plot.png",
-        ]
-
-    monkeypatch.setattr(processing_core, "process_lsv", _fake_lsv)
-    monkeypatch.setattr(processing_core, "process_cv", _fake_cv)
-    monkeypatch.setattr(processing_core, "process_eis", _fake_eis)
-    monkeypatch.setattr(processing_core, "process_ecsa_for_subfolder", _fake_ecsa)
-
-    result = processing_core.run_pipeline(
-        str(data_dir),
-        {
-            "lsv_enabled": True,
-            "cv_enabled": True,
-            "eis_enabled": True,
-            "ecsa_enabled": True,
-            "lsv_prefix": "LSV",
-            "cv_prefix": "CV",
-            "eis_prefix": "EIS",
-            "ecsa_prefix": "ECSA",
-            "project_id": "proj_test_bind",
-            "run_id": "run_test_bind",
-            "font_family": "Arial",
-            "font_size": 12,
-            "area": 1.0,
-        },
-    )
-
-    assert result
-    assert captured["lsv"]["project_id"] == "proj_test_bind"
-    assert captured["lsv"]["params"].get("run_id") == "run_test_bind"
-    assert captured["lsv"]["params"].get("project_id") == "proj_test_bind"
-    assert captured["cv"].get("run_id") == "run_test_bind"
-    assert captured["cv"].get("project_id") == "proj_test_bind"
-    assert captured["eis"].get("run_id") == "run_test_bind"
-    assert captured["eis"].get("project_id") == "proj_test_bind"
-    assert captured["ecsa"]["params"].get("run_id") == "run_test_bind"
-    assert captured["ecsa"]["params"].get("project_id") == "proj_test_bind"
-
-
 def test_v6_history_archive_and_delete_routes(tmp_path):
     old_history = os.environ.get("ELECTROCHEM_V6_HISTORY_FILE")
-    _reset_singletons()
+    reset_runtime()
     try:
         history_file = tmp_path / "history.json"
         os.environ["ELECTROCHEM_V6_HISTORY_FILE"] = str(history_file)
@@ -910,6 +1140,11 @@ def test_v6_history_archive_and_delete_routes(tmp_path):
             )
             assert status == 200
             assert payload.get("status") == "success"
+            assert payload.get("artifact_cleanup") == {
+                "removed": [],
+                "skipped": [],
+                "bytes_reclaimed": 0,
+            }
 
             status, payload = _read(f"http://127.0.0.1:{port}/api/v1/history?project=p1&limit=10&include_archived=1")
             assert status == 200
@@ -920,7 +1155,7 @@ def test_v6_history_archive_and_delete_routes(tmp_path):
         finally:
             manager.stop()
     finally:
-        _reset_singletons()
+        reset_runtime()
         if old_history is None:
             os.environ.pop("ELECTROCHEM_V6_HISTORY_FILE", None)
         else:
@@ -1009,6 +1244,8 @@ def test_v6_process_templates_routes(monkeypatch):
 
 
 def test_v6_process_templates_roundtrip_real(tmp_path):
+    from electrochem_v6.core.processing_registry import PARAM_SCHEMA_VERSION
+
     port = _get_free_port()
     manager = V6ServerManager(port=port)
     old_file = os.environ.get("ELECTROCHEM_V6_TEMPLATE_FILE")
@@ -1027,11 +1264,15 @@ def test_v6_process_templates_roundtrip_real(tmp_path):
         )
         assert status == 200
         assert payload.get("status") == "success"
+        assert payload.get("template", {}).get("state", {}).get("schema_version") == PARAM_SCHEMA_VERSION
+        assert not (tmp_path / "templates_test.json").exists()
 
         status, payload = _read(f"http://127.0.0.1:{port}/api/v1/process/templates")
         assert status == 200
         names = [item.get("name") for item in payload.get("templates", [])]
         assert "roundtrip_tmp" in names
+        roundtrip = next(item for item in payload["templates"] if item.get("name") == "roundtrip_tmp")
+        assert roundtrip["state"]["schema_version"] == PARAM_SCHEMA_VERSION
 
         status, payload = _read(
             f"http://127.0.0.1:{port}/api/v1/process/templates/roundtrip_tmp/delete/",
@@ -1048,6 +1289,33 @@ def test_v6_process_templates_roundtrip_real(tmp_path):
         manager.stop()
 
 
+def test_v6_llm_test_connection_endpoint(monkeypatch):
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    ok, _ = manager.start()
+    assert ok
+    try:
+        def _fake_check_provider_connection(payload):
+            return {
+                "status": "success",
+                "provider": payload.get("provider"),
+                "model": payload.get("model"),
+                "message": "连接测试通过",
+            }
+
+        monkeypatch.setattr(routes_post, "check_provider_connection", _fake_check_provider_connection)
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/llm/test",
+            method="POST",
+            payload={"provider": "openai", "model": "gpt-test"},
+        )
+        assert status == 200
+        assert payload.get("status") == "success"
+        assert payload.get("provider") == "openai"
+    finally:
+        manager.stop()
+
+
 class _DummyAgentService:
     def chat(
         self,
@@ -1060,7 +1328,16 @@ class _DummyAgentService:
         data_type=None,
         processing_result=None,
         attachments=None,
+        prompt_prefix=None,
+        professional_context=None,
+        approval_id=None,
+        approval_action=None,
+        progress_callback=None,
+        cancel_check=None,
     ):
+        if progress_callback:
+            progress_callback("stub thinking")
+        assert cancel_check is None or cancel_check() is False
         cid = conversation_id or f"v6_conv_{uuid.uuid4().hex[:8]}"
         meta = {
             "provider": provider or "mock",
@@ -1111,6 +1388,37 @@ def test_v6_agent_message_and_delete():
         )
         assert status == 200
         assert payload.get("status") == "success"
+    finally:
+        manager.stop()
+
+
+def test_v6_background_agent_job_routes():
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    manager._agent_service = _DummyAgentService()
+    ok, _ = manager.start()
+    assert ok
+    try:
+        status, payload = _read(
+            f"http://127.0.0.1:{port}/api/v1/agent/jobs",
+            method="POST",
+            payload={"message": "hello background"},
+        )
+        assert status == 202
+        job_id = payload.get("job_id")
+        assert job_id
+
+        job = None
+        for _ in range(100):
+            status, detail = _read(f"http://127.0.0.1:{port}/api/v1/agent/jobs/{job_id}")
+            assert status == 200
+            job = detail.get("job")
+            if job and job.get("status") in {"failed", "succeeded", "cancelled"}:
+                break
+            time.sleep(0.02)
+        assert job and job.get("status") == "succeeded"
+        assert job.get("kind") == "agent"
+        assert job.get("result", {}).get("agent_reply") == "stub reply"
     finally:
         manager.stop()
 
@@ -1249,6 +1557,63 @@ def test_v6_agent_message_multipart_with_zip(monkeypatch):
         assert payload.get("attachments")
     finally:
         manager.stop()
+
+
+def test_v6_background_agent_job_multipart_with_zip(monkeypatch, tmp_path):
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "agent-job-runtime"))
+    reset_runtime()
+    port = _get_free_port()
+    manager = V6ServerManager(port=port)
+    manager._agent_service = _DummyAgentService()
+    ok, _ = manager.start()
+    assert ok
+    try:
+        def _fake_process_folder(payload):
+            assert payload.get("_cancel_check") is not None
+            payload["_progress_callback"](1, 1, "LSV_1.txt")
+            return {
+                "status": "success",
+                "result": {
+                    "summary": "queued process ok",
+                    "processing": {"output_files": ["summary.json"]},
+                    "quality_summary": {"total_files": 1},
+                },
+            }
+
+        monkeypatch.setattr(routes_post, "process_folder", _fake_process_folder)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("demo/LSV_1.txt", "Potential Current\n0 0\n")
+        body, headers = _build_multipart(
+            {"message": "summarize", "data_type": "LSV", "project_name": "job_upload"},
+            [("file", "demo.zip", buf.getvalue(), "application/zip")],
+        )
+        status, payload = _read_raw(
+            f"http://127.0.0.1:{port}/api/v1/agent/jobs",
+            method="POST",
+            data=body,
+            headers=headers,
+        )
+        assert status == 202
+        job_id = payload["job_id"]
+
+        job = None
+        for _ in range(100):
+            status, detail = _read(f"http://127.0.0.1:{port}/api/v1/agent/jobs/{job_id}")
+            assert status == 200
+            job = detail.get("job")
+            if job and job.get("status") in {"failed", "succeeded", "cancelled"}:
+                break
+            time.sleep(0.02)
+        assert job and job.get("status") == "succeeded"
+        result = job.get("result", {})
+        assert result.get("processing_result", {}).get("summary") == "queued process ok"
+        source_path = result["processing_result"]["provenance"]["source_archive_path"]
+        assert os.path.exists(source_path)
+        assert result.get("attachments")
+    finally:
+        manager.stop()
+        reset_runtime()
 
 
 # ---------- _parse_params_value dict input ----------

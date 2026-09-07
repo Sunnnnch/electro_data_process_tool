@@ -1,13 +1,13 @@
 openapi: "3.1.0"
 info:
-  title: ElectroChem V6 API
+  title: ElectroChem — Intelligent Electrochemical Data Processing Software
   description: |
-    本地电化学数据处理与智能分析 HTTP API。
+    智能电化学数据处理软件的本地 HTTP API。
 
     服务默认运行在 `http://127.0.0.1:8010`。
-    所有 JSON 响应均使用 UTF-8 编码，包含 `status` 字段
-    （`"success"` 或 `"error"`）。
-  version: "6.0.7"
+    JSON 响应使用 UTF-8 编码；业务响应通常使用 `status: "success" | "error"`。
+    根信息使用 `"running"`，健康检查使用 `"ok"`；任务对象另有生命周期状态。
+  version: "7.0.1"
   license:
     name: MIT
     url: https://github.com/Sunnnnch/electro_data_process_tool/blob/main/LICENSE
@@ -35,6 +35,12 @@ tags:
     description: 数据质量报告
   - name: System
     description: 系统级操作（文件夹选择、路径打开）
+  - name: Storage
+    description: 应用托管运行文件统计与安全清理
+  - name: Tasks
+    description: 处理与分析助手任务的统一进度、状态和取消入口
+  - name: Replicates
+    description: 独立重复实验选择、来源核对、统计和导出
 
 paths:
   /:
@@ -72,16 +78,21 @@ paths:
       tags: [Projects]
       summary: 列出所有项目
       parameters:
-        - name: include_archived
+        - name: status
           in: query
-          schema: { type: boolean, default: false }
+          schema: { type: string, enum: [active, archived, all], default: active }
       responses:
         "200":
-          description: 项目列表
+          description: 项目列表；每个项目返回 default_template_name，旧项目或未关联时为空字符串。模板删除后保留其名称。
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessResponse"
+                type: object
+                properties:
+                  status: { type: string, const: success }
+                  projects:
+                    type: array
+                    items: { $ref: "#/components/schemas/Project" }
 
     post:
       operationId: createProject
@@ -99,13 +110,18 @@ paths:
                 description: { type: string }
                 tags: { type: array, items: { type: string } }
                 color: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+                default_template_name:
+                  type: string
+                  default: ""
+                  description: 关联现有内置或用户参数模板的名称。空字符串表示不关联；名称两端空白会移除。仅保存关联，不自动应用处理参数。
+                  example: "LSV_常用模板"
       responses:
         "200":
-          description: 创建成功
+          description: 创建成功，返回 project_id 和完整项目对象（含 default_template_name）。非字符串或不存在的模板名称返回 400。
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessResponse"
+                $ref: "#/components/schemas/ProjectMutationResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
 
@@ -127,13 +143,16 @@ paths:
                 tags: { type: array, items: { type: string } }
                 color: { type: string }
                 status: { type: string }
+                default_template_name:
+                  type: string
+                  description: 未提供时保留现有关联，空字符串解除关联。新的非空名称必须存在；原有模板已删除时，仍可原样保留该名称并编辑其他项目信息。null 或其他非字符串值返回 400。
       responses:
         "200":
-          description: 更新成功
+          description: 更新成功，返回 project_id 和完整项目对象（含 default_template_name）。参数校验失败时不保存其他字段。
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessResponse"
+                $ref: "#/components/schemas/ProjectMutationResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
 
@@ -141,7 +160,7 @@ paths:
     post:
       operationId: deleteProject
       tags: [Projects]
-      summary: 删除项目
+      summary: 将项目移入回收站
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       responses:
@@ -150,7 +169,58 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/projects/{project_id}/restore:
+    post:
+      operationId: restoreProject
+      tags: [Projects]
+      summary: 从项目回收站恢复
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: 恢复成功 }
+        "409": { description: 项目不在回收站或状态冲突 }
+
+  /api/v1/projects/{project_id}/delete-permanent:
+    post:
+      operationId: permanentlyDeleteProject
+      tags: [Projects]
+      summary: 永久删除回收站项目、历史和无引用托管文件
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delete_artifacts: { type: boolean, default: true }
+      responses:
+        "200": { description: 永久删除成功 }
+        "409": { description: 必须先将项目移入回收站 }
+
   /api/v1/projects/{project_id}/report:
+    post:
+      operationId: exportScopedProjectReport
+      tags: [Projects]
+      summary: 按明确范围导出可复现项目报告
+      description: 不受页面分页限制。省略选择导出全项目；run_ids 与 record_keys 不得混用，空选择无效。返回 path、markdown_path、html_path 和实际 scope。
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                run_ids: { type: array, minItems: 1, items: { type: string } }
+                record_keys: { type: array, minItems: 1, items: { type: string } }
+                include_archived: { type: boolean, default: false }
+                format: { type: string, enum: [html, markdown], default: html }
+      responses:
+        "200": { description: 完整导出所选范围并返回实际数量 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
     get:
       operationId: exportProjectReport
       tags: [Projects]
@@ -175,14 +245,19 @@ paths:
       summary: 打包项目输出文件为 ZIP 下载
       parameters:
         - $ref: "#/components/parameters/ProjectId"
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: ZIP 文件流
+          description: 包含全部匹配历史记录、归档清单和受信任文件的 ZIP 文件流
           content:
             application/zip:
               schema:
                 type: string
                 format: binary
+        "413":
+          description: 项目文件数或未压缩体积超过服务端归档限制
 
   /api/v1/projects/{project_id}/lsv-summary:
     get:
@@ -262,24 +337,61 @@ paths:
       operationId: listHistory
       tags: [History]
       summary: 列出处理历史
+      description: 筛选在服务端作用于全部项目历史，再按游标分页；total 为筛选后的记录总数。更换筛选条件后应清空 cursor。
       parameters:
-        - name: project_id
+        - name: project
           in: query
           schema: { type: string }
         - name: limit
           in: query
-          schema: { type: integer, default: 100 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          description: 上一页响应中的 next_cursor
+          schema: { type: string }
         - name: include_archived
           in: query
           schema: { type: boolean, default: false }
-        - name: data_type
+        - name: type
           in: query
-          schema: { type: string, enum: [LSV, CV, EIS, ECSA] }
+          schema: { type: string, enum: [LSV, CV, EIS, ECSA, COUPLED] }
+        - name: q
+          in: query
+          description: 按样品名或文件名做字面子串搜索，不搜索目录路径；去除两端空白，空字符串不筛选。百分号和下划线视为普通字符。
+          schema: { type: string }
+        - name: date_from
+          in: query
+          description: 包含此日期及以后的记录，按历史保存的本地日历日期比较，不进行 UTC 换算。
+          schema: { type: string, format: date, example: "2026-09-01" }
+        - name: date_to
+          in: query
+          description: 包含此日期当天的全部记录。必须为有效 YYYY-MM-DD 日期，且不得早于 date_from。
+          schema: { type: string, format: date, example: "2026-09-07" }
       responses:
         "200":
-          description: 历史记录列表
+          description: 不含大型 data 字段的历史摘要页，返回 next_cursor、has_more 和 total
+        "400":
+          description: 日期格式无效、开始日期晚于结束日期或游标无效；返回 status=error、message 和空 records。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
-  /api/v1/history/stats:
+  /api/v1/history/{record_key}:
+    get:
+      operationId: getHistoryDetail
+      tags: [History]
+      summary: 按精确 record_key 获取完整历史详情
+      parameters:
+        - name: record_key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: 完整历史记录（包含 data） }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/stats:
     get:
       operationId: getHistoryStats
       tags: [History]
@@ -308,7 +420,9 @@ paths:
               type: object
               required: [history_key]
               properties:
-                history_key: { type: string }
+                history_key:
+                  type: string
+                  description: 历史列表返回的 record_key；旧格式键仅在唯一匹配时接受
       responses:
         "200":
           description: 归档成功
@@ -328,39 +442,214 @@ paths:
               type: object
               required: [history_key]
               properties:
-                history_key: { type: string }
+                history_key:
+                  type: string
+                  description: 历史列表返回的 record_key；旧格式键仅在唯一匹配时接受
+                delete_artifacts:
+                  type: boolean
+                  default: true
+                  description: 清理不再被其他记录引用的应用托管输出；从不删除外部路径
       responses:
         "200":
           description: 删除成功
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  # ── Processing ────────────────────────────────────────────────────────
-  /api/v1/process:
+  /api/v1/history/compare:
     post:
-      operationId: processFolder
-      tags: [Processing]
-      summary: 处理文件夹中的电化学数据
+      operationId: compareHistoricalRecords
+      tags: [History]
+      summary: 对比明确选中的两条同项目同类型历史记录
+      description: 不按样品名替换成最新记录。差值为右侧减左侧；缺值、单位不一致不计算差值。包含参数、输入指纹、计算版本和质量变化。
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [folder_path, data_type]
+              required: [left_record_key, right_record_key]
               properties:
-                folder_path: { type: string, example: "D:\\data\\sample1" }
-                data_type:
+                left_record_key: { type: string }
+                right_record_key: { type: string }
+                project_id: { type: string }
+      responses:
+        "200": { description: comparison 对象包含 metrics、parameter_changes、sources、versions、quality、warnings }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/runs:
+    get:
+      operationId: listProcessingRuns
+      tags: [Processing]
+      summary: 分页读取持久运行摘要，包括没有历史记录的运行
+      parameters:
+        - { name: project_id, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: runs、total、has_more、next_offset }
+
+  /api/v1/runs/{run_id}:
+    get:
+      operationId: getProcessingRun
+      tags: [Processing]
+      summary: 获取持久运行配方
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200": { description: run 对象含参数、全部输入和辅助依赖指纹、记录映射、原运行关系、软件与公式及依赖版本 }
+        "404": { description: 运行不存在或旧历史未保存完整配方 }
+
+  /api/v1/runs/{run_id}/replay-plan:
+    post:
+      operationId: previewRunReplay
+      tags: [Processing]
+      summary: 校验历史输入并预览复算差异
+      description: 可从原 ZIP 自动恢复缺失的上传输入；不会运行计算。plan 包含 source_checks、parameter_changes、can_replay、requires_changed_confirmation、issues、warnings。
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        $ref: "#/components/requestBodies/ReplayOptions"
+      responses:
+        "200": { description: 预览成功；是否可提交由 plan.can_replay 判断 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/runs/{run_id}/replay:
+    post:
+      operationId: submitRunReplay
+      tags: [Processing]
+      summary: 重新校验后提交历史复算任务
+      description: 始终生成新 run_id 和输出目录，保留 parent_run_id/parent_record_key；排队后计算前再次校验完整输入指纹。
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        $ref: "#/components/requestBodies/ReplayOptions"
+      responses:
+        "202": { description: 已排队，返回 job 和 job_id；通过现有 process/jobs 接口查询 }
+        "409": { description: 预检阻断，返回 message 和 plan，不创建任务 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { description: 任务服务不可用 }
+
+  /api/v1/runs/{run_id}/report:
+    post:
+      operationId: exportRunReport
+      tags: [Processing]
+      summary: 导出单次完整运行报告
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format: { type: string, enum: [html, markdown], default: html }
+      responses:
+        "200": { description: path、markdown_path、html_path 和 scope；正文与可追溯附录 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ── Processing ────────────────────────────────────────────────────────
+  /api/v1/process/modules:
+    get:
+      operationId: listProcessingModules
+      tags: [Processing]
+      summary: 查询可用处理模块
+      parameters:
+        - name: data_types
+          in: query
+          description: 可选的逗号分隔处理方式；省略时返回全部模块
+          schema: { type: string, example: "LSV,CV,EIS" }
+      responses:
+        "200":
+          description: 运行时模块目录
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process/schema:
+    get:
+      operationId: getProcessingParameterSchema
+      tags: [Processing]
+      summary: 查询处理参数 Schema
+      description: |
+        返回参数类型、默认值、界面默认值、范围、选项、分组和预设。
+        该响应是处理参数校验与界面初始化的权威来源。
+      parameters:
+        - name: data_types
+          in: query
+          description: 可选的逗号分隔处理方式；省略时返回全部内置模块参数
+          schema: { type: string, example: "LSV,EIS" }
+      responses:
+        "200":
+          description: 处理参数 Schema
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessingParameterSchemaResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process:
+    post:
+      operationId: processFolder
+      tags: [Processing]
+      summary: 处理文件夹扫描结果或显式选择的电化学数据文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data_types]
+              properties:
+                folder_path:
                   type: string
-                  enum: [LSV, CV, EIS, ECSA]
+                  example: "D:\\data\\sample1"
+                  description: 文件夹扫描模式必填；显式 input_files 模式可省略，届时使用首个文件所在目录作为运行上下文
+                input_files:
+                  type: array
+                  description: 可选的精确主数据文件清单；提供后不再从周围目录自动发现主数据
+                  items:
+                    type: object
+                    required: [path, data_type]
+                    properties:
+                      path: { type: string }
+                      data_type: { type: string, enum: [LSV, CV, EIS, ECSA] }
+                      enabled: { type: boolean, default: true }
+                data_types:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: string
+                    enum: [LSV, CV, EIS, ECSA, COUPLED]
+                  example: [LSV, EIS]
+                project_id:
+                  type: string
+                  description: 可选的已有活动项目标识，优先于 project_name；历史复算使用稳定标识绑定原项目
                 project_name: { type: string }
-                potential_offset: { type: number }
-                electrode_area: { type: number }
-                target_current: { type: string, example: "10,100" }
-                tafel_range: { type: string, example: "1-10" }
+                output_dir:
+                  type: string
+                  description: 可选的显式输出目录
                 params:
                   type: object
-                  description: 额外处理参数
+                  description: |
+                    处理参数。字段、默认值、范围和选项以
+                    GET /api/v1/process/schema 的响应为准。
+                    内置参数必须存在于该 schema；扩展参数必须由模块的
+                    ProcessingModuleSpec.parameter_keys 声明，未声明字段返回 400。
+                  additionalProperties: true
+                  example:
+                    area: 1.0
+                    potential_mode: manual
+                    potential_offset: 0.0
+                    lsv_target_current: "10,100"
+                    tafel_enabled: false
       responses:
         "200":
           description: 处理成功
@@ -370,6 +659,121 @@ paths:
                 $ref: "#/components/schemas/ProcessResult"
         "400":
           $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process/preflight:
+    post:
+      operationId: preflightProcessFolder
+      tags: [Processing]
+      summary: 预检处理参数、主数据和辅助输入
+      description: |
+        与 POST /api/v1/process 使用相同请求结构，不启动正式处理。
+        HTTP 200 仅表示预检请求完成，调用方仍须检查 preflight.runnable、warnings
+        和识别出的文件；预检不能保证每个文件后续处理或拟合成功。
+      requestBody:
+        $ref: "#/paths/~1api~1v1~1process/post/requestBody"
+      responses:
+        "200":
+          description: 预检完成，包含是否可运行及各模块的匹配情况
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data_types, preflight]
+                properties:
+                  status: { type: string, const: success }
+                  data_types:
+                    type: array
+                    items: { type: string }
+                  preflight:
+                    type: object
+                    required: [runnable, matched_counts, matched_files, checks]
+                    properties:
+                      runnable: { type: boolean }
+                      matched_counts:
+                        type: object
+                        additionalProperties: { type: integer }
+                      matched_files: { type: integer }
+                      by_type:
+                        type: object
+                        additionalProperties: { type: object }
+                      warnings:
+                        type: array
+                        items: { type: string }
+                      checks:
+                        type: object
+                        description: 文件识别、参数完整性、输出目录及可运行状态检查。
+                        additionalProperties: { type: object }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process/discover-inputs:
+    post:
+      operationId: discoverProcessInputs
+      tags: [Processing]
+      summary: 发现并初步识别可加入数据源清单的文件
+      description: 支持传入 folder_path 或 file_paths；只返回候选信息，不执行预检或处理。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_path: { type: string }
+                file_paths:
+                  type: array
+                  maxItems: 2000
+                  items: { type: string }
+                recursive_scan: { type: boolean, default: false }
+                data_types:
+                  type: array
+                  items: { type: string }
+                params: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: 候选文件、建议类型和匹配状态 }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/process/jobs:
+    get:
+      operationId: listProcessingJobs
+      tags: [Processing]
+      summary: 列出最近后台处理任务
+      responses:
+        "200": { description: 任务列表 }
+    post:
+      operationId: createProcessingJob
+      tags: [Processing]
+      summary: 创建可查询、可取消的后台处理任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "202": { description: 任务已排队，返回 job_id }
+
+  /api/v1/process/jobs/{job_id}:
+    get:
+      operationId: getProcessingJob
+      tags: [Processing]
+      summary: 查询后台处理任务、进度和结果
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200": { description: 任务详情 }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/process/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelProcessingJob
+      tags: [Processing]
+      summary: 请求取消处理任务
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200": { description: 已记录取消请求 }
+        "409": { description: 任务已结束或不可取消 }
 
   /api/v1/process-zip:
     post:
@@ -388,12 +792,18 @@ paths:
                   type: string
                   format: binary
                   description: ZIP 数据文件
-                data_type: { type: string, enum: [LSV, CV, EIS, ECSA] }
+                data_type: { type: string, enum: [LSV, CV, EIS, ECSA, COUPLED] }
                 project_name: { type: string }
                 potential_offset: { type: number }
                 electrode_area: { type: number }
                 target_current: { type: string }
                 tafel_range: { type: string }
+                coupled_products_file:
+                  type: string
+                  description: Relative path inside the extracted ZIP, or an absolute allowed path, for COUPLED/FE calculation.
+                coupled_products_sheet:
+                  type: string
+                  description: Excel sheet name or index; ignored for CSV/TXT.
                 params: { type: string, description: JSON 编码的额外参数 }
       responses:
         "200":
@@ -497,7 +907,7 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  /api/v1/agent/chat:
+  /api/v1/agent/messages:
     post:
       operationId: agentChat
       tags: [Agent]
@@ -508,15 +918,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [message]
+              description: 普通消息需要 message；确认或取消写操作时提供 approval_id 与 approval_action。
               properties:
                 message: { type: string }
                 conversation_id: { type: string }
                 provider: { type: string }
                 model: { type: string }
                 project_name: { type: string }
-                data_type: { type: string, enum: [LSV, CV, EIS, ECSA] }
+                data_type: { type: string, enum: [LSV, CV, EIS, ECSA, COUPLED] }
                 processing_result: { type: object }
+                professional_context: { type: object }
+                approval_id: { type: string, description: AI 返回的待确认操作 ID }
+                approval_action: { type: string, enum: [approve, decline] }
                 attachments:
                   type: array
                   items: { type: object }
@@ -544,11 +957,68 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: success }
-                  reply: { type: string }
+                  agent_reply: { type: string }
                   conversation_id: { type: string }
-                  tool_calls: { type: array, items: { type: object } }
+                  pending_approvals: { type: array, items: { type: object } }
+                  resolved_approval_ids: { type: array, items: { type: string } }
         "400":
           $ref: "#/components/responses/BadRequest"
+
+  /api/v1/agent/jobs:
+    post:
+      operationId: createAgentJob
+      tags: [Agent]
+      summary: 创建后台 AI/ZIP 联动任务
+      description: JSON 消息或 multipart ZIP 均先返回 job_id；任务状态持久化并支持取消。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 普通消息需要 message；确认或取消写操作时提供 approval_id 与 approval_action。
+              properties:
+                message: { type: string }
+                conversation_id: { type: string }
+                provider: { type: string }
+                model: { type: string }
+                professional_context: { type: object }
+                approval_id: { type: string }
+                approval_action: { type: string, enum: [approve, decline] }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                message: { type: string }
+                file: { type: string, format: binary }
+                data_type: { type: string }
+                project_name: { type: string }
+      responses:
+        "202": { description: 任务已排队 }
+
+  /api/v1/agent/jobs/{job_id}:
+    get:
+      operationId: getAgentJob
+      tags: [Agent]
+      summary: 查询 AI 任务阶段和最终回复
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200": { description: AI 任务详情 }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/agent/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelAgentJob
+      tags: [Agent]
+      summary: 请求取消 AI 任务并关闭支持流式的响应流
+      description: 已确认写操作进入写入阶段后不可取消，接口将返回 409。
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200": { description: 已记录取消请求 }
+        "409": { description: 任务已结束或不可取消 }
 
   # ── Agent Conversations ───────────────────────────────────────────────
   /api/v1/agent/conversations:
@@ -621,8 +1091,313 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ── Managed storage ──────────────────────────────────────────────────
+  /api/v1/storage:
+    get:
+      operationId: getStorageSummary
+      tags: [Storage]
+      summary: 统计应用托管上传运行、活跃运行、已引用和孤立空间
+      responses:
+        "200": { description: 托管空间统计 }
+
+  /api/v1/storage/cleanup:
+    post:
+      operationId: cleanupStorage
+      tags: [Storage]
+      summary: 清理数据库未引用的应用托管上传运行
+      description: 路径必须严格位于应用 runs 根目录下；外部路径、仍被历史引用的目录以及准备中、排队中或执行中的上传运行不会删除。跨进程运行锁释放后，无历史引用的遗留目录才可清理。
+      responses:
+        "200": { description: 清理数量和释放字节数 }
+
+  /api/v1/process/recovery:
+    get:
+      operationId: listRecoverableTasks
+      tags: [Processing]
+      summary: 发现异常退出后可恢复的处理任务
+      description: 核实主机、进程编号及启动身份，仅确认原进程已结束时标记中断。无归属项目的排队任务也会列出；旧记录无法核实进程时返回 owner_unknown。此接口不会启动新任务。
+      parameters:
+        - name: project_id
+          in: query
+          description: 可选项目范围，仍包含尚无项目归属的任务；省略时列出所有项目。
+          schema: { type: string }
+      responses:
+        "200":
+          description: 返回 items，每项包含 recovery_id、job_id、run_id、project_id、status、owner_state、reason、can_prepare、requires_owner_confirmation。
+
+  /api/v1/process/recovery/plan:
+    post:
+      operationId: prepareTaskRecovery
+      tags: [Processing]
+      summary: 核对中断任务的输入和参数并预检
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecoveryRequest" }
+      responses:
+        "200":
+          description: 返回 plan，包含 can_recover、issues、warnings、params、source_checks、preflight 和所需确认。不可恢复的预检也使用200响应，并通过 can_recover=false说明原因。
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/process/recovery/resume:
+    post:
+      operationId: resumeInterruptedTask
+      tags: [Processing]
+      summary: 重新核验并创建独立的恢复任务
+      description: 提交时重新核实原任务状态与输入并预检。恢复生成新 job_id、run_id 和独立输出；重复提交同一恢复记录复用已创建的任务，不覆盖原结果。已完成或仍在运行的原任务不允许恢复。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecoveryRequest" }
+      responses:
+        "202": { description: 返回新 job_id 和 job，可通过现有任务状态接口轮询；已恢复时返回 already_resumed。 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: 当前状态或预检阻止恢复，返回 message 和 plan。 }
+        "503": { description: 任务执行服务不可用。 }
+
+  # ── Tasks ─────────────────────────────────────────────────────────────
+  /api/v1/tasks:
+    get:
+      operationId: listWorkbenchTasks
+      tags: [Tasks]
+      summary: 分页查询处理与分析助手任务
+      description: 排队和运行任务优先，其余按创建时间倒序。total/has_more 对应当前筛选；counts/active_count 是所有已保留任务的全局计数，不随 kind/status 筛选变化。只返回简要进度和明确结果引用，不返回原始请求、聊天内容或完整结果。
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string, enum: [all, process, agent], default: all }
+        - name: status
+          in: query
+          description: active 同时选择 queued 和 running。
+          schema: { type: string, enum: [all, active, queued, running, succeeded, failed, cancelled, interrupted], default: all }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: 当前页、匹配总数和全局状态计数
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskListResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/tasks/{job_id}:
+    get:
+      operationId: getWorkbenchTask
+      tags: [Tasks]
+      summary: 查询一个任务的最新摘要和结果引用
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: 任务摘要；can_cancel 反映当前服务实例是否仍可取消此任务。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, task]
+                properties:
+                  status: { type: string, const: success }
+                  task: { $ref: "#/components/schemas/TaskSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404":
+          description: 任务不存在或已超出保留范围
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/tasks/{job_id}/cancel:
+    post:
+      operationId: cancelWorkbenchTask
+      tags: [Tasks]
+      summary: 请求取消当前实例中的任务
+      description: 接受取消请求不表示任务已结束；继续轮询状态确认 cancelled 或其他终态。进入结果保存阶段、已结束或由其他程序实例执行的任务不可取消。
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        $ref: "#/components/requestBodies/EmptyJsonObject"
+      responses:
+        "200":
+          description: 已接受取消请求
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, job_id, cancel_requested]
+                properties:
+                  status: { type: string, const: success }
+                  job_id: { type: string }
+                  cancel_requested: { type: boolean, const: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: 任务不存在、已结束、正在保存结果、由其他实例执行，或当前服务无可用任务管理器。
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # ── Replicates ────────────────────────────────────────────────────────
+  /api/v1/projects/{project_id}/replicate-groups:
+    get:
+      operationId: listReplicateGroups
+      tags: [Replicates]
+      summary: 列出项目中的已保存重复实验组
+      description: 返回组的元数据，按更新时间倒序。指标和来源重新核验通过单组详情接口获取。
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: 已保存组列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, groups]
+                properties:
+                  status: { type: string, const: success }
+                  groups:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReplicateGroupSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: createReplicateGroup
+      tags: [Replicates]
+      summary: 保存明确选择的独立重复实验组
+      description: 每组最多 100 条同项目、同类型记录。相同原始数据或复算版本不能同时计入 n；可明确排除并填写原因。先调用预览核对来源、条件和各指标状态；can_save=false 时保存返回 400。保存不会改写历史指标或删除原结果。
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ReplicateDraft"
+                - type: object
+                  required: [name, record_keys]
+      responses:
+        "200":
+          $ref: "#/components/responses/ReplicateGroupResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/replicate-preview:
+    post:
+      operationId: previewReplicateGroup
+      tags: [Replicates]
+      summary: 预览重复实验组的来源、条件和统计
+      description: 不保存。存在同源版本、待确认来源或条件等可核对问题时仍返回 200，group.can_save=false 并列出 issues；结构错误和跨项目选择返回 400，缺失资源返回 404。修改已有组时可传 group_id 载入其删除标记和默认名称/记录选择。
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplicateDraft" }
+      responses:
+        "200":
+          $ref: "#/components/responses/ReplicateGroupResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/replicate-groups/{group_id}:
+    get:
+      operationId: getReplicateGroup
+      tags: [Replicates]
+      summary: 读取重复组并按现存记录重新核对和计算
+      description: 已删除的成员保留删除标记且不再参与 n；重新导入相同记录标识不会自动恢复其纳入状态。原数据和配方变化后以当前核验结果为准。
+      parameters:
+        - $ref: "#/components/parameters/ReplicateGroupId"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReplicateGroupResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/replicate-groups/{group_id}/update:
+    post:
+      operationId: updateReplicateGroup
+      tags: [Replicates]
+      summary: 保存重复组选择、排除和确认的修改
+      description: revision 必须与当前组一致；过期版本返回 400，须重新读取。提交当前完整的排除与来源确认列表，避免省略数组恢复其默认空值；需要计算口径确认时也须带上当前签名。名称和 record_keys 省略时沿用已保存值。
+      parameters:
+        - $ref: "#/components/parameters/ReplicateGroupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ReplicateDraft"
+                - type: object
+                  required: [revision]
+      responses:
+        "200":
+          $ref: "#/components/responses/ReplicateGroupResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/replicate-groups/{group_id}/delete:
+    post:
+      operationId: deleteReplicateGroup
+      tags: [Replicates]
+      summary: 删除重复组选择，保留原实验和历史结果
+      parameters:
+        - $ref: "#/components/parameters/ReplicateGroupId"
+      requestBody:
+        $ref: "#/components/requestBodies/EmptyJsonObject"
+      responses:
+        "200":
+          description: 重复组已删除
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: success }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/replicate-groups/{group_id}/export:
+    get:
+      operationId: exportReplicateGroup
+      tags: [Replicates]
+      summary: 下载重复实验明细 CSV 或单指标误差条 SVG
+      description: CSV 含原始点、纳入状态、排除原因、来源指纹、有效 n、均值、样本标准差、计算口径确认状态和逐条口径 JSON；被阻断指标仍保留点与状态，不伪造汇总。SVG 仅支持状态 ok/single 的指标，显示均值 ± 样本标准差（ddof=1），不是 SEM 或置信区间；n=1 时标准差未定义。
+      parameters:
+        - $ref: "#/components/parameters/ReplicateGroupId"
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, svg], default: csv }
+        - name: metric
+          in: query
+          description: format=svg 时必须提供详情 metrics[].key 中可绘制的指标；CSV 忽略此项并导出全部指标。
+          schema: { type: string }
+      responses:
+        "200":
+          description: UTF-8 CSV（含 BOM）或 SVG 下载
+          headers:
+            Content-Disposition:
+              schema: { type: string, example: 'attachment; filename="replicates.csv"' }
+            X-Content-Type-Options:
+              schema: { type: string, const: nosniff }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            text/csv:
+              schema: { type: string }
+            image/svg+xml:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # ── System ────────────────────────────────────────────────────────────
-  /api/v1/select-folder:
+  /api/v1/system/select-folder:
     post:
       operationId: selectFolder
       tags: [System]
@@ -640,7 +1415,29 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  /api/v1/open-path:
+  /api/v1/system/select-files:
+    post:
+      operationId: selectFiles
+      tags: [System]
+      summary: 打开支持多选的系统文件选择器
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initial_path: { type: string }
+                extensions:
+                  type: array
+                  items: { type: string }
+                  default: [".txt", ".csv"]
+      responses:
+        "200":
+          description: 返回 file_paths 和选择数量
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/system/open-path:
     post:
       operationId: openPath
       tags: [System]
@@ -662,7 +1459,43 @@ paths:
           $ref: "#/components/responses/BadRequest"
 
 components:
+  requestBodies:
+    EmptyJsonObject:
+      required: true
+      description: 使用 Content-Type application/json；操作不需要业务字段，可发送空对象。
+      content:
+        application/json:
+          schema: { type: object, example: {} }
+    ReplayOptions:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              record_key: { type: string, description: 省略为整次运行；ECSA 单条结果仍包含该样品全部扫速输入 }
+              params: { type: object, additionalProperties: true, description: 覆盖的处理参数，省略使用历史参数 }
+              source_paths: { type: object, additionalProperties: { type: string }, description: 缺失文件的旧绝对路径到新路径映射 }
+              allow_changed_sources: { type: boolean, default: false, description: 明确接受内容已改变的输入，复算将保留此差异 }
   parameters:
+    ReplicateGroupId:
+      name: group_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: 已保存重复实验组的标识
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: string }
+
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string }
+
     ProjectId:
       name: project_id
       in: path
@@ -678,6 +1511,16 @@ components:
       description: 会话 UUID
 
   responses:
+    ReplicateGroupResponse:
+      description: 重复组、每个成员来源及当前有效统计
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status, group]
+            properties:
+              status: { type: string, const: success }
+              group: { $ref: "#/components/schemas/ReplicateGroup" }
     BadRequest:
       description: 请求参数无效或业务逻辑失败
       content:
@@ -693,11 +1536,335 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
+    TaskStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled, interrupted]
+
+    TaskReference:
+      type: object
+      required: [project_id, project_name, conversation_id, run_id, record_keys]
+      properties:
+        project_id: { type: [string, "null"] }
+        project_name: { type: [string, "null"] }
+        conversation_id: { type: [string, "null"] }
+        conversation_title: { type: [string, "null"] }
+        run_id: { type: [string, "null"] }
+        record_keys:
+          type: array
+          items: { type: string }
+      description: 从任务和实际运行配方提取的明确引用；未生成的 run_id 为 null，尚无历史记录时 record_keys 为空。已不存在的项目或会话不提供可跳转 ID。
+
+    TaskSummary:
+      type: object
+      required: [job_id, kind, status, cancel_requested, can_cancel, reference]
+      properties:
+        job_id: { type: string }
+        kind: { type: string, enum: [process, agent] }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        error: { type: [string, "null"] }
+        current_item: { type: [string, "null"] }
+        progress_current: { type: [integer, "null"], minimum: 0 }
+        progress_total:
+          type: [integer, "null"]
+          minimum: 0
+          description: 总进度为 0 或 null 时无法计算百分比。
+        cancel_requested: { type: boolean }
+        can_cancel: { type: boolean }
+        created_at: { type: [string, "null"] }
+        started_at: { type: [string, "null"] }
+        finished_at: { type: [string, "null"] }
+        updated_at: { type: [string, "null"] }
+        reference: { $ref: "#/components/schemas/TaskReference" }
+
+    TaskListResponse:
+      type: object
+      required: [status, items, total, offset, limit, has_more, counts, active_count]
+      properties:
+        status: { type: string, const: success }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TaskSummary" }
+        total: { type: integer, minimum: 0, description: 当前 kind/status 筛选后的任务总数 }
+        offset: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        has_more: { type: boolean }
+        counts:
+          type: object
+          description: 全部已保留任务按状态计数，缺少的状态键视为 0；不受当前筛选影响。
+          additionalProperties: { type: integer, minimum: 0 }
+        active_count: { type: integer, minimum: 0, description: 全局 queued 和 running 数量之和 }
+
+    ReplicateExclusion:
+      type: object
+      required: [record_key, reason]
+      properties:
+        record_key: { type: string, minLength: 1 }
+        reason: { type: string, minLength: 1, maxLength: 500, description: 明确记录排除依据；去除两端空白后不能为空。 }
+
+    ReplicateDraft:
+      type: object
+      properties:
+        group_id:
+          type: string
+          description: 仅预览已有组时使用；创建时由服务生成 ID，更新使用 URL 中的 group_id。
+        name:
+          type: string
+          maxLength: 128
+          description: 保存时去除两端空白后不能为空；预览允许空名称并返回 can_save=false。
+        record_keys:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: { type: string, minLength: 1 }
+          description: 明确选择的历史记录。新建和无 group_id 的预览必须提供；更新或已有组预览可省略以沿用选择。
+        exclusions:
+          type: array
+          maxItems: 100
+          default: []
+          items: { $ref: "#/components/schemas/ReplicateExclusion" }
+          description: 每个 record_key 必须属于本组且不可重复；排除项仍保留在明细和 CSV 中。
+        independence_confirmed_keys:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          default: []
+          items: { type: string, minLength: 1 }
+          description: 仅用于来源证据不足的具体成员，表示人工核实其为独立实验；不能绕过已识别的同源或复算版本冲突。确认列表必须属于当前选择。
+        analysis_conditions_confirmation:
+          type: string
+          default: ""
+          description: 当 group.analysis_conditions.requires_confirmation=true 时，核对其 differences/members 后原样提交 analysis_conditions.signature；这是签名字符串，不是布尔开关。修改成员、排除项或关键计算参数会使旧签名失效，应重新预览确认。不能绕过同源版本、数据类型或单位冲突。
+        revision:
+          type: integer
+          minimum: 1
+          description: 更新时必填，使用最近读取的组 revision；创建和预览不进行此乐观锁校验。
+
+    ReplicateGroupSummary:
+      type: object
+      required: [group_id, project_id, name, updated_at, revision, record_keys]
+      properties:
+        group_id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        updated_at: { type: string }
+        revision: { type: integer, minimum: 1 }
+        record_keys:
+          type: array
+          items: { type: string }
+
+    ReplicateSource:
+      type: object
+      description: 删除成员的 source 为 {}；其余成员包含输入指纹和可核实的复算谱系。verified 表示来源证据完整，不表示实验条件或独立性已获科学验证。
+      properties:
+        state: { type: string, enum: [verified, unverified] }
+        hashes:
+          type: array
+          items: { type: string, pattern: "^[a-f0-9]{64}$" }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              file_name: { type: [string, "null"] }
+              path: { type: [string, "null"] }
+              sha256: { type: [string, "null"] }
+        run_id: { type: [string, "null"] }
+        root_run_id: { type: [string, "null"] }
+        ancestor_run_ids:
+          type: array
+          items: { type: string }
+        lineage_complete: { type: boolean }
+        missing_input_paths:
+          type: array
+          items: { type: string }
+        ancestor_record_keys:
+          type: array
+          items: { type: string }
+        origin_slots:
+          type: array
+          items: { type: string }
+        slots_complete: { type: boolean }
+
+    ReplicateMetricValue:
+      type: object
+      required: [value, label, unit]
+      properties:
+        value: { type: [number, "null"] }
+        label: { type: string }
+        unit: { type: string }
+
+    ReplicateMember:
+      type: object
+      required: [record_key, name, status, included, reason, metrics, source]
+      properties:
+        record_key: { type: string }
+        run_id: { type: [string, "null"] }
+        name: { type: string }
+        timestamp: { type: [string, "null"] }
+        data_type: { type: string }
+        archived: { type: boolean }
+        status: { type: string, enum: [included, excluded, unverified, same_source, deleted] }
+        included:
+          type: boolean
+          description: 是否选择纳入；来源或条件阻断时可能仍为 true，但指标状态不是 ok，不产生有效统计。
+        reason: { type: string }
+        independence_confirmed: { type: boolean }
+        metrics:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ReplicateMetricValue" }
+        source: { $ref: "#/components/schemas/ReplicateSource" }
+
+    ReplicateMetricPoint:
+      type: object
+      required: [record_key, name, included, member_status, reason, value, unit]
+      properties:
+        record_key: { type: string }
+        name: { type: string }
+        included: { type: boolean }
+        member_status: { type: string, enum: [included, excluded, unverified, same_source, deleted] }
+        reason: { type: string }
+        value: { type: [number, "null"] }
+        unit: { type: [string, "null"] }
+
+    ReplicateMetricSummary:
+      type: object
+      required: [key, label, unit, units, status, n, measured_n, missing_n, mean, sample_sd, points]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        unit: { type: string, description: 单位一致时的公共单位，否则为空字符串。 }
+        units:
+          type: array
+          items: { type: string }
+        status:
+          type: string
+          enum: [ok, single, missing, blocked, unit_mismatch, unit_unknown, nonfinite]
+          description: 单位不一致、CPE 指数量纲不一致、未知单位或组核验阻断时不汇总；非有限数值不参与有效统计。
+        n: { type: integer, minimum: 0, description: 实际参与此指标统计的有效数；阻断时为 0。 }
+        measured_n: { type: integer, minimum: 0, description: 当前选择中具有有限测量值的数量，尚未扣除整个指标被阻断的情形。 }
+        missing_n: { type: integer, minimum: 0, description: 当前选择中无有效测量值的成员数。 }
+        mean: { type: [number, "null"], description: 有效值的算术均值；无法汇总时为 null。 }
+        sample_sd: { type: [number, "null"], description: 分母为 n-1 的样本标准差；n 小于 2 或无法汇总时为 null。 }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicateMetricPoint" }
+
+    ReplicateGroup:
+      type: object
+      required: [group_id, project_id, project_name, name, record_keys, exclusions, independence_confirmed_keys, deleted_record_keys, revision, data_type, members, metrics, included_n, issues, warnings, source_conflicts, can_save, analysis_conditions, statistic]
+      properties:
+        group_id: { type: string, description: 未保存预览为空字符串。 }
+        project_id: { type: string }
+        project_name: { type: string }
+        name: { type: string }
+        record_keys:
+          type: array
+          items: { type: string }
+        exclusions:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicateExclusion" }
+        independence_confirmed_keys:
+          type: array
+          items: { type: string }
+        analysis_conditions_confirmation:
+          type: string
+          description: 请求或已保存的核对签名；须以 analysis_conditions.confirmed 判断对当前成员和参数是否仍然有效。
+        deleted_record_keys:
+          type: array
+          items: { type: string }
+        revision: { type: integer, minimum: 0, description: 未保存预览为 0；保存、更新及成员删除标记变化会递增。 }
+        created_at: { type: string }
+        updated_at: { type: string }
+        data_type: { type: string, description: 当前纳入成员的公共数据类型，不一致时为空字符串。 }
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicateMember" }
+        metrics:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicateMetricSummary" }
+        included_n: { type: integer, minimum: 0, description: 未排除且尚存在的成员数量；每个指标的有效 n 可能更小。 }
+        issues:
+          type: array
+          items: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+        source_conflicts:
+          type: array
+          description: 不能同时作为独立实验计数的记录键对。
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string }
+        can_save: { type: boolean }
+        analysis_conditions: { $ref: "#/components/schemas/ReplicateAnalysisConditions" }
+        statistic: { type: string, const: sample_standard_deviation_ddof_1 }
+
+    ReplicateAnalysisConditions:
+      type: object
+      required: [state, requires_confirmation, confirmed, signature, differences, members]
+      description: 仅核对已保存的关键计算口径，不表示电解液、载量、温度等实际实验条件均已得到验证。纳入超过一条且关键口径缺失或不同才要求确认。
+      properties:
+        state: { type: string, enum: [unknown, changed, consistent] }
+        requires_confirmation: { type: boolean }
+        confirmed:
+          type: boolean
+          description: 仅当当前确实要求确认且提交签名匹配时为 true；不要求确认时为 false，不应据此单独判断阻断。
+        signature:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: 当前纳入成员和关键计算参数快照的 SHA-256；用于 analysis_conditions_confirmation，保存和预览时重新计算。
+        differences:
+          type: array
+          items: { type: string }
+          description: 纳入成员之间值不同的参数键。
+        members:
+          type: array
+          items:
+            type: object
+            required: [record_key, name, values, missing, known]
+            properties:
+              record_key: { type: string }
+              name: { type: string }
+              values: { type: object, additionalProperties: true }
+              missing:
+                type: array
+                items: { type: string }
+              known: { type: boolean, description: 已保存参数且包含本条记录所需核对的关键参数。 }
+
+    RecoveryRequest:
+      type: object
+      required: [recovery_id]
+      properties:
+        recovery_id:
+          type: string
+          description: "恢复列表提供的 job: 或 run: 标识。"
+        preflight_token:
+          type: string
+          description: 预检返回的输入和有效参数摘要；恢复时原样传回，变化后须重新预检。界面始终携带此字段。
+        params:
+          type: object
+          description: 可选参数修正，必须通过当前模块参数校验。
+          additionalProperties: true
+        source_paths:
+          type: object
+          description: 已保存原路径到实际新路径的映射；修改后需重新预检。
+          additionalProperties: { type: string }
+        allow_changed_sources:
+          type: boolean
+          default: false
+          description: 明确接受输入指纹变化，仍执行新运行并保留差异；排队 ZIP 必须与原包校验一致，变化后需重新上传。
+        confirm_owner_stopped:
+          type: boolean
+          default: false
+          description: 仅用于无法核实所属进程的旧记录，表示已人工确认原程序关闭；不能绕过已确认仍存活的原进程。
     RootInfo:
       type: object
       properties:
-        app_name: { type: string, example: ElectroChem V6 }
-        status: { type: string, example: success }
+        name: { type: string, example: electrochem-v6-api, description: 稳定的接口服务标识，与软件显示名称区分。 }
+        status: { type: string, example: running }
         endpoints:
           type: array
           items: { type: string }
@@ -713,6 +1880,28 @@ components:
       properties:
         status: { type: string, example: error }
         message: { type: string }
+
+    Project:
+      type: object
+      required: [id, name, default_template_name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        tags: { type: array, items: { type: string } }
+        color: { type: string }
+        status: { type: string, enum: [active, archived] }
+        default_template_name:
+          type: string
+          description: 常用模板名称，未关联或旧项目为空字符串。此字段是引用；模板删除后保留名称，不自动改用其他模板。
+
+    ProjectMutationResponse:
+      type: object
+      required: [status, project_id, project]
+      properties:
+        status: { type: string, const: success }
+        project_id: { type: string }
+        project: { $ref: "#/components/schemas/Project" }
 
     ProcessResult:
       type: object
@@ -736,3 +1925,67 @@ components:
             properties:
               file: { type: string }
               error: { type: string }
+
+    ProcessingParameterSchemaResponse:
+      type: object
+      required: [status, schema]
+      properties:
+        status: { type: string, const: success }
+        schema:
+          $ref: "#/components/schemas/ProcessingParameterSchema"
+
+    ProcessingParameterSchema:
+      type: object
+      required: [schema_version, supported_data_types, data_types, modules, parameters]
+      properties:
+        schema_version: { type: string, example: "1.8" }
+        supported_data_types:
+          type: array
+          items: { type: string }
+        data_types:
+          type: array
+          items: { type: string }
+        modules:
+          type: array
+          items: { type: object }
+        parameter_groups:
+          type: array
+          items: { type: object }
+        common_parameters: { type: object }
+        module_parameters: { type: object }
+        parameters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessingParameter"
+        presets: { type: object }
+
+    ProcessingParameter:
+      type: object
+      required: [key, value_type, scope, default, ui_default]
+      properties:
+        key: { type: string }
+        value_type:
+          type: string
+          enum: [string, boolean, integer, number, any]
+        default: {}
+        ui_default: {}
+        data_types:
+          type: array
+          items: { type: string }
+        scope:
+          type: string
+          enum: [common, module]
+        empty_as_default: { type: boolean }
+        min_value:
+          type: [number, "null"]
+        max_value:
+          type: [number, "null"]
+        group: { type: string }
+        group_label: { type: string }
+        label: { type: string }
+        required: { type: boolean }
+        help_text: { type: string }
+        ui_control: { type: string }
+        options:
+          type: array
+          items: {}

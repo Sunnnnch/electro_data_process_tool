@@ -89,10 +89,19 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
     """Create a compact, low-risk summary for routine request/response logs."""
     if isinstance(payload, dict):
         out: dict[str, Any] = {"keys": sorted(payload.keys())[:40]}
-        if "status" in payload:
-            out["status"] = payload.get("status")
-        if "message" in payload:
-            out["message"] = _redact_text(str(payload.get("message")))
+        for field in (
+            "method",
+            "path",
+            "status_code",
+            "status",
+            "client",
+            "content_type",
+            "content_length",
+            "error",
+            "message",
+        ):
+            if field in payload:
+                out[field] = payload.get(field)
         return sanitize_for_log(out)
     if isinstance(payload, list):
         return {"type": "list", "size": len(payload)}
@@ -153,4 +162,3 @@ def log_event(logger: logging.Logger, event: str, payload: Any = None, *, level:
     except Exception:
         # Logging must never break main request flow.
         pass
-

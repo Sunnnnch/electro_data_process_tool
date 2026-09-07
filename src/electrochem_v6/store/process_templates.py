@@ -1,18 +1,12 @@
-"""Process template store for v6."""
+"""SQLite-backed process template service."""
 
 from __future__ import annotations
 
-import json
-import os
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List
 
-from electrochem_v6.config import ensure_parent_dir, get_templates_file
-
-
-def _template_file() -> str:
-    return str(ensure_parent_dir(get_templates_file()))
-
+from .runtime import get_database
 
 BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
     {
@@ -102,55 +96,52 @@ BUILTIN_TEMPLATES: List[Dict[str, Any]] = [
 ]
 
 
+def _current_schema_version() -> str:
+    # Local import avoids loading the processing service while the store
+    # package itself is still being initialized.
+    from electrochem_v6.core.processing_registry import PARAM_SCHEMA_VERSION
+
+    return PARAM_SCHEMA_VERSION
+
+
 def _builtin_names() -> set[str]:
-    return {item["name"] for item in BUILTIN_TEMPLATES}
+    return {str(item["name"]) for item in BUILTIN_TEMPLATES}
 
 
-def _load_user_templates() -> List[Dict[str, Any]]:
-    file_path = _template_file()
-    if not os.path.exists(file_path):
-        return []
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-    except Exception:
-        return []
-    items = payload.get("templates")
-    if not isinstance(items, list):
-        return []
-    clean_items: List[Dict[str, Any]] = []
+def _builtin_templates() -> list[Dict[str, Any]]:
+    items = deepcopy(BUILTIN_TEMPLATES)
+    schema_version = _current_schema_version()
     for item in items:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        state = item.get("state")
-        if not name or not isinstance(state, dict):
-            continue
-        clean_items.append(
-            {
-                "name": name,
-                "builtin": False,
-                "updated_at": str(item.get("updated_at") or ""),
-                "state": state,
-            }
-        )
-    return clean_items
+        item["state"]["schema_version"] = schema_version
+    return items
 
 
-def _save_user_templates(items: List[Dict[str, Any]]) -> bool:
-    file_path = _template_file()
-    try:
-        from electrochem_v6.store._json_utils import atomic_write_json
-        atomic_write_json(file_path, {"version": "1.0", "templates": items})
-        return True
-    except Exception:
-        return False
+def _prepare_state(state: Dict[str, Any]) -> tuple[Dict[str, Any] | None, str | None]:
+    if not isinstance(state, dict):
+        return None, "模板状态必须是对象"
+    selected_types = state.get("selected_types", [])
+    values = state.get("values", {})
+    checks = state.get("checks", {})
+    if not isinstance(selected_types, list) or any(not isinstance(item, str) for item in selected_types):
+        return None, "模板处理方式必须是字符串列表"
+    if not isinstance(values, dict) or not isinstance(checks, dict):
+        return None, "模板参数必须是对象"
+    prepared = deepcopy(state)
+    prepared["schema_version"] = _current_schema_version()
+    prepared["selected_types"] = [str(item).strip().upper() for item in selected_types if str(item).strip()]
+    prepared["values"] = {str(key): value for key, value in values.items() if str(key).strip()}
+    prepared["checks"] = {str(key): bool(value) for key, value in checks.items() if str(key).strip()}
+    return prepared, None
 
 
 def list_process_templates() -> Dict[str, Any]:
-    user_items = _load_user_templates()
-    items = BUILTIN_TEMPLATES + sorted(user_items, key=lambda x: x.get("name", "").lower())
-    return {"status": "success", "templates": items}
+    user_items = get_database().list_process_templates()
+    items = _builtin_templates() + sorted(user_items, key=lambda item: str(item.get("name") or "").lower())
+    return {
+        "status": "success",
+        "schema_version": _current_schema_version(),
+        "templates": items,
+    }
 
 
 def save_process_template(name: str, state: Dict[str, Any], overwrite: bool = False) -> Dict[str, Any]:
@@ -161,27 +152,36 @@ def save_process_template(name: str, state: Dict[str, Any], overwrite: bool = Fa
         return {"status": "error", "message": "模板名称过长（最多80字符）"}
     if clean_name in _builtin_names():
         return {"status": "error", "message": "内置模板不可覆盖"}
-    if not isinstance(state, dict):
-        return {"status": "error", "message": "模板状态必须是对象"}
+    prepared, error = _prepare_state(state)
+    if error or prepared is None:
+        return {"status": "error", "message": error or "模板状态无效"}
 
-    user_items = _load_user_templates()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    exists_idx = next((i for i, item in enumerate(user_items) if item.get("name") == clean_name), None)
-    if exists_idx is not None and not overwrite:
-        return {"status": "error", "message": "模板已存在，请确认是否覆盖", "code": "already_exists"}
+    database = get_database()
+    existing = next(
+        (item for item in database.list_process_templates() if item.get("name") == clean_name),
+        None,
+    )
+    if existing is not None and not overwrite:
+        return {
+            "status": "error",
+            "message": "模板已存在，请确认是否覆盖",
+            "code": "already_exists",
+        }
+    if not database.save_process_template(clean_name, prepared, overwrite=overwrite):
+        if not overwrite:
+            return {
+                "status": "error",
+                "message": "模板已存在，请确认是否覆盖",
+                "code": "already_exists",
+            }
+        return {"status": "error", "message": "模板保存失败"}
 
     payload_item = {
         "name": clean_name,
-        "state": state,
-        "updated_at": now,
+        "builtin": False,
+        "state": prepared,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    if exists_idx is None:
-        user_items.append(payload_item)
-    else:
-        user_items[exists_idx] = payload_item
-
-    if not _save_user_templates(user_items):
-        return {"status": "error", "message": "模板保存失败"}
     return {"status": "success", "message": "模板已保存", "template": payload_item}
 
 
@@ -191,11 +191,6 @@ def delete_process_template(name: str) -> Dict[str, Any]:
         return {"status": "error", "message": "模板名称不能为空"}
     if clean_name in _builtin_names():
         return {"status": "error", "message": "内置模板不可删除"}
-
-    user_items = _load_user_templates()
-    new_items = [item for item in user_items if item.get("name") != clean_name]
-    if len(new_items) == len(user_items):
+    if not get_database().delete_process_template(clean_name):
         return {"status": "error", "message": "模板不存在"}
-    if not _save_user_templates(new_items):
-        return {"status": "error", "message": "模板删除失败"}
     return {"status": "success", "message": "模板已删除", "name": clean_name}

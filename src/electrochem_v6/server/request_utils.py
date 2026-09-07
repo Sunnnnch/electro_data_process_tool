@@ -24,6 +24,9 @@ def read_body_with_limit(handler: Any, max_bytes: int) -> bytes:
 
 
 def read_json(handler: Any, max_json_body_bytes: int) -> Dict[str, Any]:
+    content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise ValueError("Content-Type must be application/json")
     body = read_body_with_limit(handler, max_json_body_bytes)
     if not body.strip():
         return {}

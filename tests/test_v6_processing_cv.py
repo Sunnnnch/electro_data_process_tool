@@ -36,6 +36,7 @@ CV_PARAMS = {
     "xlabel": "Potential (V vs. RHE)",
     "ylabel": "Current (mA)",
     "title": "CV - {sample}",
+    "scan_rate_v_s": 0.05,
     "fontsize": "12",
     "font": "",
     "line_color": "blue",
@@ -48,15 +49,18 @@ CV_PARAMS = {
 class TestProcessCV:
     def test_basic_cv(self, cv_data_dir):
         result = process_cv(str(cv_data_dir), "CV_test.txt", CV_PARAMS)
-        # process_cv currently returns dict or None
-        # It should succeed (no exception)
-        assert result is None or isinstance(result, dict)
+        assert isinstance(result, dict)
+        assert result["processing_result"].data_type == "CV"
+        assert result["quality_report"]["is_valid"] is True
 
     def test_cv_with_peaks(self, cv_data_dir):
         params = {**CV_PARAMS, "peaks_enabled": True, "peaks_smooth": "5",
                   "peaks_min_height": "0.5", "peaks_min_dist": "5", "peaks_max": "2"}
         result = process_cv(str(cv_data_dir), "CV_test.txt", params)
-        assert result is None or isinstance(result, dict)
+        assert isinstance(result, dict)
+        metric_keys = {metric.key for metric in result["processing_result"].metrics}
+        assert "peak_count" in metric_keys
+        assert "charge_mC" in metric_keys
 
     def test_cv_file_not_found(self, tmp_path):
         sample = tmp_path / "empty"
@@ -73,9 +77,46 @@ class TestProcessCV:
 
     def test_cv_quality_check_disabled(self, cv_data_dir):
         result = process_cv(str(cv_data_dir), "CV_test.txt", CV_PARAMS, enable_quality_check=False)
-        assert result is None or isinstance(result, dict)
+        assert isinstance(result, dict)
+        assert result["quality_report"]["quality_level"] == "normal"
 
     def test_cv_generates_plot(self, cv_data_dir):
         process_cv(str(cv_data_dir), "CV_test.txt", CV_PARAMS)
         pngs = list(cv_data_dir.glob("*.png"))
         assert len(pngs) >= 1
+
+    def test_cv_exports_selected_cycle_plot(self, cv_data_dir):
+        params = {**CV_PARAMS, "cycle_plot_enabled": True, "cycle_numbers": "2"}
+        result = process_cv(str(cv_data_dir), "CV_test.txt", params)
+
+        assert isinstance(result, dict)
+        assert result["processing_result"].metadata["selected_cycles"] == [2]
+        assert any(str(item).endswith("_cycle2_CV.png") for item in result["artifacts"])
+        assert len(list(cv_data_dir.glob("*cycle2_CV.png"))) == 1
+
+    @pytest.mark.parametrize("has_trailing_sweep", [False, True])
+    def test_interior_cycle_plot_keeps_return_branch_and_full_curve_metrics(self, tmp_path, monkeypatch, has_trailing_sweep):
+        import electrochem_v6.core.processing_cv as cv_module
+
+        cycle = [0, .5, 1, .5, 0, -.5, -1, -.5, 0]
+        potential = cycle + ([.5, 1, .5] if has_trailing_sweep else [])
+        (tmp_path / "CV.txt").write_text(
+            "\n".join(f"{value}\t0.001" for value in potential), encoding="utf-8"
+        )
+        plotted = []
+
+        def capture_plot(**kwargs):
+            plotted.append(kwargs["potential"])
+            return str(tmp_path / f"{kwargs['file_stem']}.png")
+
+        monkeypatch.setattr(cv_module, "plot_cv_curve", capture_plot)
+        monkeypatch.setattr(cv_module, "HISTORY_MANAGER_AVAILABLE", False)
+        result = process_cv(
+            str(tmp_path), "CV.txt",
+            {**CV_PARAMS, "cycle_plot_enabled": True, "scan_rate_v_s": 1},
+            enable_quality_check=False,
+        )
+        assert plotted == [potential, cycle]
+        assert result["charge_mC"] == pytest.approx(5.5 if has_trailing_sweep else 4)
+        assert result["processing_result"].metadata["selected_cycles"] == [1]
+        assert any("trailing incomplete" in warning for warning in result["quality_report"]["warnings"]) == has_trailing_sweep

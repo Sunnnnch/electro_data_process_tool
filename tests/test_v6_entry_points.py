@@ -4,12 +4,34 @@
 
 # ── cli.py ──────────────────────────────────────────────────────────────
 
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class TestCli:
     def test_cli_info(self):
         from electrochem_v6.cli import cli_info
         result = cli_info()
         assert result["status"] == "ok"
         assert "message" in result
+
+    def test_command_runner_top_level_help_is_utf8_and_lists_subcommands(self):
+        result = subprocess.run(
+            [sys.executable, "run_v6.py", "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        )
+
+        output = result.stdout.decode("utf-8")
+        assert result.returncode == 0
+        assert "ElectroChem" in output
+        assert "智能电化学数据处理软件" in output
+        assert "command runner" in output
+        assert "check" in output
 
 
 # ── app.py ──────────────────────────────────────────────────────────────
@@ -21,11 +43,13 @@ class TestApp:
         assert "ok" in result
         assert "app_name" in result
         assert "app_version" in result
+        assert result["processing_runtime"]["ok"] is True
+        assert "bridge" not in result
 
-    def test_check_no_license_refs(self):
-        from electrochem_v6.app import _check_no_license_refs
-        result = _check_no_license_refs()
-        assert result["ok"] is True  # No license refs in pure v6
+    def test_check_activation_gate_refs(self):
+        from electrochem_v6.app import _check_activation_gate_refs
+        result = _check_activation_gate_refs()
+        assert result["ok"] is True
         assert result["hits"] == []
 
 

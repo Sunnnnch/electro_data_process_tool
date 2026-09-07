@@ -37,6 +37,22 @@ def test_summarize_payload_only_keeps_low_risk_fields():
     assert "secret-token-value" not in str(summary)
 
 
+def test_summarize_payload_keeps_sanitized_http_diagnostics():
+    summary = summarize_payload(
+        {
+            "method": "POST",
+            "path": "/api/v1/process",
+            "status_code": 500,
+            "error": "failed with sk-super-secret-token-123456",
+        }
+    )
+
+    assert summary["method"] == "POST"
+    assert summary["path"] == "/api/v1/process"
+    assert summary["status_code"] == 500
+    assert "super-secret-token" not in summary["error"]
+
+
 def test_log_event_write_masks_sensitive_values(tmp_path):
     old_log = os.environ.get("ELECTROCHEM_V6_LOG_FILE")
     old_include = os.environ.get("ELECTROCHEM_V6_LOG_INCLUDE_PAYLOAD")

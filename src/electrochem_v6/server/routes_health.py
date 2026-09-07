@@ -1,4 +1,4 @@
-"""Health route placeholder."""
+"""Health route helpers for the local HTTP server."""
 
 from __future__ import annotations
 

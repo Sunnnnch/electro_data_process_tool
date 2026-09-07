@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from electrochem_v6.agent.agent_controller import AgentController, _debug_log
+from electrochem_v6.core.job_control import ProcessingCancelledError
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║  _debug_log                                                             ║
@@ -75,9 +78,11 @@ class TestAgentControllerBasics:
 
     def test_llm_error_response(self):
         ctrl = self._make_controller()
-        ctrl.llm.chat.return_value = {"error": "API key invalid"}  # type: ignore[attr-defined]
+        raw_key = "sk-proj-secretvalue1234567890"
+        ctrl.llm.chat.return_value = {"error": f"API key invalid: {raw_key}"}  # type: ignore[attr-defined]
         reply = ctrl.chat("test")
         assert "失败" in reply or "error" in reply.lower() or "API" in reply
+        assert raw_key not in reply
 
     def test_llm_exception(self):
         ctrl = self._make_controller()
@@ -131,6 +136,27 @@ class TestAgentControllerBasics:
         ctrl = self._make_controller(responses=[tool_response, final_response])
         reply = ctrl.chat("查看历史")
         assert reply == "处理完成"
+        assert ctrl.get_last_tool_calls() == ["tool_list_history"]
+
+    def test_streaming_reply_is_aggregated(self):
+        mock_llm = MagicMock()
+        mock_llm.stream_chat.return_value = iter([{"content": "流式"}, {"content": "回复"}])
+        ctrl = AgentController(mock_llm)
+
+        assert ctrl.chat("hello") == "流式回复"
+        mock_llm.chat.assert_not_called()
+
+    def test_streaming_reply_honors_cancellation(self):
+        mock_llm = MagicMock()
+        mock_llm.stream_chat.return_value = iter([{"content": "first"}, {"content": "second"}])
+        ctrl = AgentController(mock_llm)
+        checks = iter([False, False, True])
+
+        with pytest.raises(ProcessingCancelledError):
+            ctrl.chat("hello", cancel_check=lambda: next(checks, True))
+
+        assert ctrl.conversation_history == []
+        assert ctrl.get_last_tool_calls() == []
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗

@@ -1,273 +1,294 @@
-# Electrochemical Data Processing Software V6 Manual
+# ElectroChem | Intelligent Electrochemical Data Processing Software — User Guide
 
-## Software Purpose
+This application processes LSV, CV, EIS, ECSA and COUPLED/FE data, with project storage, result comparison, historical replay, reproducible reports and a data analysis assistant. Use Professional Mode for calculations and Project Management to organize results. Linking a project is optional and does not affect calculations.
 
-This workbench processes `LSV`, `CV`, `EIS`, and `ECSA` data, and combines batch processing, project management, history tracking, and AI-assisted analysis.
+This guide applies to **7.0.1**. Upgrades retain existing data locations, projects, history, templates and conversations. Back up application data, original inputs and outputs, finish tasks, exit the tray application and disconnect MCP clients before upgrading. Preserve old file locations referenced by history after migration. Missing historical parameters or fingerprints cannot be reconstructed automatically; replay uses the current engine and creates new results without replacing the originals.
 
-## Recommended Workflow
+## Quick start
 
-1. Select a data root folder in `Professional Mode`.
-2. Enter a project name and choose one or more data types.
-3. Run once with default settings first.
-4. Review outputs, metrics, and quality summary in `Results` and `History`.
-5. Use `Project Management` to archive results and export reports.
+Open the installed application from its shortcut. For a source checkout, run `setup.bat`, then double-click `start.bat`, or run `python run_v6.py desktop`. The desktop window starts the local processing service automatically; launching it again activates the existing window for that data directory. Use `start_browser.bat` for browser mode.
 
-## Folder Reading Logic
+The executable is named `ElectroChem.exe`; the application display name has no V6 suffix. The window, tray and installer share the blue application icon. On supported Windows versions, native title-bar colors and caption controls follow the application theme. System high-contrast settings take priority, and Windows controls the overall system taskbar appearance.
 
-### Root folder and subfolders
+1. Open **Professional Mode**, click **Select Data**, then **Select Files** or **Select Folder**. Multiple files are supported; the list below shows the actual inputs.
+2. Check each file's type and whether it is enabled. Select only the processing methods needed for this run.
+3. Enter the area, potential reference and other settings required by the selected method, using your experiment records. Enable **Show advanced settings** in the module, then expand **Instrument columns and units** to verify the columns and units. Load a suitable parameter template if needed and review its contents.
+4. Choose a **Linked project (optional)** for storage, or leave **Do not archive to a project** selected.
+5. Click **Preflight**. Expand the details and check the actual files, conversions, missing information and auxiliary inputs. Correct any issues and run preflight again.
+6. Click **Run Processing**. When finished, inspect the summary, output files and quality summary under **Processing Results → Current Result**. Linked results also appear under **Project Management → Results**.
 
-- The selected folder itself is processed as one work unit.
-- Each first-level subfolder is also processed independently.
-- Deeper nested folders are not scanned recursively at this time.
+Default values are starting settings, not experimental evidence. Incorrect area, column mapping, units or potential reference can produce unsuitable results even when the program finishes successfully.
 
-### Supported file types
+![Professional Mode: verify inputs and settings before preflight and processing](guide-professional.en.png)
 
-- Input files must be `.txt` or `.csv`.
-- Generated result files are skipped automatically.
-- Filenames containing patterns like `results.csv`, `combined`, `quality_report`, or `summary` are usually treated as generated outputs.
+### Practice with the synthetic CV example
 
-### Match strategies
+[Download the synthetic CV example](guide-cv-demo.csv) and save it as `CV_demo.csv`. This is synthetic teaching data, not an experimental measurement. It has no header and two columns: potential in V, followed by current in A. It contains two 0 → 1 → 0 V cycles, 50 points per half-cycle, 200 rows in total, at a scan rate of 0.05 V/s.
 
-Each data type can use its own file matching rule:
+1. Add it through **Select Data → Select Files**. If you kept the name `guide-cv-demo.csv` and it was not recognized automatically, assign CV in the file list and enable it.
+2. Select CV only. For this example, set electrode area to `1 cm²`, potential conversion to **Manual offset**, and offset to `0 V`. Retain the original potential; do not convert it to RHE.
+3. Enable **Show advanced settings** in the CV module and expand **Instrument columns and units**. Set potential column `1`, current column `2`, potential unit `V` and current unit `A`. Set scan rate to `0.05 V/s` and turn off peak detection.
+4. Check that preflight includes this one CV file, then run it. The CV plot should retain `Potential (V)`, with 200 points, potential from 0–1 V and current approximately −0.80–1.00 mA. The absolute integrated charge over both cycles is approximately `18.4474 mC`. ΔEp is empty with peak detection off.
 
-- `prefix`: file name starts with the rule
-- `contains`: file name contains the rule
-- `regex`: case-insensitive Python `re.search` on the file name
+Outputs include a CV PNG, `processing_results.csv`, `quality_report.json`, `summary.json`, `run_report.html`, `run_report.md` and `run_manifest.json`. The sample name comes from the containing folder; the PNG is named “folder-name_CV_demo_CV.png”. Its location depends on the selected folder and output settings.
 
-## Example Folder Layouts
+The example's area, scan rate and offset apply only to this example. Enter the actual conditions before processing your own measurements.
 
-### Flat root layout
+## Data and parameters
 
-```text
-HER_2026/
-  LSV_sample01.csv
-  LSV_sample02.csv
-  EIS_sample01.csv
-  EIS_sample02.csv
-```
+### Files, folders and matching rules
 
-### First-level sample folders
+Primary LSV/CV/EIS/ECSA inputs support TXT and CSV. File and folder selection populate the same list, where you can enable, exclude, remove or reassign files. Preflight and processing use enabled files whose types are selected. They do not silently add neighboring primary data.
 
-```text
-HER_2026/
-  Sample_A/
-    LSV_01.csv
-    EIS_01.csv
-  Sample_B/
-    LSV_01.csv
-    EIS_01.csv
-```
+Folder discovery normally includes the selected folder and its first-level subfolders. Enable **Scan deeper subfolders** for deeper data and review the updated list. Generated summaries and combined results are recognized and skipped; do not use an output folder as an original-data folder. Enable **Save results to a new folder** to separate outputs from different runs.
 
-This is the recommended structure for multi-sample projects.
+Each module has its own matching strategy: `prefix`, `suffix`, `contains` or `regex`. For example, `LSV_sample01.csv` suits prefix `LSV`; `sample01_LSV_run1.csv` suits a contains rule for `LSV`. Check the actual file list and preflight results. When naming rules are unclear, select files directly and assign their types.
 
-### Recommended ECSA layout
+LSV/CV/EIS normally process each file separately. ECSA groups scan rates by the containing folder. Keep each sample in its own folder, for example with `ECSA_20mVs.csv`, `ECSA_40mVs.csv` and `ECSA_60mVs.csv`. At least two distinguishable, valid positive scan rates are required; do not mix different samples into one group.
 
-```text
-ECSA_Project/
-  Sample_A/
-    ECSA_20mVs.csv
-    ECSA_40mVs.csv
-    ECSA_60mVs.csv
-    ECSA_80mVs.csv
-```
+COUPLED/FE quantification tables, measurement tables, method files and signals are configured separately in that module. Do not assign a product table the type of an LSV or CV curve.
 
-## Naming Examples
+### Verify columns, units and area first
 
-### Good candidates for `prefix`
+- Enable **Show advanced settings**, then expand **Instrument columns and units**. Column numbers start at `1`. For LSV/CV/ECSA, check potential/current columns and units. For EIS, check frequency, Z′ and Z″ columns, frequency/impedance units and **Imaginary column meaning**.
+- Distinguish a signed Z″ column from an already negated −Z″ column. An incorrect selection changes the impedance plot and fit.
+- LSV and ECSA use original current and geometric area to obtain current density: `j (mA/cm²) = I (A) × 1000 / A_geo (cm²)`. Do not treat an already normalized current density as raw current and divide by area again.
+- CV currently retains the source current sign and reports converted current in mA. It does not apply the common area normalization or potential offset. **Use absolute current** applies to LSV and does not change CV's source sign. Check instrument conventions when distinguishing oxidation and reduction branches.
+- Plot titles, axis labels and fonts do not perform unit or reference conversions. Labels must match the actual settings.
 
-- `LSV_sample01.csv`
-- `CV_sample01.csv`
-- `EIS_sample01.csv`
-- `ECSA_20mVs.csv`
+### Parameter templates
 
-### Good candidates for `contains`
+Expand **Parameter Templates (Optional)**, select a template and click **Load Template**. Name verified settings and use **Save Template** to reuse them; delete custom templates that are no longer needed. After loading, check this run's files, area, units, reference electrode and auxiliary inputs, then repeat preflight.
 
-- `sample01_LSV_run1.csv`
-- `2026-02-28_sampleA_EIS.csv`
-- `NiFe_sample02_CV_cycle3.txt`
+Project-linked template preview is a separate workflow, described under “Project results, comparisons and reports”.
 
-### Good candidates for `regex`
+### Potential reference and iR compensation
 
-- Rule: `sample-\d+-lsv`
-- Match: `sample-01-lsv.csv`
-
-- Rule: `^(HER|OER)_.*_EIS$`
-- Match: `HER_NiFe_01_EIS.csv`
-
-## Data Organization
-
-### LSV / CV / EIS
-
-- Files can be placed directly in the root folder or in first-level subfolders.
-- Every matched file is processed independently.
-- Multiple matched files in the same folder are processed one by one.
-
-### ECSA
-
-- ECSA is aggregated at the folder level.
-- At least two matched ECSA files are required in one folder for `?J-v` fitting.
-- It is best to keep scan-rate information in the file name.
-
-## Key Professional Parameters
-
-### Common parameters
-
-- `Electrode area`: used for current density conversion
-- `Potential conversion mode`: manual offset or RHE formula
-- `Plot settings`: title, labels, font, font size, and line width
-
-### RHE conversion
+Common potential conversion currently applies to LSV. CV retains the original potential after unit conversion, and ECSA's Ev uses the original reference. **Manual offset** adds the specified voltage to LSV potentials. **Convert to RHE** uses:
 
 ```text
-E_RHE = E_measured + E_ref + 0.0591 ? pH
+E_RHE = E_measured + E_ref + (2.303 × R × T / F) × pH
 ```
 
-### LSV
+Enter temperature in °C; the formula uses K. Reference potentials are relative to SHE. Supply the actual pH, temperature and reference electrode or custom reference potential. The application does not correct liquid-junction potentials, activities or the reference electrode's own temperature drift. The formula and assumptions are recorded with the run. Do not convert an already converted potential again.
 
-- `target_current`: one or more values separated by commas
-- `tafel_range`: fitting range such as `1-10`
-- `iR compensation`: auto from EIS or manual resistance
-- `overpotential`: enabled only when equilibrium potential is provided
+LSV iR compensation can use a manual resistance or extract Rs from EIS. Automatic matching can use the LSV folder only, that folder with a root-folder fallback, the root and all subfolders, or a specified EIS file. Sample matching takes priority. Multiple candidates at the same priority require a narrower rule.
 
-### CV
-
-- Peak detection supports smoothing, minimum height, minimum distance, and max peak count.
-
-### EIS
-
-- Supports `Nyquist` and `Bode` plotting.
-
-### ECSA
-
-- `Ev`, `last N`, `Cs`, and unit directly affect `ECSA` and roughness factor.
-
-## Output and Project Management
-
-You can review outputs in:
-
-- `Results` inside Professional Mode
-- `Project Management -> Recent History`
-- `Project Management -> Output Files`
-
-Output file actions include:
-
-- `Copy path`
-- `Open file`
-- `Open directory`
-
-Archiving keeps a record but hides it from the default working view. Deletion removes the history record.
-
-## AI Mode
-
-AI mode is useful for:
-
-- result interpretation
-- anomaly diagnosis
-- draft report writing
-- ZIP-assisted analysis
-
-## HTTP API
-
-### Health
-
-```http
-GET /health
+```text
+E_iR = E_measured − (j_signed / 1000) × A_geo × Rs
 ```
 
-### Process a folder
+Here `j_signed` is signed current density in mA/cm², area is in cm² and Rs is in Ω. Preflight checks the EIS pairing and intended method. After processing, check the actual Rs, extraction method and diagnostics in the results and reports. Successful pairing does not mean that Rs extraction has been validated. Do not compensate an already compensated curve again.
 
-```http
-POST /api/v1/process
-Content-Type: application/json
+### LSV: target current and Tafel fitting
+
+**Target current** means current density in mA/cm² and accepts comma-separated values such as `10,100`. **Tafel range** specifies a current-density interval such as `1-10`. Inspect the original curve, sweep direction and fitting interval alongside the result.
+
+If overpotential is enabled, set `E_eq` on the same reference scale as the data. The calculation is `η (mV) = |E − E_eq| × 1000`. Onset/Halfwave use the configured current thresholds, which must match the experimental method. Check result notices when a target lies outside the measured range or extrapolation was used.
+
+Optional exports include data tables, target-point markers, Tafel plots and combined curves. Quality checks flag point counts, noise, jumps and potential span. A high R² or a passed quality check does not prove that an interval is kinetically controlled.
+
+### CV: cycles, peaks and charge
+
+Use the actual scan rate in V/s, cycle selection and segmentation settings; export selected cycles separately if needed. CV retains the original current sign and potential reference without applying the common area or offset. Charge uses `dt = |ΔE| / scan rate`, then integrates `|I|`. It is absolute integrated charge, not the signed net charge. The scan rate must match the measurement.
+
+Peak detection offers smoothing window, minimum peak height, minimum peak distance and maximum peak count. Compare detected peaks with the original curve; excessive smoothing can alter peak shapes. Closure tolerance, reversal-confirmation threshold and minimum segment points help identify sweeps but do not replace checking incomplete or missing cycles.
+
+### EIS: models and fitting limits
+
+Plot Nyquist and Bode data and choose `Rs + (Rct || Cdl)` or `Rs + (Rct || CPE[Q,n])`. Results retain complex R², real/imaginary/complex RMSE, normalized RMSE and acceptance thresholds.
+
+Both circuits have one time constant. They do not include Warburg diffusion, inductance or additional time constants. Check that the circuit suits the data. CPE Q cannot be treated directly as capacitance when n differs substantially from 1; changing n also changes Q's dimensions.
+
+### ECSA: evaluation potential and scan-rate groups
+
+**Evaluation potential Ev (V)** is the evaluation potential in V at which forward and reverse currents are compared. It is not a scan rate or step size. ECSA converts source potentials to V and interpolates at Ev without applying the common potential offset. Use the source reference and a non-faradaic region traversed by both sweep directions.
+
+Scan rate is read from the filename or Scan Rate metadata; check the extracted values. **Last N cycles** and **Average last N cycles** determine the complete sweep pairs used. At least two different scan rates are required; two points alone cannot establish linearity.
+
+```text
+ΔJ = |J_anodic − J_cathodic| (when absolute difference is enabled)
+Cdl_areal = slope(ΔJ versus v) / 2
+RF = Cdl_areal / Cs_areal
+ECSA = RF × A_geo
 ```
 
-#### `curl` example
+Check Cs and its unit. `40 µF/cm²` is a common assumption requiring confirmation, not a universal material constant. Cs depends on material, electrolyte, potential window, surface condition and temperature. This is a double-layer-capacitance model estimate, not a direct geometric surface measurement.
 
-```bash
-curl -X POST http://127.0.0.1:8010/api/v1/process   -H "Content-Type: application/json"   -d '{
-    "folder_path": "D:/data/demo",
-    "project_name": "HER_2026",
-    "data_types": ["LSV", "EIS"],
-    "target_current": "10,100",
-    "tafel_range": "1-10",
-    "lsv_match": "prefix",
-    "eis_match": "contains"
-  }'
+### COUPLED/FE: required inputs and quantification
+
+Select a data folder as the path base, then fill **Quantification/measurement table** in the module. Supported formats are CSV/TSV/TXT/XLSX/XLS. Select an Excel sheet by index or name. Relative table paths use the selected data folder; verify the resolved paths in preflight.
+
+For **Use quantified product table**, download **Charge template** or **Current-time template**:
+
+- Each row represents one product for one sample, with `sample`, `product`, `product_moles` and `n`.
+- `product_moles` is in mol; `n` is the electron count for that product's reaction. Supply `charge` in C, or `current_mA` and `time_s` as shown in the template.
+- Products belonging to the same sample must use the same total charge. Do not duplicate a sample/product pair. Verify that current × time is appropriate before using it to estimate charge.
+
+For **Quantify from signal peaks**, download **Peak measurement template** and supply `sample_name`, `signal_file` and `charge_C`, or valid current and time. Relative signal paths are resolved from the measurement table and must stay within allowed data directories. Check aliquot volume, total electrolyte volume and other quantification conditions.
+
+**Method source** can be **Panel configuration** or **Method file**. The panel accepts internal-standard concentration/added volume, peak positions, quantitative nuclei, product electron counts and response factors; use **Add product** for additional products. File mode uses the JSON **Peak method template**. Replace example peak positions and reaction identifiers with a validated method. Nearby peak location, standard-based shift alignment and constrained fitting are optional; inspect the diagnostic CSV/JSON outputs.
+
+```text
+FE_i (%) = z_i × F × N_i / Q × 100
+Mole selectivity_i (%) = N_i / ΣN_products × 100
+FE selectivity_i (%) = FE_i / ΣFE_products × 100
 ```
 
-#### Python example
+`N_i` is product amount in mol, `z_i` is electron count and Q is total charge. Both selectivities cover only products included in the table. FE selectivity is not absolute FE. Missing products or incorrect volumes or internal-standard settings affect the interpretation.
 
-```python
-import requests
+## Preflight and processing
 
-payload = {
-    "folder_path": "D:/data/demo",
-    "project_name": "HER_2026",
-    "data_types": ["LSV", "EIS"],
-    "target_current": "10,100",
-    "tafel_range": "1-10",
-}
-resp = requests.post("http://127.0.0.1:8010/api/v1/process", json=payload, timeout=120)
-print(resp.json())
-```
+After **Preflight**, review input counts and types, then expand the details to check columns/units, parameters, EIS pairing and FE method/signal dependencies. Resolve blocking issues and assess warnings against experiment records. Changing input selection or calculation parameters invalidates preflight; run it again.
 
-### Send an AI message
+**Run Processing** submits a background task. Switching projects or minimizing the assistant leaves it running; use **Tasks** to inspect progress. A completed task can still have skipped files, so inspect **Skipped Error Files** and **Error Details**.
 
-```http
-POST /api/v1/agent/messages
-Content-Type: application/json
-```
+**Processing Results** provides **Current Result** and **History**. Current Result shows the summary, output files and quality summary; history opens earlier records. File actions include **Copy Path**, **Open File** and **Open Folder**. The selected modules and export options determine which summaries, images and data files are generated.
 
-#### `curl` example
+## Project results, comparisons and reports
 
-```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/messages   -H "Content-Type: application/json"   -d '{
-    "message": "Summarize this HER result",
-    "project_name": "HER_2026",
-    "data_type": "LSV"
-  }'
-```
+### Create a project and reuse settings
 
-#### Python example
+In **Project Management**, click **Create**. Enter a name and optional description in the dialog. Expand **More settings (optional)** for tags, color swatches/custom color and a **Project parameter template**. **Create project** selects the new project; Cancel or Esc creates nothing.
 
-```python
-import requests
+Use **More → Project settings** to edit an existing project. Saving project information does not change the project assigned to the processing form currently being edited.
 
-payload = {
-    "message": "Summarize this HER result",
-    "project_name": "HER_2026",
-    "data_type": "LSV",
-}
-resp = requests.post("http://127.0.0.1:8010/api/v1/agent/messages", json=payload, timeout=120)
-print(resp.json())
-```
+**Process new data here** opens Professional Mode. A linked template first shows differences: choose **Apply template and continue** or **Keep current parameters**. Selected primary data, folders and auxiliary file paths are preserved. Applying parameters requires another preflight. Projects store the template name and use its latest contents next time; historical run settings remain unchanged. If a template was deleted, relink it or continue with current parameters.
 
-### Projects and history
+![Project workspace: results, comparisons and reports](guide-project.en.png)
 
-```http
-GET /api/v1/projects
-GET /api/v1/history?project=<project_id>&limit=50
-GET /api/v1/stats?project=<project_id>
-```
+### Find and inspect results
 
-### System helper endpoints
+**Results** groups records by processing run. Search by sample or filename; expand **Filter options** to specify data type and dates. Filtering covers all project results, including both boundary dates, not just loaded pages. **Load more** retrieves additional matches. **Clear filters** clears text, type and dates; **Include archived records** separately controls archived records.
 
-```http
-POST /api/v1/system/select-folder
-POST /api/v1/system/open-path
-```
+Click a record for **Result details**, including metrics, quality, original data and associated files. Some COUPLED/FE runs may have no separate sample records, but their run, recipe and report remain available; clear filters to check these runs.
 
-`open-path` also supports `reveal_only`:
+### Compare exact results
 
-```json
-{
-  "path": "D:/data/demo/output/LSV_results.csv",
-  "reveal_only": true
-}
-```
+Select two records of the same project and type, then choose **Compare selected results**. The **Compare** view shows metrics, parameters, sources and quality for those exact versions; it does not replace them with the newest same-name samples.
 
-## Common Issues
+Differences are B − A, and relative change is `(B − A) / |A| × 100%`. No percentage is shown when A is zero. Missing values are not zero, incompatible units are not subtracted, and CPE Q is shown side by side if n changes. Experimental conditions, input changes and calculation versions can all cause differences.
 
-1. No result: verify file extensions, match rules, and folder depth.
-2. No output files in project view: reprocess with the current version so `run_id` and `output_files` are persisted.
-3. ECSA fitting fails: check whether the same folder contains at least two valid scan rates.
+**LSV sample summary and charts** separately supports sample filtering/sorting, overlaid curves and metric bars. Select samples, metric and target current density, then choose **Generate compare plot**. Verify the included samples and result sources.
+
+### Replay historical results
+
+Open a result and choose **Replay this result** or **Replay this run**. Select **Use original parameters** or **Modify parameters**, then **Check replay plan**. Verify inputs, parameter differences and calculation versions before **Start replay**.
+
+Relocate moved files; explicitly confirm changed contents. Replay creates a new run and outputs while preserving originals. A single ECSA result depends on multiple scan-rate files; LSV iR depends on EIS; COUPLED/FE depends on the complete table, method and signals. If changed parameters require a different dependency set, return to Professional Mode and select complete inputs.
+
+Replay uses the currently installed calculation engine, not an automatically restored old environment. Missing historical parameters or sources are reported as unrecorded; bit-for-bit agreement across versions is not guaranteed. Older ZIP-imported runs can use the retained original archive or a verified recovery cache. A changed archive is not the same source.
+
+### Summarize independent replicates
+
+1. Select same-type experimental records in **Results**, choose **Summarize replicates**, name the group and verify the chosen versions.
+2. Give a reason for excluded members. Include only one version of each original source; confirm independence individually for legacy records with incomplete provenance.
+3. Review **Check analysis conditions**. If important settings differ or were not recorded, compare experiment records and confirm comparability before viewing statistics. Confirmation cannot override incompatible units or dimensions.
+4. Choose **Update statistics**, inspect valid n, mean and sample SD, then **Save replicate group**. Changed members or conditions require another review.
+5. Use **Export measurements and statistics CSV** or **Export error bars SVG**. Reopen saved groups through **More → Replicate groups**.
+
+Blue circles represent independent measurements; green diamonds and error bars show mean ± sample standard deviation, using n−1. SD is undefined for n=1; missing data are not zero. SD is not standard error or a confidence interval, and descriptive statistics do not establish significance or causation. Deleted source records are marked missing rather than replaced with another version.
+
+### Generate reproducible reports
+
+In **Reports**, choose **Entire project**, **Selected results** or **Single run**. Verify the scope and click **Generate report**. You can also use **Report selected results** from the selection bar or **Report this run** from result details.
+
+Entire-project reports ignore result pagination, search text and date filters; archived records follow **Include archived records**. Selected-results reports include only checked records, excluding unchecked samples from the same run. Single-run reports include the full run. A run with deleted results can no longer be reported or replayed in full; use remaining individual records.
+
+HTML and Markdown reports include metrics, plots, quality, settings, formulas, input SHA-256 hashes, software/dependency versions and run relationships. Share the accompanying resource folder with a Markdown report. Missing or oversized plots are identified. A report cannot reconstruct missing original inputs.
+
+### Archive and delete
+
+**Archive Record** preserves a record but hides it by default; use **Include archived records** to see it. Projects in **Project recycle bin** can be restored. Permanent project deletion is available only for recycled projects.
+
+Deleting a record or permanently deleting a project removes associated records and unreferenced application-managed outputs. Shared files remain while other records reference them; external original paths are not automatically deleted. Use the top system-status panel for storage statistics and managed-file cleanup.
+
+## Data analysis assistant
+
+### Configure the service and context
+
+Open **Data Analysis Assistant** at the lower right, then **AI Settings**. Enter Provider, Model, API Key and the required service URL. Use **Test**, then **Save**. Local Professional Mode calculations do not require AI configuration. Prompt templates can guide a task but cannot replace experimental parameters.
+
+Enter a question and **Send**. **Check current setup** reviews Professional Mode parameters; **Summarize recent experiments** queries existing results. The assistant can read current parameters, types, input-source summaries or the project database as needed. Select exact project records before asking for comparisons or reports. Supply missing experimental conditions; filenames do not establish them.
+
+Use **Chats** to switch, rename or delete chats. While a request runs, Send can become **Cancel AI request**; Tasks can return you to its conversation. When an external model service is configured, messages and the context included with the request are processed by that service.
+
+### Review and use action cards
+
+The assistant can prepare **Parameter suggestion**, **Compare selected results**, **Replay plan** and **Selected results report** cards. Click **Review action** and inspect the target, before/after values and reasons before confirming.
+
+**Apply parameters** changes current settings while preserving selected files, but invalidates preflight. Changed settings, sources or targets make old parameter cards stale; request a new card. Comparison cards open exact records. Replay cards open a plan that still requires checking and starting. Report cards set the scope; still click **Generate report** on the report page. Cards persist with the conversation.
+
+Actual writes such as creating a project or automatic processing show a separate confirmation. Check the project, data and scientific parameters. Expired or pre-restart confirmations must be prepared again. A confirmed write cannot be cancelled once execution has started.
+
+### Limits of scientific recommendations
+
+LSV candidate Tafel analysis uses the production parser, unit conversion, area normalization, potential conversion and iR handling. It reports point counts, logarithmic current span, slope, R², residuals and limitations. Missing area, source units, column mapping or other required conditions must be supplied first. A candidate is not a validated kinetic region; other data types currently do not offer candidate fitting.
+
+Performance summaries preserve specific records, runs and units. They do not average recalculation versions as independent experiments or assign grades using arbitrary thresholds. Check explanations against original curves, fit quality and experiment records.
+
+## Tasks and recovery after interruption
+
+When closing the desktop window with active tasks or save operations, choose **Keep using**, **Continue in background**, **Exit after tasks finish**, or **Cancel tasks and exit**. Background mode hides the window to the system tray, where it can be reopened. After selecting wait or cancel-and-exit, new operations are blocked until tasks and non-cancellable writes finish safely. Avoid forcibly ending a client while it is saving.
+
+**Tasks** lists processing and AI work. Filter by type/status, inspect stages, per-file progress and errors, and return to a result or conversation. Records remain available after page reload. AI displays its current stage rather than treating stage count as a true completion percentage.
+
+**Cancel** is available only for cancellable work owned by the current program instance. Allow the executor to acknowledge cancellation before retrying. Assistant writes that have already started after confirmation cannot be cancelled.
+
+After an unexpected exit, open **Recover tasks** on the project page; it includes a count when recovery is available. In **Recover interrupted tasks**, choose **Review and preflight** for a task. Verify inputs, parameters and the original process status. Relocate moved files or explicitly confirm changed contents. After checks pass, choose **Recover as a new task** to create a new task, run and outputs while preserving the originals.
+
+Startup never automatically reruns interrupted work. Tasks still owned by a live process cannot be recovered. If an old process identity cannot be verified, first confirm that its program has closed. Recovery recalculates from the beginning; it does not resume at a computation checkpoint. Old queued tasks without hashes show the actual inputs used for the new preflight. ZIP sources can reconstruct verified inputs; recovery performs data processing only and does not resend assistant conversations.
+
+## Appearance and reading
+
+The title bar uses a separate theme background and divider to distinguish window controls from page content. Scrollbars in the page, project lists, dialogs, guide, chat and code areas follow the selected theme. System high-contrast settings take priority.
+
+The desktop **Desktop** menu provides settings, the data folder, legacy-data review, update checks, background operation and exit. It remembers window geometry, appearance, language, the last project and assistant conversation, without restoring input files or experiment parameters. After choosing or dropping TXT/CSV files, verify the input list and run preflight. **Save as** beside result files uses the system save dialog; **Open File** keeps its original behavior. Use **Open Folder** to copy files larger than 32 MB.
+
+Installed clients use `%USERPROFILE%\.electrochem\v6`; portable builds explicitly marked with `portable.marker` use `user_data` beside the executable. Upgrades retain old data. On first launch, old data can be copied after review if the destination is empty; existing destination data is never merged or overwritten. Historical files may still reference the old folder, which must be retained. Update checks run only on request and open the official download page. Exit safely before installing an update.
+
+Open **Appearance** for **Lab Light**, **Professional Ocean**, **High-Contrast Dark**, **Pixel Terminal** or **Follow system**. First use defaults to Lab Light, while existing choices are preserved. Text sizes 14/16/18px, comfortable/compact density and background grid are independent, saved immediately and do not change projects, inputs or calculation settings.
+
+Assistant text scales to 15/17/19px, with more generous spacing in comfortable mode. Long code and wide tables scroll locally; use Tab to focus them and arrow keys to scroll.
+
+**Chart preview background** offers **Follow theme** and **Paper white**. Themes do not invert or rewrite scientific data colors; existing comparison PNGs remain unchanged. CSV/SVG exports are independent of the interface theme, with white-background SVGs. Exported plot fonts, axes and grids remain controlled by Professional Mode plotting parameters.
+
+**Restore defaults** resets appearance only. Esc closes the dialog and returns focus to the opener. Preferences are stored in this browser; unavailable storage is reported as applying changes to the current page only.
+
+## Frequently asked questions
+
+### How can another AI use this application?
+
+Open **Desktop → AI connection (MCP)** and copy the configuration into an AI client supporting local stdio MCP. If it already has `mcpServers` settings, merge only the `electrochem` entry. The default connection can query projects, search results, read run recipes, compare records and preflight data. Enable **Allow new processing jobs and report exports**, then reconnect, to submit calculations and generate reports.
+
+Keep this application running and retain the complete application folder, including `ElectroChem-MCP.exe`. Input paths must be on this computer. Ask the AI to inspect parameters and preflight before submitting, then poll the job and use its exact run references to retrieve results. Processing uses new output directories; tasks and results appear in this application's workspace. MCP does not invoke the built-in assistant or change model credentials. Cloud clients supporting only remote HTTP MCP cannot use this local configuration directly.
+
+After a submission timeout or disconnect, check whether a job was created before retrying. Before upgrading, finish tasks, exit the application and disconnect its MCP connection in the AI client.
+
+### Why can I not run, or why are there no results after selecting data?
+
+Check that files are enabled, their types assigned and the corresponding modules selected. Review folder depth, matching rules, preflight blockers and error details. COUPLED/FE requires its module-specific tables and methods. ECSA needs valid different scan rates in the same folder and both sweeps crossing Ev.
+
+### Why are values off by a factor of 1000, or potentials reversed?
+
+Check A/mA/µA, V/mV, area and repeated normalization first. Then inspect the reference, offset, signed current and iR compensation. Changing an axis label cannot fix a calculation.
+
+### Why does a successful task still show quality warnings or missing files?
+
+A task can skip individual invalid files. Inspect the quality summary, skipped-file list and errors. Plot/CSV generation also depends on export options. Quality thresholds do not establish that an experiment or model is correct.
+
+### Why is my project empty, or why is an older result unavailable for replay?
+
+Verify the linked project, clear search/date filters and include archived records if needed. Legacy records may lack a recipe, parameters or source hashes; the application does not substitute current defaults for historical evidence. Use retained original data and explicit settings to create a new run.
+
+### Why can replicate statistics or an assistant suggestion not be applied immediately?
+
+Resolve duplicate source versions, incompatible units/dimensions, missing provenance and inconsistent analysis conditions. An assistant card can also become stale after settings, inputs or targets change. Provide an explicit scope and required experiment conditions before requesting another suggestion.
+
+### What should I do after moving files?
+
+Retain original inputs and their dependencies. Relocate them in replay or recovery and repeat preflight; changed contents require confirmation as new input. Report hashes verify sources but do not contain replacements for the original measurements.
+
+### How do I call the application from scripts or HTTP?
+
+See `docs/api_guide.en.md` in the repository for endpoints, asynchronous tasks, conversation confirmations and examples. The API schema is in `docs/openapi.yaml`. This guide describes the graphical interface.

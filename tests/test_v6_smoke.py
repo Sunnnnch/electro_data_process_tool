@@ -7,18 +7,36 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from email.message import Message
+from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from electrochem_v6.runtime_test_env import isolated_data_env
 from electrochem_v6.smoke import (
     _read_json,
     _read_json_allow_error,
     _wait_health,
     run_smoke,
 )
+
+
+def test_isolated_data_env_redirects_and_restores_runtime_files(tmp_path, monkeypatch):
+    sentinel = tmp_path / "real_user_data"
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(sentinel))
+
+    with isolated_data_env(prefix="v6_smoke_test_") as info:
+        root = Path(str(info["root"]))
+        assert root.exists()
+        assert os.environ["ELECTROCHEM_V6_DATA_DIR"] == str(root)
+        for path in info["paths"].values():
+            assert Path(path).is_relative_to(root)
+
+    assert os.environ["ELECTROCHEM_V6_DATA_DIR"] == str(sentinel)
+    assert not root.exists()
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║  _read_json                                                             ║

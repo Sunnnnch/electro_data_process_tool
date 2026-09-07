@@ -18,7 +18,11 @@ from electrochem_v6.store.history import (
 )
 
 
-def list_history(project_id: Optional[str] = None, limit: int = 100, include_archived: bool = False) -> Dict[str, Any]:
+def list_history(
+    project_id: Optional[str] = None,
+    limit: Optional[int] = 100,
+    include_archived: bool = False,
+) -> Dict[str, Any]:
     return _list_history(project_id=project_id, limit=limit, include_archived=include_archived)
 
 
@@ -30,5 +34,5 @@ def archive_history_record(history_key: str) -> Dict[str, Any]:
     return _archive_history_record(history_key)
 
 
-def delete_history_record(history_key: str) -> Dict[str, Any]:
-    return _delete_history_record(history_key)
+def delete_history_record(history_key: str, *, delete_artifacts: bool = False) -> Dict[str, Any]:
+    return _delete_history_record(history_key, delete_artifacts=delete_artifacts)

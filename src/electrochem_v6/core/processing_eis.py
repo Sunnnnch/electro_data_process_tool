@@ -1,14 +1,25 @@
-"""EIS processing helpers extracted from the shared processing core."""
+"""EIS processing orchestration."""
+
 from __future__ import annotations
 
-import os
-from datetime import datetime
-
-import matplotlib.pyplot as plt
-import numpy as np
+from typing import Any, Mapping
 
 from . import processing_core_v6 as core
-from .utils import read_file_with_fallback_encodings
+from .processing_common import build_file_context
+from .processing_eis_calc import _randles_impedance, evaluate_eis_circuit_fit, fit_randles
+from .processing_eis_history import add_eis_history_record, build_eis_history_record
+from .processing_eis_io import read_eis_raw_data
+from .processing_eis_plot import plot_eis_bode, plot_eis_nyquist
+from .processing_metric_registry import resolve_metric
+from .processing_result_models import MetricValue, ProcessingResult, SourceFileRef
+from .processing_source_profile import (
+    FREQUENCY_TO_HZ,
+    IMPEDANCE_TO_OHM,
+    column_number_to_index,
+    imaginary_convention,
+    unit_scale,
+)
+from .utils import as_bool
 
 _resolve_plot_font = core._resolve_plot_font
 HISTORY_MANAGER_AVAILABLE = core.HISTORY_MANAGER_AVAILABLE
@@ -18,252 +29,263 @@ get_project_manager = core.get_project_manager
 log = core.log
 
 
-def _randles_impedance(freq_arr, Rs, Rct, Cdl):
-    """Calculate impedance of simplified Randles circuit: Rs + Rct/(1 + j*w*Rct*Cdl)."""
-    omega = 2.0 * np.pi * freq_arr
-    Z_faradaic = Rct / (1.0 + 1j * omega * Rct * Cdl)
-    Z_total = Rs + Z_faradaic
-    return Z_total
+def _metric(label: str, value: Any, *, key: str | None = None) -> MetricValue:
+    resolved = resolve_metric("EIS", label, fallback_key=key)
+    return MetricValue(
+        key=resolved.key,
+        label=resolved.label,
+        value=value,
+        unit=resolved.unit,
+        method=resolved.method,
+        metadata=resolved.metadata,
+    )
 
 
-def fit_randles(freq, z_real, z_imag):
-    """Fit simplified Randles circuit (Rs + Rct||Cdl) to EIS data.
-
-    Returns dict with Rs, Rct, Cdl and fitted Z arrays, or None on failure.
-    """
-    from scipy.optimize import curve_fit
-
-    freq_arr = np.asarray(freq, dtype=float)
-    z_real_arr = np.asarray(z_real, dtype=float)
-    z_imag_arr = np.asarray(z_imag, dtype=float)
-
-    # Stack real and imaginary parts for fitting
-    z_data = np.concatenate([z_real_arr, z_imag_arr])
-
-    def _model(freq_repeated, Rs, Rct, Cdl):
-        n = len(freq_repeated) // 2
-        f = freq_repeated[:n]
-        Z = _randles_impedance(f, Rs, Rct, Cdl)
-        return np.concatenate([Z.real, Z.imag])
-
-    freq_stack = np.concatenate([freq_arr, freq_arr])
-
-    # Initial guesses
-    Rs0 = float(np.min(z_real_arr))
-    Rct0 = float(np.max(z_real_arr) - np.min(z_real_arr))
-    if Rct0 <= 0:
-        Rct0 = 1.0
-    Cdl0 = 1e-5
-
-    try:
-        popt, _ = curve_fit(
-            _model, freq_stack, z_data,
-            p0=[Rs0, Rct0, Cdl0],
-            bounds=([0, 0, 1e-12], [np.inf, np.inf, 1.0]),
-            maxfev=10000,
+def _build_eis_metrics(
+    *,
+    frequency: list[float],
+    randles_result: Mapping[str, Any] | None,
+) -> tuple[MetricValue, ...]:
+    metrics: list[MetricValue] = [
+        _metric("data_points", len(frequency), key="data_points"),
+        _metric("frequency_min_hz", min(frequency), key="frequency_min_hz"),
+        _metric("frequency_max_hz", max(frequency), key="frequency_max_hz"),
+    ]
+    if randles_result:
+        metrics.extend(
+            [
+                _metric("Rs", randles_result.get("Rs"), key="rs_ohm"),
+                _metric("Rct", randles_result.get("Rct"), key="rct_ohm"),
+                _metric("randles_r2", randles_result.get("r2"), key="randles_r2"),
+                _metric("fit_rmse", randles_result.get("rmse_complex_ohm"), key="fit_rmse_ohm"),
+            ]
         )
-    except Exception:
-        return None
+        if randles_result.get("model") == "randles_cpe":
+            metrics.extend(
+                [
+                    _metric("CPE Q", randles_result.get("Q"), key="cpe_q"),
+                    _metric("CPE n", randles_result.get("n"), key="cpe_n"),
+                ]
+            )
+        else:
+            metrics.append(_metric("Cdl", randles_result.get("Cdl"), key="cdl_f"))
+    return tuple(metrics)
 
-    Rs_fit, Rct_fit, Cdl_fit = popt
-    Z_fit = _randles_impedance(freq_arr, Rs_fit, Rct_fit, Cdl_fit)
 
-    # R² goodness-of-fit
-    z_complex = z_real_arr + 1j * z_imag_arr
-    ss_res = np.sum(np.abs(z_complex - Z_fit) ** 2)
-    ss_tot = np.sum(np.abs(z_complex - np.mean(z_complex)) ** 2)
-    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+def _build_quality_report(
+    *,
+    sample_name: str,
+    file_name: str,
+    data_points: int,
+    parse_errors: int,
+    randles_requested: bool,
+    randles_result: Mapping[str, Any] | None,
+    fit_diagnostics: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    issues: list[str] = []
+    if data_points < 5:
+        warnings.append("EIS data point count is low.")
+    if parse_errors:
+        warnings.append(f"Skipped {parse_errors} unparsable rows.")
+    if randles_requested and randles_result is None:
+        reason = str((fit_diagnostics or {}).get("rejection_reason") or "fit failed")
+        warnings.append(f"Equivalent-circuit fit was requested but not accepted: {reason}.")
 
     return {
-        'Rs': float(Rs_fit),
-        'Rct': float(Rct_fit),
-        'Cdl': float(Cdl_fit),
-        'r2': float(r2),
-        'z_fit_real': Z_fit.real.tolist(),
-        'z_fit_imag': Z_fit.imag.tolist(),
+        "filename": f"{sample_name}/{file_name}" if sample_name else file_name,
+        "is_valid": not issues,
+        "warnings": warnings,
+        "issues": issues,
+        "quality_level": "warning" if warnings else "normal",
+        "recommendation": "review_eis_input" if warnings else "none",
+        "stats": {
+            "data_points": data_points,
+            "parse_errors": parse_errors,
+            "randles_fit": bool(randles_result),
+            "fit_status": (fit_diagnostics or {}).get("status") if randles_requested else "not_requested",
+            "fit_model": (fit_diagnostics or {}).get("model") if randles_requested else None,
+        },
     }
 
+
 def process_eis(subfolder, file, params):
-    """处理EIS数据文件 - v3.0.4: 支持奈奎斯特图和波特图"""
-    filepath = os.path.join(subfolder, file)
-    subname = os.path.basename(subfolder)
-    file_stem = os.path.splitext(os.path.basename(file))[0]
-    output_dir = str(params.get("output_dir") or subfolder)
-    os.makedirs(output_dir, exist_ok=True)
+    """Process an EIS data file and write configured plots/history.
 
-    lines = read_file_with_fallback_encodings(filepath, start_line=int(params['start_line']))
+    The legacy caller ignored the return value. New module callers use the
+    returned normalized payload for reports, exports, and extension APIs.
+    """
+    ctx = build_file_context(subfolder, file, params)
 
-    if lines is None:
-        log(f"无法读取EIS文件 {filepath}，尝试了所有编码格式")
-        return
+    frequency_column = column_number_to_index(
+        params.get("eis_frequency_column", 1), default=1, label="EIS frequency column"
+    )
+    zreal_column = column_number_to_index(
+        params.get("eis_zreal_column", 2), default=2, label="EIS Z-real column"
+    )
+    zimag_column = column_number_to_index(
+        params.get("eis_zimag_column", 3), default=3, label="EIS Z-imaginary column"
+    )
+    frequency_unit, frequency_scale = unit_scale(
+        params.get("eis_frequency_unit"), default="hz", supported=FREQUENCY_TO_HZ
+    )
+    impedance_unit, impedance_scale = unit_scale(
+        params.get("eis_impedance_unit"), default="ohm", supported=IMPEDANCE_TO_OHM
+    )
+    zimag_convention, zimag_sign = imaginary_convention(
+        params.get("eis_zimag_convention", "z_imaginary")
+    )
 
-    # v3.0.4: 读取频率、实阻抗和虚阻抗数据
-    freq, z_real, z_imag = [], [], []
-    for line in lines:
-        parts = line.strip().replace(',', ' ').split()
-        if len(parts) >= 3:
-            try:
-                freq.append(float(parts[0]))     # 频率 Hz
-                z_real.append(float(parts[1]))   # Z' 实阻抗
-                z_imag.append(float(parts[2]))   # Z'' 虚阻抗
-            except (ValueError, TypeError):
-                continue
+    raw_eis = read_eis_raw_data(
+        ctx.filepath,
+        start_line=params.get("start_line", 1),
+        frequency_column=frequency_column,
+        zreal_column=zreal_column,
+        zimag_column=zimag_column,
+        frequency_scale=frequency_scale,
+        impedance_scale=impedance_scale,
+        zimag_sign=zimag_sign,
+        logger=log,
+    )
+    if raw_eis is None:
+        log(f"Unable to read valid EIS data from {ctx.filepath}")
+        return None
 
-    if not z_real or not z_imag or not freq:
-        return
+    frequency = raw_eis.frequency
+    z_real = raw_eis.z_real
+    z_imag = raw_eis.z_imag
 
-    # 设置当前图形的中文字体支持
-    font_to_use = _resolve_plot_font(params.get('font'))
-    plt.rcParams['font.sans-serif'] = [font_to_use]
-    plt.rcParams['axes.unicode_minus'] = False
-
-    # v3.0.4: 根据用户选择绘制图形
-    plot_nyquist = params.get('plot_nyquist', True)
-    plot_bode = params.get('plot_bode', False)
-    randles_fit_enabled = params.get('randles_fit', False)
-
-    # Attempt Randles fit if enabled
     randles_result = None
-    if randles_fit_enabled:
+    fit_diagnostics: dict[str, Any] | None = None
+    fit_requested = as_bool(params.get("randles_fit", False), False)
+    if fit_requested:
         try:
-            randles_result = fit_randles(freq, z_real, z_imag)
-            if randles_result and randles_result['r2'] < 0.5:
-                log(f"Randles fit R²={randles_result['r2']:.3f} 过低，丢弃拟合结果")
-                randles_result = None
-        except Exception as exc:
-            log(f"Randles 拟合失败 {file}: {exc}")
-
-    if plot_nyquist:
-        # 绘制奈奎斯特图
-        plt.figure(figsize=(8, 6))
-        z_imag_neg = [-val for val in z_imag]  # 标准Nyquist图（上半圆）
-        plt.plot(z_real, z_imag_neg, marker='o',
-                 color=params.get('line_color', 'blue'),
-                 linewidth=params.get('line_width', 2.0),
-                 markersize=4, label='实测数据')
-
-        # Overlay Randles fit curve on Nyquist plot
-        if randles_result:
-            plt.plot(randles_result['z_fit_real'],
-                     [-v for v in randles_result['z_fit_imag']],
-                     '--', color='red', linewidth=1.5,
-                     label=f"Randles fit (R²={randles_result['r2']:.4f})")
-            annotation = (
-                f"Rs={randles_result['Rs']:.2f} Ω\n"
-                f"Rct={randles_result['Rct']:.2f} Ω\n"
-                f"Cdl={randles_result['Cdl']:.2e} F"
+            fit_diagnostics = evaluate_eis_circuit_fit(
+                frequency,
+                z_real,
+                z_imag,
+                model=str(params.get("eis_circuit_model", "randles_rc")),
+                min_r2=float(params.get("eis_fit_min_r2", 0.5)),
             )
-            plt.annotate(annotation, xy=(0.97, 0.97), xycoords='axes fraction',
-                         ha='right', va='top', fontsize=9,
-                         bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8))
-            plt.legend(fontsize=9)
+            if fit_diagnostics.get("accepted"):
+                randles_result = fit_diagnostics
+            else:
+                log(f"Equivalent-circuit fit not accepted: {fit_diagnostics.get('rejection_reason')}")
+        except Exception as exc:
+            fit_diagnostics = {
+                "model": str(params.get("eis_circuit_model", "randles_rc")),
+                "accepted": False,
+                "status": "fit_failed",
+                "rejection_reason": str(exc),
+            }
+            log(f"Equivalent-circuit fit failed for {file}: {exc}")
 
-        plt.xlabel(params['xlabel'])
-        plt.ylabel(params['ylabel'])
-        plt.title(params['title'].replace("{sample}", subname),
-                  fontname=font_to_use, fontsize=int(params['fontsize']))
-        if params.get('plot_grid', True):
-            plt.grid(True, alpha=0.3)
-        plt.axis('equal')  # 等比例坐标轴，更好地显示圆弧
-        plt.tight_layout()
-        try:
-            plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_EIS_Nyquist.png"), dpi=300, bbox_inches='tight')
-        finally:
-            plt.close()
+    font_to_use = _resolve_plot_font(params.get("font"))
+    artifacts: list[str] = []
+    if as_bool(params.get("plot_nyquist", True), True):
+        artifacts.append(
+            plot_eis_nyquist(
+                z_real=z_real,
+                z_imag=z_imag,
+                params=params,
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+                output_dir=ctx.output_dir,
+                font_name=font_to_use,
+                randles_result=randles_result,
+            )
+        )
 
-    if plot_bode:
-        # 绘制波特图（幅值图和相位图）
-        import numpy as np
+    if as_bool(params.get("plot_bode", False), False):
+        artifacts.append(
+            plot_eis_bode(
+                frequency=frequency,
+                z_real=z_real,
+                z_imag=z_imag,
+                params=params,
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+                output_dir=ctx.output_dir,
+                font_name=font_to_use,
+            )
+        )
 
-        # 计算阻抗模长和相位
-        z_mag = [np.sqrt(real**2 + imag**2) for real, imag in zip(z_real, z_imag)]
-        z_phase = [np.arctan2(imag, real) * 180 / np.pi for real, imag in zip(z_real, z_imag)]
+    processing_result = ProcessingResult(
+        data_type="EIS",
+        sample_name=ctx.sample_name,
+        source=SourceFileRef(
+            sample_name=ctx.sample_name,
+            file_name=ctx.filename,
+            path=ctx.filepath,
+            data_type="EIS",
+        ),
+        metrics=_build_eis_metrics(frequency=frequency, randles_result=randles_result),
+        artifacts=tuple(artifacts),
+        project_id=params.get("project_id"),
+        run_id=params.get("run_id"),
+        metadata={
+            "module": "direct_eis",
+            "parse_errors": raw_eis.parse_errors,
+            "randles_fit": bool(randles_result),
+            "equivalent_circuit_fit": fit_diagnostics,
+            "source_profile": {
+                "frequency_column": frequency_column + 1,
+                "zreal_column": zreal_column + 1,
+                "zimag_column": zimag_column + 1,
+                "frequency_unit": frequency_unit,
+                "impedance_unit": impedance_unit,
+                "zimag_convention": zimag_convention,
+                "normalized_frequency_unit": "Hz",
+                "normalized_impedance_unit": "Ohm",
+            },
+        },
+    )
+    quality_report = _build_quality_report(
+        sample_name=ctx.sample_name,
+        file_name=ctx.filename,
+        data_points=len(frequency),
+        parse_errors=raw_eis.parse_errors,
+        randles_requested=fit_requested,
+        randles_result=randles_result,
+        fit_diagnostics=fit_diagnostics,
+    )
 
-        # 创建包含两个子图的图形
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
-
-        # 幅值图 (上方)
-        ax1.loglog(freq, z_mag, marker='o',
-                   color=params.get('line_color', 'blue'),
-                   linewidth=params.get('line_width', 2.0),
-                   markersize=4)
-        ax1.set_xlabel('频率 (Hz)', fontname=font_to_use)
-        ax1.set_ylabel('|Z| (Ω)', fontname=font_to_use)
-        ax1.set_title(f"{params['title'].replace('{sample}', subname)} - 幅值图",
-                      fontname=font_to_use, fontsize=int(params['fontsize']))
-        if params.get('plot_grid', True):
-            ax1.grid(True, alpha=0.3)
-
-        # 相位图 (下方)
-        ax2.semilogx(freq, z_phase, marker='o',
-                     color=params.get('line_color', 'blue'),
-                     linewidth=params.get('line_width', 2.0),
-                     markersize=4)
-        ax2.set_xlabel('频率 (Hz)', fontname=font_to_use)
-        ax2.set_ylabel('相位 (°)', fontname=font_to_use)
-        ax2.set_title(f"{params['title'].replace('{sample}', subname)} - 相位图",
-                      fontname=font_to_use, fontsize=int(params['fontsize']))
-        if params.get('plot_grid', True):
-            ax2.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        try:
-            plt.savefig(os.path.join(output_dir, f"{subname}_{file_stem}_EIS_Bode.png"), dpi=300, bbox_inches='tight')
-        finally:
-            plt.close()
-
-    # ✅ 添加：保存EIS历史记录
     if HISTORY_MANAGER_AVAILABLE:
         try:
             history_mgr = get_history_manager()
+            project_manager = get_project_manager() if PROJECT_MANAGER_AVAILABLE else None
+            record = build_eis_history_record(
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+                file_path=ctx.filepath,
+                params=params,
+                frequency=frequency,
+                z_real=z_real,
+                randles_result=randles_result,
+                project_manager=project_manager,
+            )
+            add_eis_history_record(
+                history_mgr,
+                record,
+                log_func=log,
+                sample_name=ctx.sample_name,
+                file_stem=ctx.file_stem,
+            )
+        except Exception as exc:
+            log(f"Failed to save EIS history record: {exc}")
+    return {
+        "processing_result": processing_result,
+        "artifacts": artifacts,
+        "quality_report": quality_report,
+        "randles_result": randles_result,
+        "fit_diagnostics": fit_diagnostics,
+        "metadata": {
+            "module": "direct_eis",
+            "parse_errors": raw_eis.parse_errors,
+            "data_points": len(frequency),
+            "equivalent_circuit_fit": fit_diagnostics,
+        },
+    }
 
-            # 计算Rs（如果IR补偿启用）
-            Rs = None
-            Rct = None
-            Cdl = None
-            if randles_result:
-                Rs = randles_result['Rs']
-                Rct = randles_result['Rct']
-                Cdl = randles_result['Cdl']
-            elif params.get('ir_enabled'):
-                if len(z_real) > 0:
-                    Rs = min(z_real)
 
-            # 构建历史记录
-            record = {
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'sample_name': subname,
-                'file_name': file_stem,
-                'file_path': filepath,
-                'type': 'EIS',
-                'status': 'success',
-                'results': {
-                    'Rs': float(Rs) if Rs is not None else None,
-                    'Rct': float(Rct) if Rct is not None else None,
-                    'Cdl': float(Cdl) if Cdl is not None else None,
-                    'randles_r2': float(randles_result['r2']) if randles_result else None,
-                    'frequency_range': f"{min(freq):.2e} - {max(freq):.2e} Hz",
-                    'data_points': len(freq)
-                }
-            }
-            if params.get('run_id'):
-                record['run_id'] = params.get('run_id')
-
-            # 添加项目信息
-            if 'project_id' in params and params['project_id']:
-                record['project_id'] = params['project_id']
-
-                if PROJECT_MANAGER_AVAILABLE:
-                    try:
-                        proj_mgr = get_project_manager()
-                        proj = proj_mgr.get_project(params['project_id'])
-                        if proj:
-                            record['project_name'] = proj['name']
-                    except Exception:
-                        pass
-
-            history_mgr.add_record(record)
-            log(f"EIS历史记录已保存: {subname}/{file_stem}")
-
-        except Exception as e:
-            log(f"保存EIS历史记录失败: {e}")
+__all__ = ["_randles_impedance", "fit_randles", "process_eis"]

@@ -1,0 +1,8 @@
+# Representative tab-delimited instrument text export
+Technique: LSV
+Point	Time/s	Potential/mV	Current/uA
+0	0.0	-100	-50
+1	0.1	0	100
+2	0.2	100	250
+3	0.3	200	500
+4	0.4	300	900

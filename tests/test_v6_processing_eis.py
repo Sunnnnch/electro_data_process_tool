@@ -124,9 +124,11 @@ class TestProcessEIS:
     }
 
     def test_process_eis_runs(self, eis_data_dir):
-        process_eis(str(eis_data_dir), "EIS_test.txt", self.EIS_PARAMS)
+        result = process_eis(str(eis_data_dir), "EIS_test.txt", self.EIS_PARAMS)
         pngs = list(eis_data_dir.glob("*Nyquist*.png"))
         assert len(pngs) >= 1
+        assert result["processing_result"].data_type == "EIS"
+        assert result["quality_report"]["is_valid"] is True
 
     def test_process_eis_bode(self, eis_data_dir):
         params = {**self.EIS_PARAMS, "plot_bode": True}
@@ -137,6 +139,28 @@ class TestProcessEIS:
     def test_process_eis_randles_fit(self, eis_data_dir):
         params = {**self.EIS_PARAMS, "randles_fit": True}
         process_eis(str(eis_data_dir), "EIS_test.txt", params)
+
+    def test_process_eis_accepts_positive_negative_zimag_export(self, tmp_path):
+        sample = tmp_path / "positive_minus_zimag"
+        sample.mkdir()
+        freq = np.logspace(-1, 5, 40)
+        impedance = _randles_impedance(freq, 10.0, 100.0, 1e-5)
+        lines = [
+            f"{f:.6e};{z.real:.6f};{-z.imag:.6f}"
+            for f, z in zip(freq, impedance)
+        ]
+        (sample / "EIS_positive.txt").write_text("\n".join(lines), encoding="utf-8")
+        params = {
+            **self.EIS_PARAMS,
+            "randles_fit": True,
+            "eis_zimag_convention": "negative_z_imaginary",
+        }
+
+        result = process_eis(str(sample), "EIS_positive.txt", params)
+
+        assert result["randles_result"] is not None
+        profile = result["processing_result"].metadata["source_profile"]
+        assert profile["zimag_convention"] == "negative_z_imaginary"
 
     def test_process_eis_no_data(self, tmp_path):
         sample = tmp_path / "no_eis"

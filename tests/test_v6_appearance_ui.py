@@ -1,0 +1,376 @@
+"""Real-browser coverage of appearance migration, persistence and interaction."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from electrochem_v6.config import APP_VERSION
+from electrochem_v6.server import V6ServerManager
+from electrochem_v6.store.runtime import reset_runtime
+from test_v6_assistant_appearance_ui import _contrast
+from test_v6_ui_playwright import _get_free_port, _launch_chromium, _sync_playwright_factory
+
+DEFAULTS = {
+    "version": 1,
+    "theme": "lab",
+    "fontSize": "standard",
+    "density": "comfortable",
+    "grid": False,
+    "chartBackground": "theme",
+}
+
+
+@pytest.fixture
+def appearance_browser(monkeypatch, tmp_path):
+    for key, name in {
+        "ELECTROCHEM_V6_HISTORY_FILE": "history.json",
+        "ELECTROCHEM_V6_PROJECTS_FILE": "projects.json",
+        "ELECTROCHEM_V6_CONVERSATION_FILE": "conversations.json",
+        "ELECTROCHEM_V6_TEMPLATE_FILE": "templates.json",
+        "ELECTROCHEM_V6_QUALITY_REPORT_FILE": "quality.json",
+    }.items():
+        monkeypatch.setenv(key, str(tmp_path / name))
+    reset_runtime()
+    manager = V6ServerManager(port=_get_free_port())
+    ok, message = manager.start()
+    assert ok, message
+    try:
+        with _sync_playwright_factory()() as playwright:
+            browser = _launch_chromium(playwright)
+            errors = []
+
+            def open_page(*, storage=None, color_scheme="light", width=1400, block_storage=False):
+                context = browser.new_context(viewport={"width": width, "height": 1000}, color_scheme=color_scheme)
+                page = context.new_page()
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.add_init_script("""
+                  window.__appearanceEvents = [];
+                  window.__appearanceFrames = [];
+                  window.addEventListener('electrochem:appearance-changed', event => {
+                    window.__appearanceEvents.push({detail: event.detail, body: document.body?.dataset.theme});
+                  });
+                  function frame() {
+                    if (document.body) window.__appearanceFrames.push(document.body.dataset.theme);
+                    if (window.__appearanceFrames.length < 3) requestAnimationFrame(frame);
+                  }
+                  requestAnimationFrame(frame);
+                """)
+                if storage:
+                    page.add_init_script("""
+                      if (!sessionStorage.getItem('appearance-test-seeded')) {
+                        Object.entries(%s).forEach(([key,value]) => localStorage.setItem(key,value));
+                        sessionStorage.setItem('appearance-test-seeded','1');
+                      }
+                    """ % json.dumps(storage))
+                if block_storage:
+                    page.add_init_script("""
+                      const get = Storage.prototype.getItem, set = Storage.prototype.setItem;
+                      Storage.prototype.getItem = function(key) {
+                        if (key.startsWith('electrochem_v6_appearance')) throw new DOMException('Blocked', 'SecurityError');
+                        return get.call(this,key);
+                      };
+                      Storage.prototype.setItem = function(key,value) {
+                        if (key === 'electrochem_v6_appearance') throw new DOMException('Full', 'QuotaExceededError');
+                        return set.call(this,key,value);
+                      };
+                    """)
+                page.goto(f"http://127.0.0.1:{manager.port}/ui", wait_until="networkidle")
+                page.wait_for_function("() => Boolean(window.ElectrochemAppearance && document.querySelector('#appearance-dialog'))")
+                return page
+
+            yield open_page
+            assert errors == []
+            browser.close()
+    finally:
+        manager.stop()
+        reset_runtime()
+
+
+def _prefs(page):
+    return page.evaluate("ElectrochemTheme.getPreferences()")
+
+
+def _choose_theme(page, theme):
+    page.locator(f'input[name="appearance-theme"][value="{theme}"]').check()
+
+
+def test_appearance_first_visit_is_lab_before_first_paint(appearance_browser):
+    page = appearance_browser(color_scheme="dark")
+    assert _prefs(page) == DEFAULTS
+    assert page.locator("body").get_attribute("data-theme") == "lab"
+    assert page.evaluate("window.__appearanceFrames") == ["lab"] * 3
+    assert page.evaluate("JSON.parse(localStorage.getItem('electrochem_v6_appearance'))") == DEFAULTS
+    page.click("#appearance-open")
+    assert page.locator('.appearance-theme-card[data-appearance-theme="lab"]').evaluate("node => node.classList.contains('selected')")
+    assert page.locator("#appearance-grid").is_checked() is False
+
+
+@pytest.mark.parametrize("saved_theme", ["lab", "ocean", "dark", "pixel"])
+def test_appearance_migrates_each_saved_theme_and_new_preferences_win(appearance_browser, saved_theme):
+    page = appearance_browser(storage={"electrochem_v6_theme": saved_theme})
+    assert _prefs(page) == {**DEFAULTS, "theme": saved_theme}
+    assert page.evaluate("window.__appearanceFrames") == [saved_theme] * 3
+    page.click("#appearance-open")
+    page.select_option("#appearance-font-size", "large")
+    _choose_theme(page, "lab" if saved_theme != "lab" else "dark")
+    chosen = _prefs(page)
+    page.reload(wait_until="networkidle")
+    assert _prefs(page) == chosen
+    assert page.evaluate("localStorage.getItem('electrochem_v6_theme')") == saved_theme
+
+
+@pytest.mark.parametrize("stored", [
+    "not-json", "null", "[]", '{"version":2,"theme":"dark"}',
+    '{"version":1,"theme":"<bad>","fontSize":"huge","density":false,"grid":"false","chartBackground":"black"}',
+])
+def test_appearance_validates_broken_storage_without_stopping_the_page(appearance_browser, stored):
+    page = appearance_browser(storage={"electrochem_v6_appearance": stored})
+    assert _prefs(page) == DEFAULTS
+    page.click("#appearance-open")
+    assert page.locator("#appearance-title").inner_text() == "外观设置"
+
+
+def test_appearance_system_follows_changes_and_manual_choice_stays_fixed(appearance_browser):
+    page = appearance_browser(color_scheme="light")
+    page.click("#appearance-open")
+    _choose_theme(page, "system")
+    page.emulate_media(color_scheme="dark")
+    page.wait_for_function("() => document.body.dataset.theme === 'dark'")
+    assert _prefs(page)["theme"] == "system"
+    page.emulate_media(color_scheme="light")
+    page.wait_for_function("() => document.body.dataset.theme === 'lab'")
+    page.emulate_media(color_scheme="dark")
+    page.wait_for_function("() => document.body.dataset.theme === 'dark'")
+    page.reload(wait_until="networkidle")
+    assert _prefs(page)["theme"] == "system"
+    assert page.evaluate("window.__appearanceFrames") == ["dark"] * 3
+    page.click("#appearance-open")
+    assert page.locator('input[name="appearance-theme"][value="system"]').is_checked()
+    _choose_theme(page, "ocean")
+    page.emulate_media(color_scheme="light")
+    page.emulate_media(color_scheme="dark")
+    assert page.locator("body").get_attribute("data-theme") == "ocean"
+    assert _prefs(page)["theme"] == "ocean"
+    assert page.evaluate("window.__appearanceEvents.filter(e => e.body).every(e => e.detail.theme === e.body)")
+
+
+def test_appearance_controls_are_independent_persist_and_reset_visibly(appearance_browser):
+    page = appearance_browser()
+    page.fill("#pro-area", "2.5")
+    page.click("#appearance-open")
+    page.select_option("#appearance-font-size", "large")
+    page.select_option("#appearance-density", "compact")
+    page.check("#appearance-grid")
+    page.select_option("#appearance-chart-background", "paper")
+    _choose_theme(page, "pixel")
+    expected = {"version": 1, "theme": "pixel", "fontSize": "large", "density": "compact", "grid": True, "chartBackground": "paper"}
+    assert _prefs(page) == expected
+    assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--ui-font-size').trim()") == "16px"
+    assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--font-space').trim()") == "4px"
+    assert page.locator("body").get_attribute("data-density") == "compact"
+    assert page.locator("body").get_attribute("data-grid") == "true"
+    assert page.locator("#appearance-status").inner_text() == "已应用并保存。"
+    page.select_option("#appearance-font-size", "extra-large")
+    assert _prefs(page)["density"] == "compact"
+    assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--ui-font-scale').trim()") == "1.285714"
+    assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--font-space').trim()") == "8px"
+    page.click("#appearance-close")
+    assert page.locator("#pro-area").input_value() == "2.5"
+    page.reload(wait_until="networkidle")
+    assert _prefs(page) == {**expected, "fontSize": "extra-large"}
+    page.click("#appearance-open")
+    page.click("#appearance-reset")
+    assert _prefs(page) == DEFAULTS
+    assert "已恢复默认" in page.locator("#appearance-status").inner_text()
+    assert page.locator('input[name="appearance-theme"][value="lab"]').is_checked()
+    assert page.locator("#appearance-font-size").input_value() == "standard"
+    assert page.locator("#appearance-density").input_value() == "comfortable"
+    assert page.locator("#appearance-chart-background").input_value() == "theme"
+    assert page.locator("#appearance-grid").is_checked() is False
+
+
+def test_appearance_storage_denied_keeps_changes_in_memory(appearance_browser):
+    page = appearance_browser(block_storage=True)
+    page.click("#appearance-open")
+    _choose_theme(page, "dark")
+    page.select_option("#appearance-font-size", "large")
+    assert _prefs(page)["theme"] == "dark"
+    assert _prefs(page)["fontSize"] == "large"
+    assert "仅在本次页面" in page.locator("#appearance-status").inner_text()
+    page.evaluate("ElectrochemTheme.init()")
+    assert _prefs(page)["fontSize"] == "large"
+    page.click("#appearance-close")
+    page.click("#appearance-open")
+    assert page.locator('input[name="appearance-theme"][value="dark"]').is_checked()
+
+
+def test_appearance_keyboard_language_and_600px_layout(appearance_browser):
+    page = appearance_browser(width=600)
+    page.select_option("#lang-select", "en")
+    page.locator("#appearance-open").focus()
+    page.keyboard.press("Enter")
+    assert page.locator("#appearance-title").inner_text() == "Appearance settings"
+    assert page.evaluate("document.activeElement.id") == "appearance-close"
+    page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement.name") == "appearance-theme"
+    page.keyboard.press("ArrowRight")
+    assert _prefs(page)["theme"] == "ocean"
+    page.select_option("#appearance-font-size", "extra-large")
+    page.select_option("#appearance-density", "compact")
+    dimensions = page.locator("#appearance-dialog").evaluate("node => ({width: node.getBoundingClientRect().width, client: node.clientWidth, scroll: node.scrollWidth, viewport: innerWidth})")
+    assert dimensions["width"] <= dimensions["viewport"]
+    assert dimensions["scroll"] <= dimensions["client"] + 1
+    for selector in ("#appearance-font-size", "#appearance-density", "#appearance-chart-background", "#appearance-grid", "#appearance-reset", "#appearance-close"):
+        page.locator(selector).focus()
+        assert page.locator(selector).evaluate("node => document.activeElement === node")
+    page.keyboard.press("Escape")
+    assert page.locator("#appearance-dialog").is_visible() is False
+    assert page.evaluate("document.activeElement.id") == "appearance-open"
+    page.keyboard.press("Enter")
+    assert _prefs(page)["theme"] == "ocean"
+    assert page.locator("#appearance-dialog").is_visible()
+
+
+def test_dark_settings_and_rendered_ir_pairings_keep_readable_surfaces(appearance_browser):
+    page = appearance_browser(storage={"electrochem_v6_appearance": json.dumps({**DEFAULTS, "theme": "dark"})})
+
+    def assert_contrast(selector):
+        node = page.locator(selector).first
+        assert node.is_visible(), selector
+        colors = node.evaluate("""node => {
+          const foreground = getComputedStyle(node).color;
+          const images = [];
+          while (node) {
+            const style = getComputedStyle(node);
+            images.push(style.backgroundImage);
+            if (style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+              return {foreground, background:style.backgroundColor, images};
+            }
+            node = node.parentElement;
+          }
+          return {foreground, background:'rgb(255, 255, 255)', images};
+        }""")
+        # These reading panels use solid semantic surfaces. A surviving white
+        # gradient must not be skipped in favor of its dark ancestor's color.
+        assert all(image == "none" for image in colors["images"]), (selector, colors)
+        assert not colors["background"].startswith("rgba"), (selector, colors)
+        assert _contrast(colors["foreground"], colors["background"]) >= 4.5, (selector, colors)
+
+    page.click("#assistant-fab")
+    page.click("#ai-settings-open")
+    page.fill("#prompt-prefix", "保留单位并说明分析条件。")
+    page.click("#prompt-save")
+    assert page.locator("#llm-status").inner_text()
+    for selector in (
+        "#ai-settings-panel .sys-panel-head h3", ".ai-section-config h4", ".ai-section-config .section-sub",
+        'label[for="llm-provider"]', "#llm-key-hint", "#llm-source-hint", ".toggle-row label",
+        ".ai-section-prompt > .hint", "#llm-status",
+    ):
+        assert_contrast(selector)
+    page.click("#ai-settings-close")
+    page.keyboard.press("Escape")
+    # Exercise the original preflight renderer and model with the API scan shape.
+    page.evaluate("""() => {
+      latestPreflightScan = {
+        text_files:3, work_units:2,
+        by_type:{LSV:{matched:2, examples:['LSV_A.txt','LSV_B.txt']}},
+        ir_compensation:{items:[
+          {status:'matched', lsv_file:'LSV_A.txt', eis_file:'EIS_A.txt', scope:'sample', extraction_method:'intercept'},
+          {status:'missing', lsv_file:'LSV_B.txt', eis_file:'', message:'No matching EIS source', scope:'sample'}
+        ]}
+      };
+      preflightFileDetailOpen = true;
+      renderPreflightFileDetail();
+    }""")
+    assert page.locator(".preflight-ir-pair").count() == 2
+    for selector in (
+        ".preflight-ir-pair.ok .preflight-ir-files span", ".preflight-ir-pair.ok .preflight-ir-meta strong",
+        ".preflight-ir-pair.ok .preflight-ir-meta span", ".preflight-ir-pair.issue .preflight-ir-files span",
+        ".preflight-ir-pair.issue .preflight-ir-message",
+    ):
+        assert_contrast(selector)
+
+
+def test_product_name_language_and_manual_assets_fit_desktop_and_narrow_screens(appearance_browser):
+    page = appearance_browser(width=1440)
+    screenshot_dir = Path(__file__).resolve().parents[1] / ".test_runtime" / "rename"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    expected_names = {
+        "zh": "ElectroChem｜智能电化学数据处理软件",
+        "en": "ElectroChem | Intelligent Electrochemical Data Processing Software",
+    }
+    for width in (1440, 600):
+        page.set_viewport_size({"width": width, "height": 1000})
+        for language, name in expected_names.items():
+            page.select_option("#lang-select", language)
+            assert page.title() == name
+            assert page.locator(".hero .badge").inner_text() == name
+            assert APP_VERSION not in name
+            assert page.locator("#sys-panel-version").inner_text() == APP_VERSION
+            assert page.locator('label[for="pro-ecsa-ev"]').inner_text() == ("评价电位 Ev (V)" if language == "zh" else "Evaluation potential Ev (V)")
+            bounds = page.locator(".hero").evaluate("""hero => {
+              const badge = hero.querySelector('.badge'), rect = badge.getBoundingClientRect();
+              return {viewport:innerWidth, right:rect.right, left:rect.left, badgeWidth:badge.clientWidth,
+                badgeScroll:badge.scrollWidth, headerWidth:hero.clientWidth, headerScroll:hero.scrollWidth};
+            }""")
+            assert bounds["left"] >= 0 and bounds["right"] <= bounds["viewport"], bounds
+            assert bounds["badgeScroll"] <= bounds["badgeWidth"] + 1, bounds
+            assert bounds["headerScroll"] <= bounds["headerWidth"] + 1, bounds
+            for font_size in ("standard", "extra-large"):
+                page.evaluate("fontSize => ElectrochemTheme.update({fontSize})", font_size)
+                text_bounds = page.locator(".hero .badge").evaluate("""badge => {
+                  const range = document.createRange(); range.selectNodeContents(badge);
+                  const box = badge.getBoundingClientRect();
+                  return {box:{left:box.left,right:box.right,top:box.top,bottom:box.bottom},
+                    lines:Array.from(range.getClientRects(), rect => ({left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom}))};
+                }""")
+                assert text_bounds["lines"], text_bounds
+                for line in text_bounds["lines"]:
+                    assert line["left"] >= text_bounds["box"]["left"] - 1, text_bounds
+                    assert line["right"] <= text_bounds["box"]["right"] + 1, text_bounds
+                    assert line["top"] >= text_bounds["box"]["top"] - 1, text_bounds
+                    assert line["bottom"] <= text_bounds["box"]["bottom"] + 1, text_bounds
+            page.evaluate("ElectrochemTheme.update({fontSize:'standard'})")
+            page.locator(".hero").screenshot(path=str(screenshot_dir / f"brand-{language}-{width}.png"))
+            page.click("#help-docs-btn")
+            page.wait_for_function("() => document.querySelectorAll('#help-doc-body .help-guide-figure img').length === 2")
+            images = page.locator("#help-doc-body .help-guide-figure img")
+            for image in images.all():
+                image.scroll_into_view_if_needed()
+                image.evaluate("image => image.decode()")
+                assert image.evaluate("image => image.naturalWidth > 0 && image.getBoundingClientRect().width <= image.parentElement.clientWidth + 1")
+                assert image.get_attribute("src").endswith(f".{language}.png")
+            original_link = page.locator("#help-doc-body .help-guide-figure a").first
+            with page.expect_popup() as opening:
+                original_link.click()
+            original = opening.value
+            original.wait_for_load_state("domcontentloaded")
+            assert original.url.endswith(f"/ui/static/guide-professional.{language}.png")
+            original.close()
+            page.evaluate("ElectrochemTheme.update({fontSize:'extra-large'})")
+            assert page.locator("#help-doc-body").evaluate("node => parseFloat(getComputedStyle(node).fontSize)") == 19
+            assert page.locator("#help-doc-scroll").evaluate("node => node.scrollWidth <= node.clientWidth + 1")
+            download_link = page.locator('#help-doc-body a[download="CV_demo.csv"]')
+            assert download_link.count() >= 1
+            with page.expect_download() as downloading:
+                download_link.first.click()
+            download = downloading.value
+            assert download.suggested_filename == "CV_demo.csv"
+            downloaded_bytes = Path(download.path()).read_bytes()
+            source = Path(__file__).resolve().parents[1] / "src/electrochem_v6/ui/static/guide-cv-demo.csv"
+            assert downloaded_bytes == source.read_bytes()
+            assert downloaded_bytes
+            page.keyboard.press("Escape")
+            page.evaluate("ElectrochemTheme.update({fontSize:'standard'})")
+
+    restricted = page.evaluate("""() => {
+      const raw = '![bad](../guide-project.zh.png)\\n\\n![bad](file:///private.png)\\n\\n![bad](/ui/static/arbitrary.png)\\n\\n[bad](../config.json)\\n\\n`[code](guide-cv-demo.csv)`';
+      const manual = new DOMParser().parseFromString(renderMarkdownDocument(raw).html, 'text/html');
+      const assistant = new DOMParser().parseFromString(renderMarkdownContent('![guide](guide-project.zh.png)\\n\\n[demo](guide-cv-demo.csv)'), 'text/html');
+      return {manualImages:manual.images.length, manualLinks:manual.querySelectorAll('a').length,
+        assistantImages:assistant.images.length, assistantLinks:assistant.querySelectorAll('a').length};
+    }""")
+    assert restricted == {"manualImages": 0, "manualLinks": 0, "assistantImages": 0, "assistantLinks": 0}

@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import requests
 
 from .base_client import BaseLLMClient
+from .error_utils import sanitize_llm_error
 
 
 class DeepSeekClient(BaseLLMClient):
@@ -31,6 +32,12 @@ class DeepSeekClient(BaseLLMClient):
         self.api_key = api_key
         self.extra_headers = extra_headers or {}
         self.session = requests.Session()
+        self._active_stream_response = None
+
+    def cancel_active_stream(self) -> None:
+        response = self._active_stream_response
+        if response is not None:
+            response.close()
 
     def _build_headers(self) -> Dict[str, str]:
         headers = {
@@ -65,11 +72,12 @@ class DeepSeekClient(BaseLLMClient):
                 timeout=self.timeout,
             )
             response.raise_for_status()
+            self._active_stream_response = response
             data = response.json()
         except requests.RequestException as exc:
-            return {"error": str(exc)}
+            return {"error": sanitize_llm_error(exc)}
         except ValueError as exc:
-            return {"error": f"Invalid JSON: {exc}"}
+            return {"error": sanitize_llm_error(f"Invalid JSON: {exc}")}
         if "choices" not in data or not data["choices"]:
             return {"error": "DeepSeek response missing choices"}
 
@@ -89,7 +97,54 @@ class DeepSeekClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4000,
     ) -> Iterator[Dict[str, Any]]:
-        raise NotImplementedError("DeepSeek streaming API is not implemented")
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        response = None
+        try:
+            response = self.session.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._build_headers(),
+                data=json.dumps(payload),
+                timeout=self.timeout,
+                stream=True,
+            )
+            response.raise_for_status()
+            for raw_line in response.iter_lines(decode_unicode=True):
+                line = str(raw_line or "").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_text = line[5:].strip()
+                if data_text == "[DONE]":
+                    break
+                event = json.loads(data_text)
+                choices = event.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                chunk: Dict[str, Any] = {}
+                if delta.get("content"):
+                    chunk["content"] = delta["content"]
+                if delta.get("tool_calls"):
+                    chunk["tool_calls"] = delta["tool_calls"]
+                if chunk:
+                    yield chunk
+        except requests.RequestException as exc:
+            yield {"error": sanitize_llm_error(exc)}
+        except (TypeError, ValueError) as exc:
+            yield {"error": sanitize_llm_error(f"Invalid streaming response: {exc}")}
+        finally:
+            if response is not None:
+                response.close()
+            if self._active_stream_response is response:
+                self._active_stream_response = None
 
 
 __all__ = ["DeepSeekClient"]

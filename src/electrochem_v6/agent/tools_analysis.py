@@ -9,6 +9,8 @@ import os
 from datetime import datetime
 from typing import Dict
 
+from electrochem_v6.core.agent_scientific import metric_value
+
 
 def tool_read_quality_report(report_type: str = "latest") -> Dict:
     """读取质量检测报告"""
@@ -78,30 +80,36 @@ def tool_analyze_processing_results(include_quality: bool = True, include_perfor
         # 2. 性能分析
         if include_performance:
             from electrochem_v6.agent.tool_executor import tool_query_lsv_summary
-            lsv_data = tool_query_lsv_summary(top_n=10)
+            lsv_data = tool_query_lsv_summary(top_n=0)
 
             if lsv_data.get('success') and lsv_data.get('samples'):
                 samples = lsv_data['samples']
 
                 # 计算统计信息
-                eta_values = [s.get('overpotential_10') for s in samples if s.get('overpotential_10') is not None]
+                eta_values = [value for sample in samples if (value := metric_value(
+                    {"type": "LSV", "results": sample}, "overpotential_at_10", "mV")) is not None]
 
                 if eta_values:
                     import statistics
                     performance_stats = {
-                        "best_eta": min(eta_values),
-                        "avg_eta": statistics.mean(eta_values),
-                        "std_eta": statistics.stdev(eta_values) if len(eta_values) > 1 else 0,
-                        "excellent_count": len([v for v in eta_values if v < 0.30]),
-                        "good_count": len([v for v in eta_values if 0.30 <= v < 0.40]),
+                        "metric_key": "overpotential_at_10",
+                        "unit": "mV",
+                        "finite_value_count": len(eta_values),
+                        "minimum": min(eta_values),
+                        "maximum": max(eta_values),
+                        "mean": statistics.mean(eta_values),
+                        "standard_deviation": statistics.stdev(eta_values) if len(eta_values) > 1 else None,
                     }
 
                     analysis['components']['performance'] = {
                         "success": True,
                         "total_samples": len(samples),
-                        "top_3": samples[:3],
                         "statistics": performance_stats
                     }
+                    analysis['components']['performance']['limitations'] = [
+                        "这是所查询历史记录的描述统计，未确认条件可比性，不代表独立重复实验的误差或材料等级。",
+                        "数值单位为 mV；记录中零值保留，非有限值不参与统计。",
+                    ]
 
         # 3. 生成综合建议
         suggestions = []
@@ -116,11 +124,7 @@ def tool_analyze_processing_results(include_quality: bool = True, include_perfor
 
         # 性能建议
         if include_performance and analysis['components'].get('performance', {}).get('success'):
-            p = analysis['components']['performance']['statistics']
-            if p['excellent_count'] > 0:
-                suggestions.append(f"发现{p['excellent_count']}个性能优秀的样品(η@10<0.30V),建议重点关注")
-            if p['std_eta'] > 0.1:
-                suggestions.append(f"性能分散度较大(σ={p['std_eta']:.3f}V),建议分析制备条件差异")
+            suggestions.append("比较 η@10 前请核对反应、电解液、面积归一化、参比和 iR 补偿条件；当前描述统计不能代替重复实验分析。")
 
         analysis['suggestions'] = suggestions
 
@@ -136,4 +140,3 @@ def tool_analyze_processing_results(include_quality: bool = True, include_perfor
 
 
 __all__ = ["tool_read_quality_report", "tool_analyze_processing_results"]
-

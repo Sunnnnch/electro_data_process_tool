@@ -1,0 +1,8 @@
+# Representative semicolon-delimited instrument text export
+Technique;CV
+Point;Potential/V;Current/mA
+0;-0.200;-0.50
+1;0.000;0.10
+2;0.200;0.80
+3;0.000;-0.05
+4;-0.200;-0.45

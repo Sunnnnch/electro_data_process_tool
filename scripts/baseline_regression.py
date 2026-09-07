@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-
 SCRIPT_PATH = Path(__file__).resolve()
 V6_ROOT = SCRIPT_PATH.parents[1]
 REPORT_DIR = V6_ROOT / "reports"

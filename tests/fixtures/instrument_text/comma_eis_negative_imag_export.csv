@@ -1,0 +1,8 @@
+# Representative comma-delimited impedance text export
+Technique,EIS
+Frequency/Hz,Zreal/ohm,-Zimag/ohm
+100000,2.10,0.20
+10000,2.50,0.80
+1000,4.00,2.10
+100,7.20,3.00
+10,9.10,1.20

@@ -46,13 +46,12 @@ class BaseLLMClient(ABC):
         """测试连接是否正常"""
         try:
             response = self.chat([{"role": "user", "content": "test"}], max_tokens=10)
-            return response is not None
+            return bool(response) and "error" not in response
         except Exception:
             return False
 
 
 __all__ = ["BaseLLMClient"]
-
 
 
 

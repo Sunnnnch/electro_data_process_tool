@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .legacy_runtime import get_conversation_manager_v6
+from .runtime import get_conversation_store
 
 
 def list_conversations(
@@ -12,22 +12,22 @@ def list_conversations(
     page_size: int = 20,
     filters: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    conv_mgr = get_conversation_manager_v6()
+    conv_mgr = get_conversation_store()
     return conv_mgr.list_conversations(page=page, page_size=page_size, filters=filters or {})
 
 
 def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
-    conv_mgr = get_conversation_manager_v6()
+    conv_mgr = get_conversation_store()
     return conv_mgr.get_conversation(conversation_id)
 
 
 def delete_conversation(conversation_id: str) -> bool:
-    conv_mgr = get_conversation_manager_v6()
+    conv_mgr = get_conversation_store()
     return conv_mgr.delete_conversation(conversation_id)
 
 
 def rename_conversation(conversation_id: str, title: str) -> bool:
-    conv_mgr = get_conversation_manager_v6()
+    conv_mgr = get_conversation_store()
     return conv_mgr.rename_conversation(conversation_id, title)
 
 
@@ -38,7 +38,7 @@ def append_message(
     metadata: Optional[Dict[str, Any]] = None,
     attachments: Optional[list[Dict[str, Any]]] = None,
 ) -> str:
-    conv_mgr = get_conversation_manager_v6()
+    conv_mgr = get_conversation_store()
     return conv_mgr.append_message(
         conversation_id=conversation_id,
         role=role,

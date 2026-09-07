@@ -1,19 +1,30 @@
 name: Release (Manual)
 
-# Manual-only fallback. The main CI workflow handles automated releases.
+# A source push never computes or publishes another version.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v6.0.3). Leave empty to use latest tag."
-        required: false
+        description: "Exact existing release tag, for example v7.0.1"
+        required: true
+        type: string
+      expected_commit:
+        description: "Full 40-character commit SHA reviewed for this release"
+        required: true
+        type: string
 
 permissions:
-  contents: write          # create GitHub Release & upload assets
+  contents: write
 
 jobs:
   build-and-release:
     runs-on: windows-latest
+    concurrency:
+      group: electrochem-windows-release
+      cancel-in-progress: false
+    env:
+      PYTHONUTF8: "1"
+      ELECTROCHEM_REQUIRE_PLAYWRIGHT: "1"
 
     steps:
       - name: Checkout
@@ -21,103 +32,180 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine version
-        id: version
+      - name: Select exact reviewed tag and commit
         shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
-          $tag = "${{ github.event.inputs.tag }}"
-          if (-not $tag) { $tag = "${{ github.ref_name }}" }
-          $ver = $tag -replace '^v', ''
-          echo "TAG=$tag"   >> $env:GITHUB_OUTPUT
-          echo "VER=$ver"   >> $env:GITHUB_OUTPUT
-          Write-Host "Releasing $tag (version $ver)"
+          $tag = $env:REQUESTED_TAG.Trim()
+          $expected = $env:EXPECTED_COMMIT.Trim().ToLowerInvariant()
+          if ($tag -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw "Invalid release tag" }
+          if ($expected -notmatch '^[0-9a-f]{40}$') { throw "A full expected commit SHA is required" }
+          $actual = git rev-parse --verify "refs/tags/$tag^{commit}"
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) { throw "Release tag does not identify the reviewed commit" }
+          git checkout --detach $expected
+          if ($LASTEXITCODE -ne 0) { throw "Unable to check out the reviewed release commit" }
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Verify tag, source version, and unchanged commit
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          $info = python packaging/release_validation.py --tag $env:RELEASE_TAG --expected-commit $env:EXPECTED_COMMIT --source-only --verify-remote-tag | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Release source verification failed" }
+          "TAG=$($info.tag)" >> $env:GITHUB_OUTPUT
+          "VER=$($info.version)" >> $env:GITHUB_OUTPUT
+          "COMMIT=$($info.commit)" >> $env:GITHUB_OUTPUT
+
+      - name: Require publisher signing credentials
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_SIGNING_CERT_BASE64) {
+            throw "Official Windows releases require WINDOWS_SIGNING_CERT_BASE64 and WINDOWS_SIGNING_CERT_PASSWORD; source updates do not require binary signing."
+          }
+
+      - name: Reject an already published version
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        with:
+          script: |
+            try {
+              const release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag: process.env.RELEASE_TAG });
+              if (!release.data.draft) throw new Error("This version is already public. Existing release assets will not be overwritten; prepare a new version.");
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          python -m pip install -r requirements-dev.txt
 
-      - name: Run tests
-        run: python -m pytest tests/ -q
+      - name: Install Playwright browser and verify MCP SDK
+        run: |
+          python -m playwright install chromium
+          python -c "from mcp.server.fastmcp import FastMCP; from mcp.client.stdio import stdio_client"
+
+      - name: Lint
+        run: ruff check src/ tests/ packaging/release_validation.py --output-format=github
+
+      - name: Type check
+        run: pyright src/
+
+      - name: Run tests including browser and real MCP stdio
+        run: python -m pytest tests/ -q --tb=short
 
       - name: Build portable (onedir)
         shell: pwsh
-        run: |
-          & packaging/build_onedir.ps1
+        run: '& packaging/build_onedir.ps1'
 
-      # ── Create ZIP artifact from the onedir build ──
+      - name: Sign portable executables
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "electrochem-signing.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT_BASE64))
+          try {
+            $securePassword = ConvertTo-SecureString $env:WINDOWS_SIGNING_CERT_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+            "ELECTROCHEM_SIGN_CERT_SHA1=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+            $env:ELECTROCHEM_SIGN_CERT_SHA1 = $certificate.Thumbprint
+            & packaging/sign_windows_binary.ps1 -Path "dist/ElectroChem/ElectroChem.exe" -RequireSigning
+            & packaging/sign_windows_binary.ps1 -Path "dist/ElectroChem/ElectroChem-MCP.exe" -RequireSigning
+          } finally {
+            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Package ZIP
         id: zip
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VER }}
         run: |
-          $ver  = "${{ steps.version.outputs.VER }}"
-          $name = "ElectroChemV6-$ver-win64"
-          $src  = "dist/ElectroChemV6"
-          $zip  = "dist/$name.zip"
-          Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
-          echo "ZIP_PATH=$zip"   >> $env:GITHUB_OUTPUT
-          echo "ZIP_NAME=$name.zip" >> $env:GITHUB_OUTPUT
-          Write-Host "Created $zip"
+          $ver = $env:RELEASE_VERSION
+          $name = "ElectroChem-$ver-win64"
+          $zip = "dist/$name.zip"
+          Compress-Archive -Path "dist/ElectroChem/*" -DestinationPath $zip -Force
+          $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest *$([IO.Path]::GetFileName($zip))" | Set-Content -LiteralPath "$zip.sha256" -Encoding ascii
+          "ZIP_PATH=$zip" >> $env:GITHUB_OUTPUT
+          "ZIP_CHECKSUM_PATH=$zip.sha256" >> $env:GITHUB_OUTPUT
 
-      # ── Build Inno Setup installer (optional — skipped if ISCC not found) ──
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
       - name: Build installer
         id: installer
         shell: pwsh
-        continue-on-error: true
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VER }}
         run: |
-          # Sync version into installer.iss
-          $ver = "${{ steps.version.outputs.VER }}"
-          $iss = "packaging/installer.iss"
-          (Get-Content $iss) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content $iss
-          & packaging/build_installer.ps1
-          $exe = Get-ChildItem "dist_installer/ElectroChemV6-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($exe) {
-            echo "EXE_PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-            echo "EXE_NAME=$($exe.Name)"     >> $env:GITHUB_OUTPUT
-            echo "HAS_INSTALLER=true"        >> $env:GITHUB_OUTPUT
-          } else {
-            echo "HAS_INSTALLER=false"       >> $env:GITHUB_OUTPUT
-          }
+          $ver = $env:RELEASE_VERSION
+          & packaging/build_installer.ps1 -AppVersion $ver -RequireSigning
+          $exe = "dist_installer/ElectroChem-Setup-$ver.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Required signed installer was not produced" }
+          "EXE_PATH=$exe" >> $env:GITHUB_OUTPUT
+          "EXE_CHECKSUM_PATH=$exe.sha256" >> $env:GITHUB_OUTPUT
 
-      # ── Extract release notes from CHANGELOG ──
       - name: Extract release notes
-        id: notes
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.TAG }}
+          EXPECTED_COMMIT: ${{ steps.version.outputs.COMMIT }}
         run: |
-          $ver = "${{ steps.version.outputs.VER }}"
-          $content = Get-Content CHANGELOG.md -Raw
-          # Match the section for this version (between ## <ver> and next ## or EOF)
-          $pattern = '(?ms)^## ' + [regex]::Escape($ver) + '\s*$(.*?)(?=^## |\z)'
-          if ($content -match $pattern) {
-            $body = $Matches[1].Trim()
-          } else {
-            # Fallback: auto-generate notes from git commits since last tag
-            $prevTag = git describe --tags --abbrev=0 HEAD~ 2>$null
-            if ($prevTag) {
-              $commits = git log "$prevTag..HEAD" --pretty=format:'- %s' --no-merges 2>$null
-            } else {
-              $commits = git log -20 --pretty=format:'- %s' --no-merges 2>$null
-            }
-            $body = "## What's Changed`n`n$($commits -join "`n")"
-          }
-          # Write to file to avoid shell escaping issues
-          $body | Out-File -FilePath release_notes.md -Encoding utf8
-          Write-Host $body
+          python packaging/release_validation.py --tag $env:RELEASE_TAG --expected-commit $env:EXPECTED_COMMIT --print-notes | Set-Content -LiteralPath release_notes.md -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "Release notes do not match the selected version" }
 
-      # ── Create GitHub Release ──
+      - name: Verify release artifacts
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.TAG }}
+          EXPECTED_COMMIT: ${{ steps.version.outputs.COMMIT }}
+          RELEASE_ZIP: ${{ steps.zip.outputs.ZIP_PATH }}
+          RELEASE_INSTALLER: ${{ steps.installer.outputs.EXE_PATH }}
+        run: |
+          & packaging/publish_release_refs.ps1 -Tag $env:RELEASE_TAG -ExpectedCommit $env:EXPECTED_COMMIT -PortableZip $env:RELEASE_ZIP -Installer $env:RELEASE_INSTALLER -VerifyOnly -VerifyRemoteTag
+
+      - name: Recheck publication state before uploading
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.TAG }}
+        with:
+          script: |
+            try {
+              const release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag: process.env.RELEASE_TAG });
+              if (!release.data.draft) throw new Error("This version became public during the build. Refusing to replace published assets.");
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.TAG }}
+          target_commitish: ${{ steps.version.outputs.COMMIT }}
           name: "v${{ steps.version.outputs.VER }}"
           body_path: release_notes.md
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
           files: |
             ${{ steps.zip.outputs.ZIP_PATH }}
-            ${{ steps.installer.outputs.HAS_INSTALLER == 'true' && steps.installer.outputs.EXE_PATH || '' }}
+            ${{ steps.zip.outputs.ZIP_CHECKSUM_PATH }}
+            ${{ steps.installer.outputs.EXE_PATH }}
+            ${{ steps.installer.outputs.EXE_CHECKSUM_PATH }}
