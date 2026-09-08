@@ -38,7 +38,7 @@ def test_processing_job_manager_persists_progress_and_result(tmp_path, monkeypat
         assert job["progress_total"] == 2
         assert job["result"]["result"]["summary"] == "done"
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
         reset_runtime()
 
 
@@ -63,7 +63,7 @@ def test_processing_job_manager_cooperatively_cancels_running_job(tmp_path, monk
         assert job["cancel_requested"] is True
         assert "cancelled" in job["error"]
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
         reset_runtime()
 
 
@@ -108,7 +108,71 @@ def test_agent_job_manager_persists_progress_and_reply(tmp_path, monkeypatch):
         assert "conversation" not in job["result"]
         assert job["result"]["processing_result"] == {"large": "snapshot"}
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
+        reset_runtime()
+
+
+def test_shutdown_waits_for_durable_completion_callbacks(tmp_path, monkeypatch):
+    from electrochem_v6.core import job_service
+
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "runtime"))
+    reset_runtime()
+    finish_runner = threading.Event()
+    callback_started = threading.Event()
+    finish_callback = threading.Event()
+    shutdown_started = threading.Event()
+    shutdown_finished = threading.Event()
+    errors = []
+    finish_owned = job_service.finish_owned_job
+
+    def runner(_payload, *, progress_callback, cancel_check):
+        assert finish_runner.wait(10)
+        return {"status": "success", "agent_reply": "done"}
+
+    def hold_callback(*args, **kwargs):
+        callback_started.set()
+        assert finish_callback.wait(10)
+        return finish_owned(*args, **kwargs)
+
+    monkeypatch.setattr(job_service, "finish_owned_job", hold_callback)
+    manager = ProcessingJobManager(max_workers=1, agent_runner=runner)
+    executor_shutdown = manager._executor.shutdown
+
+    def observe_shutdown(*args, **kwargs):
+        assert kwargs["wait"] is True
+        shutdown_started.set()
+        return executor_shutdown(*args, **kwargs)
+
+    monkeypatch.setattr(manager._executor, "shutdown", observe_shutdown)
+
+    def shutdown():
+        try:
+            manager.shutdown(wait=True)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            shutdown_finished.set()
+
+    closer = threading.Thread(target=shutdown)
+    try:
+        submitted = manager.submit_agent({"message": "hello"})
+        finish_runner.set()
+        assert callback_started.wait(10)
+        assert get_database().get_processing_job(submitted["job_id"])["status"] == "succeeded"
+        closer.start()
+        assert shutdown_started.wait(10)
+        assert not shutdown_finished.wait(0.1)
+        finish_callback.set()
+        closer.join(10)
+        assert not closer.is_alive()
+        assert not errors
+        assert manager.active_jobs() == []
+    finally:
+        finish_runner.set()
+        finish_callback.set()
+        if closer.ident is not None:
+            closer.join(10)
+        manager.shutdown(wait=True)
         reset_runtime()
 
 
@@ -133,7 +197,7 @@ def test_agent_job_manager_cooperatively_cancels_stream(tmp_path, monkeypatch):
         assert job["status"] == "cancelled"
         assert job["cancel_requested"] is True
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
         reset_runtime()
 
 
@@ -167,5 +231,5 @@ def test_confirmed_write_phase_rejects_cancel_and_finishes_successfully(tmp_path
         assert job["result"]["write_action_succeeded"] is True
     finally:
         allow_finish.set()
-        manager.shutdown()
+        manager.shutdown(wait=True)
         reset_runtime()

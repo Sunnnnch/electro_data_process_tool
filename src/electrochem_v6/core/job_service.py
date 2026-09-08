@@ -377,7 +377,8 @@ class ProcessingJobManager:
                     self.cancel(job["job_id"])
         return self.active_jobs()
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, wait: bool = False) -> None:
+        """Close submissions, request cancellation, and optionally drain callbacks."""
         with self._submission_lock:
             self._closed = True
         with self._lock:
@@ -387,7 +388,7 @@ class ProcessingJobManager:
             ]
         for job_id in active_ids:
             get_database().request_processing_job_cancel(job_id)
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor.shutdown(wait=wait, cancel_futures=True)
 
 
 __all__ = ["ProcessingJobManager"]

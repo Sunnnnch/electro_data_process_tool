@@ -271,46 +271,53 @@ class Database:
         self._lock = threading.RLock()
         self._connections: set[sqlite3.Connection] = set()
         os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
-        self._init_schema()
+        with self._lock:
+            self._init_schema()
 
     def _get_conn(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.execute("SELECT 1")
-            except sqlite3.ProgrammingError:
+        # Connection validation itself calls SQLite and must not overlap a
+        # cross-thread close_all(). Callers retain this lock while using it.
+        with self._lock:
+            conn = getattr(self._local, "conn", None)
+            if conn is not None and conn not in self._connections:
                 conn = None
                 self._local.conn = None
-        if conn is None:
-            conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.create_function(
-                "history_basename", 1,
-                lambda value: str(value or "").replace("\\", "/").rsplit("/", 1)[-1],
-                deterministic=True,
-            )
-            conn.row_factory = sqlite3.Row
-            self._local.conn = conn
-            with self._lock:
+            if conn is not None:
+                try:
+                    conn.execute("SELECT 1")
+                except sqlite3.ProgrammingError:
+                    self._connections.discard(conn)
+                    conn = None
+                    self._local.conn = None
+            if conn is None:
+                conn = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA foreign_keys=ON")
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.create_function(
+                    "history_basename", 1,
+                    lambda value: str(value or "").replace("\\", "/").rsplit("/", 1)[-1],
+                    deterministic=True,
+                )
+                conn.row_factory = sqlite3.Row
+                self._local.conn = conn
                 self._connections.add(conn)
-        return conn
+            return conn
 
     def close(self) -> None:
         """Close the connection for the current thread (if any)."""
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-            with self._lock:
+        with self._lock:
+            conn = getattr(self._local, "conn", None)
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
                 self._connections.discard(conn)
-            self._local.conn = None
+                self._local.conn = None
 
     def close_all(self) -> None:
-        """Close every connection created by this instance, including worker threads."""
+        """Wait for active reads/transactions, then close all thread connections."""
         with self._lock:
             connections = list(self._connections)
             self._connections.clear()
@@ -323,8 +330,8 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             try:
                 yield conn
                 conn.commit()
@@ -334,7 +341,9 @@ class Database:
 
     @contextmanager
     def read(self) -> Generator[sqlite3.Connection, None, None]:
-        yield self._get_conn()
+        # Keep close_all() out until cursors have been consumed by the caller.
+        with self._lock:
+            yield self._get_conn()
 
     def quick_check(self) -> Dict[str, Any]:
         """Return a compact SQLite integrity report."""
@@ -1171,32 +1180,44 @@ class Database:
         include_archived: bool = False,
         batch_size: int = 200,
     ) -> Generator[Dict[str, Any], None, None]:
-        """Yield only path metadata needed by project ZIP export."""
+        """Read bounded metadata batches, yielding outside the connection lock."""
 
         conditions, params = self._history_filter_conditions(
             project_id=project_id,
             include_archived=include_archived,
         )
         where = " AND ".join(conditions) if conditions else "1=1"
-        sql = f"""SELECT id, record_key, timestamp, type, file_path, file_name,
+        # Freeze selection and ordering using only IDs. The ZIP file limit does
+        # not bound history rows, so avoid materializing every path/JSON value.
+        # No cursor or connection lock may survive a yield into ZIP compression.
+        with self.read() as conn:
+            record_ids = [int(row[0]) for row in conn.execute(
+                f"""SELECT id FROM history_records AS hr WHERE {where}
+                    ORDER BY COALESCE(timestamp, '') DESC, id DESC""",
+                params,
+            )]
+        safe_batch_size = max(1, min(int(batch_size), 1000))
+        for offset in range(0, len(record_ids), safe_batch_size):
+            batch_ids = record_ids[offset:offset + safe_batch_size]
+            placeholders = ",".join("?" for _ in batch_ids)
+            sql = f"""SELECT id, record_key, timestamp, type, file_path, file_name,
                          sample_name, project_id, run_id, folder_path, archived,
                          output_files, summary_path, source_archive_path,
                          artifact_root, artifact_owner,
                          (SELECT value FROM meta
                           WHERE key='run_archive_roots:' || hr.run_id) AS archive_roots
                   FROM history_records AS hr
-                  WHERE {where}
-                  ORDER BY COALESCE(timestamp, '') DESC, id DESC"""
-        with self.read() as conn:
-            query = conn.execute(sql, params)
-            while True:
-                rows = query.fetchmany(max(1, min(int(batch_size), 1000)))
-                if not rows:
-                    break
-                for row in rows:
-                    record = self._row_to_history_summary(row)
-                    record["archive_roots"] = _json_loads(record.get("archive_roots"), {})
-                    yield record
+                  WHERE id IN ({placeholders})"""
+            with self.read() as conn:
+                rows = conn.execute(sql, batch_ids).fetchall()
+            by_id = {int(row["id"]): row for row in rows}
+            for record_id in batch_ids:
+                row = by_id.get(record_id)
+                if row is None:  # A record may have been deleted since selection.
+                    continue
+                record = self._row_to_history_summary(row)
+                record["archive_roots"] = _json_loads(record.get("archive_roots"), {})
+                yield record
 
     def update_history_by_key(self, record_key: str, action: str) -> int:
         with self.transaction() as conn:

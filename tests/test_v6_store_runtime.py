@@ -48,6 +48,188 @@ def test_get_database_thread_safe():
     assert len(set(results)) == 1
 
 
+def test_reset_runtime_waits_for_database_initialization(monkeypatch):
+    from electrochem_v6.store import runtime
+
+    created = threading.Event()
+    publish = threading.Event()
+    reset_started = threading.Event()
+    reset_done = threading.Event()
+    databases = []
+    errors = []
+    original_database = runtime.Database
+
+    def delayed_database(path):
+        database = original_database(path)
+        databases.append(database)
+        created.set()
+        assert publish.wait(10)
+        return database
+
+    monkeypatch.setattr(runtime, "Database", delayed_database)
+
+    def initialize():
+        try:
+            runtime.get_database()
+        except Exception as exc:
+            errors.append(exc)
+
+    def reset():
+        reset_started.set()
+        runtime.reset_runtime()
+        reset_done.set()
+
+    initializer = threading.Thread(target=initialize)
+    resetter = threading.Thread(target=reset)
+    initializer.start()
+    try:
+        assert created.wait(10)
+        resetter.start()
+        assert reset_started.wait(10)
+        assert not reset_done.wait(0.2), "reset lost a database still being initialized"
+    finally:
+        publish.set()
+        initializer.join(10)
+        if resetter.ident is not None:
+            resetter.join(10)
+    assert not initializer.is_alive() and not resetter.is_alive()
+    assert errors == []
+    assert reset_done.is_set() and runtime._database is None
+    assert databases and databases[0]._connections == set()
+
+
+def test_reset_releases_singleton_locks_before_closing_connections(monkeypatch):
+    from electrochem_v6.store import runtime
+
+    database = runtime.get_database()
+    closing = threading.Event()
+    release_close = threading.Event()
+    replacement_ready = threading.Event()
+    replacements = []
+    errors = []
+    original_close = database.close_all
+
+    def delayed_close():
+        closing.set()
+        assert release_close.wait(30)
+        original_close()
+
+    monkeypatch.setattr(database, "close_all", delayed_close)
+
+    def get_replacement():
+        try:
+            replacements.append(runtime.get_history_store().db)
+            replacement_ready.set()
+        except Exception as exc:
+            errors.append(exc)
+
+    resetter = threading.Thread(target=runtime.reset_runtime)
+    reader = threading.Thread(target=get_replacement)
+    resetter.start()
+    try:
+        assert closing.wait(10)
+        reader.start()
+        assert replacement_ready.wait(10), "connection close held the runtime singleton locks"
+        assert replacements[0] is not database
+    finally:
+        release_close.set()
+        resetter.join(10)
+        if reader.ident is not None:
+            reader.join(10)
+    assert not resetter.is_alive() and not reader.is_alive()
+    assert errors == []
+    assert runtime.get_database() is replacements[0]
+
+
+def test_path_switch_releases_init_lock_before_waiting_for_old_read(tmp_path, monkeypatch):
+    from electrochem_v6.store import runtime
+
+    database = runtime.get_database()
+    old_read_started = threading.Event()
+    close_attempted = threading.Event()
+    init_lock_available = []
+    replacements = []
+    errors = []
+    original_close = database.close_all
+
+    def close_after_publication():
+        # Detect an inverted lock before calling close, so the old code fails
+        # deterministically instead of deadlocking the pytest process.
+        available = runtime._DATABASE_INIT_LOCK.acquire(blocking=False)
+        if available:
+            runtime._DATABASE_INIT_LOCK.release()
+        init_lock_available.append(available)
+        close_attempted.set()
+        assert available, "path switch waited on DB while holding INIT"
+        original_close()
+
+    monkeypatch.setattr(database, "close_all", close_after_publication)
+
+    def old_reader():
+        try:
+            with database.read() as connection:
+                assert connection.execute("SELECT 1").fetchone()[0] == 1
+                old_read_started.set()
+                assert close_attempted.wait(10)
+                if init_lock_available == [False]:
+                    return
+                replacements.append(runtime.get_database())
+                assert connection.execute("SELECT 2").fetchone()[0] == 2
+        except Exception as exc:
+            errors.append(exc)
+
+    def switch_path():
+        try:
+            replacements.append(runtime.get_database())
+        except Exception as exc:
+            errors.append(exc)
+
+    reader = threading.Thread(target=old_reader)
+    switcher = threading.Thread(target=switch_path)
+    reader.start()
+    try:
+        assert old_read_started.wait(10)
+        monkeypatch.setenv("ELECTROCHEM_V6_HISTORY_FILE", str(tmp_path / "new-runtime" / "history.json"))
+        switcher.start()
+    finally:
+        if switcher.ident is not None:
+            switcher.join(10)
+        close_attempted.set()
+        reader.join(10)
+    assert not reader.is_alive() and not switcher.is_alive()
+    assert errors == []
+    assert init_lock_available == [True]
+    assert len(replacements) == 2 and replacements[0] is replacements[1]
+    assert replacements[0] is not database
+    assert database._connections == set()
+
+
+def test_failed_path_switch_still_closes_previous_database_outside_init_lock(tmp_path, monkeypatch):
+    from electrochem_v6.store import runtime
+
+    database = runtime.get_database()
+    original_close = database.close_all
+    closed = []
+
+    def fail_initialization(_path):
+        raise RuntimeError("new database unavailable")
+
+    def close_without_init_lock():
+        assert runtime._DATABASE_INIT_LOCK.acquire(blocking=False)
+        runtime._DATABASE_INIT_LOCK.release()
+        original_close()
+        closed.append(True)
+
+    monkeypatch.setattr(database, "close_all", close_without_init_lock)
+    monkeypatch.setattr(runtime, "Database", fail_initialization)
+    monkeypatch.setenv("ELECTROCHEM_V6_HISTORY_FILE", str(tmp_path / "new-runtime" / "history.json"))
+    with pytest.raises(RuntimeError, match="new database unavailable"):
+        runtime.get_database()
+    assert closed == [True]
+    assert database._connections == set()
+    assert runtime._database is None
+
+
 # History store
 
 class TestHistoryStore:

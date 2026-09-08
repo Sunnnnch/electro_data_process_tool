@@ -225,7 +225,7 @@ def test_terminal_change_during_preflight_prevents_submission(recovery_data, mon
             resume_recovery("job:old", {"confirm_owner_stopped": True}, manager)
         assert recovery_claim("job:old") is None
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
 
 
 def test_atomic_claim_checks_origin_status_again(recovery_data):
@@ -274,7 +274,7 @@ def test_reviewed_sources_cannot_silently_change_before_resume(recovery_data):
         assert result["status"] == "error"
         assert recovery_claim("job:old") is None
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
 
 
 def test_captured_interrupted_run_recovers_into_new_output_and_preserves_original(recovery_data):
@@ -298,7 +298,7 @@ def test_captured_interrupted_run_recovers_into_new_output_and_preserves_origina
         assert original_hashes == {path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in original_hashes}
         assert get_run_recipe(old_id)["status"] == "interrupted"
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)
 
 
 def prepared_zip(source):
@@ -336,7 +336,7 @@ def test_agent_upload_saves_only_process_request_and_injects_real_job_identity(r
     finally:
         release.set()
         wait_job(submitted["job_id"])
-        manager.shutdown()
+        manager.shutdown(wait=True)
 
 
 def test_dead_queued_zip_recovery_creates_a_provenance_complete_process_run(recovery_data):
@@ -362,4 +362,4 @@ def test_dead_queued_zip_recovery_creates_a_provenance_complete_process_run(reco
         assert get_database().get_processing_job("zip-old")["status"] == "interrupted"
         assert hashlib.sha256(Path(prepared["zip_path"]).read_bytes()).hexdigest() == prepared["source_archive_sha256"]
     finally:
-        manager.shutdown()
+        manager.shutdown(wait=True)

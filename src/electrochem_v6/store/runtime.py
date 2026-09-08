@@ -93,17 +93,20 @@ def reset_runtime() -> None:
     """Close all runtime connections and clear store singletons."""
 
     global _database, _history_store, _project_store, _conversation_store
-    with _RUNTIME_LOCK:
+    # Reset cannot race initialization and then lose a newly published instance.
+    with _DATABASE_INIT_LOCK, _RUNTIME_LOCK:
         database = _database
-        if database is not None:
-            try:
-                database.close_all()
-            except Exception:
-                _logger.exception("Failed to close SQLite runtime connections")
         _database = None
         _history_store = None
         _project_store = None
         _conversation_store = None
+    # Active DB contexts may need runtime stores before they can finish. Never
+    # hold a singleton lock while waiting for their connection lifecycle lock.
+    if database is not None:
+        try:
+            database.close_all()
+        except Exception:
+            _logger.exception("Failed to close SQLite runtime connections")
 
 
 def get_database() -> Database:
@@ -111,74 +114,82 @@ def get_database() -> Database:
 
     global _database, _history_store, _project_store, _conversation_store
     db_path = _database_path()
-    if _database is not None and _same_path(_database.path, db_path):
-        return _database
-
-    with _DATABASE_INIT_LOCK:
-        if _database is not None and _same_path(_database.path, db_path):
-            return _database
-        if _database is not None:
-            _database.close_all()
-            _database = None
-            _history_store = None
-            _project_store = None
-            _conversation_store = None
-
-        database = Database(str(db_path))
-        if not database.is_migrated():
-            history_file = get_history_file()
-            projects_file = get_projects_file()
-            conversations_file = get_conversation_file()
-            templates_file: Path | None = get_templates_file()
-
-            counts = database.migrate_from_json(
-                history_file=str(history_file) if history_file.exists() else None,
-                projects_file=str(projects_file) if projects_file.exists() else None,
-                conversations_file=(
-                    str(conversations_file) if conversations_file.exists() else None
-                ),
-                templates_file=(
-                    str(templates_file)
-                    if templates_file is not None and templates_file.exists()
-                    else None
-                ),
-            )
-            if counts.get("complete"):
-                _logger.info("Imported legacy JSON into SQLite: %s", counts)
-            else:
-                _logger.error(
-                    "Legacy JSON import did not complete and will retry next startup: %s",
-                    counts,
-                )
-
-        templates_file = get_templates_file()
-        template_migration = database.migrate_process_templates_from_json(
-            str(templates_file) if templates_file.exists() else None
-        )
-        if not template_migration.get("complete"):
-            _logger.error(
-                "Process template JSON import did not complete and will retry next startup: %s",
-                template_migration,
-            )
-        elif template_migration.get("templates"):
-            _logger.info("Imported current JSON templates into SQLite: %s", template_migration)
-
-        repaired = database.repair_orphan_project_links()
-        if repaired:
-            _logger.warning(
-                "Recovered %d missing project references as archived projects: %s",
-                len(repaired),
-                repaired,
-            )
-        try:
-            backup_path = database.ensure_periodic_backup(interval_hours=24)
-            if backup_path:
-                _logger.info("Created automatic database backup: %s", backup_path)
-        except Exception:
-            _logger.exception("Automatic database backup failed")
-
-        _database = database
+    database = _database
+    if database is not None and _same_path(database.path, db_path):
         return database
+
+    previous_database = None
+    try:
+        with _DATABASE_INIT_LOCK:
+            if _database is not None and _same_path(_database.path, db_path):
+                return _database
+            if _database is not None:
+                previous_database = _database
+                _database = None
+                _history_store = None
+                _project_store = None
+                _conversation_store = None
+
+            database = Database(str(db_path))
+            if not database.is_migrated():
+                history_file = get_history_file()
+                projects_file = get_projects_file()
+                conversations_file = get_conversation_file()
+                templates_file: Path | None = get_templates_file()
+
+                counts = database.migrate_from_json(
+                    history_file=str(history_file) if history_file.exists() else None,
+                    projects_file=str(projects_file) if projects_file.exists() else None,
+                    conversations_file=(
+                        str(conversations_file) if conversations_file.exists() else None
+                    ),
+                    templates_file=(
+                        str(templates_file)
+                        if templates_file is not None and templates_file.exists()
+                        else None
+                    ),
+                )
+                if counts.get("complete"):
+                    _logger.info("Imported legacy JSON into SQLite: %s", counts)
+                else:
+                    _logger.error(
+                        "Legacy JSON import did not complete and will retry next startup: %s",
+                        counts,
+                    )
+
+            templates_file = get_templates_file()
+            template_migration = database.migrate_process_templates_from_json(
+                str(templates_file) if templates_file.exists() else None
+            )
+            if not template_migration.get("complete"):
+                _logger.error(
+                    "Process template JSON import did not complete and will retry next startup: %s",
+                    template_migration,
+                )
+            elif template_migration.get("templates"):
+                _logger.info("Imported current JSON templates into SQLite: %s", template_migration)
+
+            repaired = database.repair_orphan_project_links()
+            if repaired:
+                _logger.warning(
+                    "Recovered %d missing project references as archived projects: %s",
+                    len(repaired),
+                    repaired,
+                )
+            try:
+                backup_path = database.ensure_periodic_backup(interval_hours=24)
+                if backup_path:
+                    _logger.info("Created automatic database backup: %s", backup_path)
+            except Exception:
+                _logger.exception("Automatic database backup failed")
+
+            _database = database
+            return database
+    finally:
+        # Path switches must not hold INIT while waiting on the old DB. An
+        # active old context may itself need the newly selected runtime.
+        if previous_database is not None:
+            previous_database.close_all()
 
 
 class HistoryStore:

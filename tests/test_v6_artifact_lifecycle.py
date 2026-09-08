@@ -129,38 +129,79 @@ def test_failed_upload_releases_and_removes_reservation(isolated_runtime):
     assert storage_summary()["active_runs"] == 0
 
 
-def test_cleanup_cannot_interleave_directory_creation_and_lease_acquisition(isolated_runtime, monkeypatch):
-    target = isolated_runtime / "runs" / "uploads" / "creating"
+@pytest.mark.parametrize("creation_delay", [0, 2.25], ids=["normal-creation", "delayed-creation"])
+def test_cleanup_cannot_interleave_directory_creation_and_lease_acquisition(isolated_runtime, monkeypatch, creation_delay):
+    import electrochem_v6.core.storage_service as storage
+
+    target = (isolated_runtime / "runs" / "uploads" / "creating").resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    timeout = 10
     created = threading.Event()
     finish_creation = threading.Event()
+    cleaner_started = threading.Event()
+    cleaner_entered = threading.Event()
+    cleaner_finished = threading.Event()
+    errors = []
     original = Path.mkdir
+    original_summary = storage._storage_summary
 
     def mkdir(path, *args, **kwargs):
+        if path == target:
+            time.sleep(creation_delay)
         result = original(path, *args, **kwargs)
         if path == target:
             created.set()
-            assert finish_creation.wait(5)
+            assert finish_creation.wait(timeout), "creation was not released"
         return result
 
+    def observed_summary():
+        # Called inside the real storage lock. Cleanup must not reach this read
+        # while mkdir has published the directory but not yet acquired its lease.
+        cleaner_entered.set()
+        return original_summary()
+
+    def create():
+        try:
+            create_active_upload_root(target)
+        except BaseException as error:
+            errors.append(error)
+
+    def clean():
+        cleaner_started.set()
+        try:
+            clean_result.update(cleanup_orphaned_runs())
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            cleaner_finished.set()
+
     monkeypatch.setattr(Path, "mkdir", mkdir)
-    creator = threading.Thread(target=create_active_upload_root, args=(target,))
+    monkeypatch.setattr(storage, "_storage_summary", observed_summary)
+    creator = threading.Thread(target=create, name="upload-creator")
     clean_result = {}
-    cleaner = threading.Thread(target=lambda: clean_result.update(cleanup_orphaned_runs()))
+    cleaner = threading.Thread(target=clean, name="upload-cleaner")
     creator.start()
     try:
-        assert created.wait(2)
+        assert created.wait(timeout), f"directory was not created: {errors!r}"
         cleaner.start()
+        assert cleaner_started.wait(timeout), "cleanup worker did not start"
+        assert not cleaner_entered.wait(0.2), "cleanup entered before the upload lease was acquired"
+        assert not cleaner_finished.is_set()
         finish_creation.set()
-        creator.join(5)
-        cleaner.join(5)
+        creator.join(timeout)
+        cleaner.join(timeout)
         assert not creator.is_alive() and not cleaner.is_alive()
+        assert not errors, errors
+        assert cleaner_entered.is_set() and cleaner_finished.is_set()
         assert clean_result["removed"] == []
         assert target.is_dir()
+        assert clean_result["summary"]["active_runs"] == 1
+        assert (target / ".active-upload.lock").is_file()
     finally:
         finish_creation.set()
-        creator.join(5)
+        creator.join(timeout)
         if cleaner.ident:
-            cleaner.join(5)
+            cleaner.join(timeout)
         finish_uploaded_run(target)
 
 
