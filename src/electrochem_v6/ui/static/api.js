@@ -3,21 +3,37 @@
 
   async function apiFetch(input, init) {
     const options = { ...(init || {}) };
-    const requestHeaders = typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined;
+    const request = typeof Request !== "undefined" && input instanceof Request ? input : null;
+    const requestHeaders = request ? request.headers : undefined;
+    const method = String(options.method === undefined ? (request ? request.method : "GET") : options.method).toUpperCase();
+    const signal = options.signal === undefined ? (request ? request.signal : null) : options.signal;
     const headers = new Headers(options.headers || requestHeaders || {});
     const tokenMeta = document.querySelector('meta[name="electrochem-session-token"]');
     const token = tokenMeta ? String(tokenMeta.content || "").trim() : "";
-    const targetValue =
-      typeof input === "string" || (typeof URL !== "undefined" && input instanceof URL)
-        ? input
-        : input.url;
+    const urlInput = typeof input === "string" || (typeof URL !== "undefined" && input instanceof URL);
+    const targetValue = urlInput ? input : input.url;
     const target = new URL(targetValue, window.location.href);
     if (token && target.origin === window.location.origin && target.pathname.startsWith("/api/")) {
       headers.set("X-Electrochem-Session", token);
     }
     options.headers = headers;
-    const response = await window.fetch(input, options);
-    if (response.ok && typeof window.dispatchEvent === "function" && typeof CustomEvent !== "undefined" && String(options.method || "GET").toUpperCase() === "POST"
+    let response;
+    try {
+      response = await window.fetch(input, options);
+    } catch (error) {
+      // Fetch exposes transport failures as TypeError. Only local read APIs get
+      // one bounded recovery; never repeat a write, HTTP error, or cancellation.
+      // An unrecognized input (including another realm's Request) may carry a
+      // write method that this wrapper cannot safely infer.
+      const localRead = (urlInput || request !== null) && target.origin === window.location.origin
+        && (target.pathname.startsWith("/api/") || target.pathname === "/health")
+        && (method === "GET" || method === "HEAD");
+      if (!localRead || error?.name !== "TypeError" || signal?.aborted) throw error;
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      if (signal?.aborted) throw signal.reason === undefined ? new DOMException("The operation was aborted.", "AbortError") : signal.reason;
+      response = await window.fetch(input, options);
+    }
+    if (response.ok && typeof window.dispatchEvent === "function" && typeof CustomEvent !== "undefined" && method === "POST"
         && /\/api\/v1\/(?:process\/jobs|agent\/jobs|tasks\/[^/]+\/cancel|runs\/[^/]+\/replay|process\/recovery\/resume)(?:\/[^/]+\/cancel)?$/.test(target.pathname)) {
       window.dispatchEvent(new CustomEvent("electrochem:tasks-changed"));
     }
