@@ -2,7 +2,7 @@
 
 ## Current Scope
 
-ElectroChem V6 currently reads exported text tables. It does not directly read
+ElectroChem currently reads exported text tables. It does not directly read
 proprietary binary workstation project files such as vendor-native database or
 project containers. Export those files to a numeric text table before importing
 them.

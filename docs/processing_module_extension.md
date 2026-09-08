@@ -1,6 +1,6 @@
 # Processing Module Extension Guide
 
-This guide describes the v6 extension path for new electrochemical processing modules.
+This guide describes the ElectroChem extension path for new electrochemical processing modules.
 
 ## Goal
 

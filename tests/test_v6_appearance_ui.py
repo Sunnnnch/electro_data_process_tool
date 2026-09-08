@@ -45,10 +45,15 @@ def appearance_browser(monkeypatch, tmp_path):
             browser = _launch_chromium(playwright)
             errors = []
 
-            def open_page(*, storage=None, color_scheme="light", width=1400, block_storage=False):
+            def open_page(*, storage=None, color_scheme="light", width=1400, block_storage=False, route_setup=None, wait_for_app=True):
                 context = browser.new_context(viewport={"width": width, "height": 1000}, color_scheme=color_scheme)
                 page = context.new_page()
                 page.on("pageerror", lambda error: errors.append(str(error)))
+                # Resource failures do not emit pageerror; retain them in pytest's
+                # captured output to diagnose a failed startup without hiding it.
+                page.on("requestfailed", lambda request: print(f"[browser:{page.url}] requestfailed {request.url}: {request.failure}"))
+                page.on("response", lambda response: print(f"[browser:{page.url}] HTTP {response.status}: {response.url}") if response.status >= 400 else None)
+                page.on("console", lambda message: print(f"[browser:{page.url}] console error: {message.text}") if message.type == "error" else None)
                 page.add_init_script("""
                   window.__appearanceEvents = [];
                   window.__appearanceFrames = [];
@@ -80,8 +85,11 @@ def appearance_browser(monkeypatch, tmp_path):
                         return set.call(this,key,value);
                       };
                     """)
+                if route_setup:
+                    route_setup(page)
                 page.goto(f"http://127.0.0.1:{manager.port}/ui", wait_until="networkidle")
-                page.wait_for_function("() => Boolean(window.ElectrochemAppearance && document.querySelector('#appearance-dialog'))")
+                if wait_for_app:
+                    page.wait_for_function("() => Boolean(window.ElectrochemAppearance && document.querySelector('#appearance-dialog'))")
                 return page
 
             yield open_page
@@ -138,6 +146,71 @@ def test_appearance_migrates_each_saved_theme_and_new_preferences_win(appearance
 def test_appearance_validates_broken_storage_without_stopping_the_page(appearance_browser, stored):
     page = appearance_browser(storage={"electrochem_v6_appearance": stored})
     assert _prefs(page) == DEFAULTS
+    page.click("#appearance-open")
+    assert page.locator("#appearance-title").inner_text() == "外观设置"
+
+
+def test_startup_recovers_missing_result_module_before_binding_ui(appearance_browser):
+    attempts = []
+    during_retry = []
+
+    def intercept(route):
+        attempts.append(route.request.url)
+        if len(attempts) == 1:
+            route.abort()
+            return
+        # Hold the retry across two browser frames: the appearance controls must
+        # not become interactive while a required result renderer is unavailable.
+        during_retry.append(route.request.frame.evaluate("""() => new Promise(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            appearanceBound: Boolean(document.querySelector('#appearance-dialog')),
+            resultModuleReady: Boolean(window.ElectrochemProcessResultPage),
+          })));
+        })"""))
+        route.continue_()
+
+    page = appearance_browser(
+        storage={"electrochem_v6_appearance": '{"version":1,"theme":"<bad>","fontSize":"huge","density":false,"grid":"false","chartBackground":"black"}'},
+        route_setup=lambda page: page.route("**/process_result_page.js", intercept),
+    )
+    assert len(attempts) == 2
+    assert during_retry == [{"appearanceBound": False, "resultModuleReady": False}]
+    assert _prefs(page) == DEFAULTS
+    assert page.locator("#proc-result-summary").inner_text() == "暂无结果"
+    page.click("#appearance-open")
+    assert page.locator("#appearance-title").inner_text() == "外观设置"
+    page.click("#appearance-close")
+    page.select_option("#lang-select", "en")
+    assert page.locator("#proc-result-summary").inner_text() == "No result yet"
+    assert page.locator("#app-startup-error").count() == 0
+
+
+def test_startup_module_failure_is_visible_and_reload_can_recover(appearance_browser):
+    attempts = []
+    blocked = True
+
+    def intercept(route):
+        attempts.append(route.request.url)
+        if blocked:
+            route.abort()
+        else:
+            route.continue_()
+
+    page = appearance_browser(
+        route_setup=lambda page: page.route("**/process_result_page.js", intercept),
+        wait_for_app=False,
+    )
+    page.locator("#app-startup-error").wait_for(state="visible", timeout=3000)
+    assert len(attempts) == 2
+    assert "结果界面加载失败" in page.locator("#app-startup-error").inner_text()
+    assert page.locator("#app-startup-error").get_attribute("role") == "alert"
+    assert page.locator("#appearance-dialog").count() == 0
+    blocked = False
+    page.click("#app-startup-reload")
+    page.wait_for_function("() => Boolean(document.querySelector('#appearance-dialog'))")
+    assert len(attempts) == 3
+    assert page.locator("#app-startup-error").count() == 0
+    assert page.locator("#proc-result-summary").inner_text() == "暂无结果"
     page.click("#appearance-open")
     assert page.locator("#appearance-title").inner_text() == "外观设置"
 

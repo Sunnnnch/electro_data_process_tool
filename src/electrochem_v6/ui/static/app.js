@@ -214,7 +214,8 @@ const processResultModel = window.ElectrochemProcessResultModel || {
     };
   },
 };
-const processResultPage = window.ElectrochemProcessResultPage || {};
+let processResultPage = window.ElectrochemProcessResultPage || {};
+let processResultPageRetryStarted = false;
 const processPage = window.ElectrochemProcessPage || {};
 const assistantPage = window.ElectrochemAssistantPage || {};
 const assistantContext = window.ElectrochemAssistantContext || {
@@ -4004,7 +4005,58 @@ function bindEvents() {
   });
 }
 
+function ensureProcessResultPage() {
+  const required = ["buildResultFromHistoryRecord", "historyRecordKey", "renderError", "renderHistory", "renderPlaceholder", "renderResult", "setActiveHistoryItem"];
+  const ready = () => required.every((name) => typeof window.ElectrochemProcessResultPage?.[name] === "function");
+  if (ready()) {
+    processResultPage = window.ElectrochemProcessResultPage;
+    return true;
+  }
+  if (processResultPageRetryStarted) return false;
+  processResultPageRetryStarted = true;
+  // A failed classic-script request does not stop the parser from running app.js.
+  // Retry this required renderer once, before binding any partially working UI.
+  const script = document.createElement("script");
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    script.onload = null;
+    script.onerror = null;
+    script.remove();
+    if (ready()) {
+      processResultPage = window.ElectrochemProcessResultPage;
+      init();
+      return;
+    }
+    const notice = document.createElement("section");
+    notice.id = "app-startup-error";
+    notice.className = "card";
+    notice.setAttribute("role", "alert");
+    notice.tabIndex = -1;
+    const message = document.createElement("p");
+    message.textContent = "结果界面加载失败，页面尚未启动。请重新加载；若仍失败，请重启软件。 / The results interface could not load. Reload the page; if this continues, restart the application.";
+    const reload = document.createElement("button");
+    reload.id = "app-startup-reload";
+    reload.type = "button";
+    reload.className = "btn primary";
+    reload.textContent = "重新加载 / Reload";
+    reload.addEventListener("click", () => window.location.reload());
+    notice.append(message, reload);
+    (document.querySelector(".shell") || document.body).prepend(notice);
+    notice.focus();
+  };
+  const timeout = setTimeout(finish, 15000);
+  script.onload = finish;
+  script.onerror = finish;
+  script.src = "/ui/static/process_result_page.js";
+  document.head.appendChild(script);
+  return false;
+}
+
 function init() {
+  if (!ensureProcessResultPage()) return;
   const desktop = window.ElectrochemDesktop;
   if (desktop && desktop.requested() && !desktop.isEnabled()) {
     desktop.bootstrap().then(init).catch(() => {});

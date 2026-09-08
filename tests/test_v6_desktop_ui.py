@@ -109,6 +109,11 @@ def desktop_browser(monkeypatch, tmp_path):
                 target = start_manager() if new_port else manager
                 page = browser.new_page(viewport={"width": width, "height": 1050}, color_scheme=color_scheme, forced_colors=forced_colors)
                 page.on("pageerror", lambda error: errors.append(str(error)))
+                # Include the page origin so failures across two local ports can
+                # be distinguished in captured CI output.
+                page.on("requestfailed", lambda request: print(f"[browser:{page.url}] requestfailed {request.url}: {request.failure}"))
+                page.on("response", lambda response: print(f"[browser:{page.url}] HTTP {response.status}: {response.url}") if response.status >= 400 else None)
+                page.on("console", lambda message: print(f"[browser:{page.url}] console error: {message.text}") if message.type == "error" else None)
                 if native_bridge:
                     page.expose_function("desktop_test_bridge", bridge)
                     page.add_init_script("""(() => {

@@ -810,7 +810,7 @@ def _resolve_project_id(project_name: Optional[str]) -> Optional[str]:
         return None
     from electrochem_v6.store.projects import get_or_create_project_id_by_name
 
-    return get_or_create_project_id_by_name(project_name, description="v6 process api auto-created")
+    return get_or_create_project_id_by_name(project_name, description="Auto-created by the ElectroChem processing API")
 
 
 def _run_output_dir(folder_path: str, run_id: str) -> str:

@@ -146,7 +146,7 @@ class V6ServerManager:
 
     def start(self) -> tuple[bool, str]:
         if self.is_running:
-            return False, "v6 服务器已在运行中"
+            return False, "ElectroChem 本地服务已在运行中"
         with self._desktop_request_lock:
             self._desktop_draining = False
         try:
@@ -166,11 +166,11 @@ class V6ServerManager:
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         self.is_running = True
-        return True, f"v6 服务器启动成功: http://127.0.0.1:{self.port}"
+        return True, f"ElectroChem 本地服务启动成功: http://127.0.0.1:{self.port}"
 
     def stop(self) -> tuple[bool, str]:
         if not self.is_running or self._server is None:
-            return False, "v6 服务器未运行"
+            return False, "ElectroChem 本地服务未运行"
         try:
             self._server.shutdown()
             self._server.server_close()
@@ -180,7 +180,7 @@ class V6ServerManager:
                 self._job_manager = None
             self._server = None
             self.is_running = False
-        return True, "v6 服务器已停止"
+        return True, "ElectroChem 本地服务已停止"
 
     def _make_handler(self):
         manager = self

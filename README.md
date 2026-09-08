@@ -15,8 +15,6 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 当前源码版本：**7.0.1** · [本版发布说明与升级注意](docs/release_7.0.1.md) · [更新记录](CHANGELOG.md)
 
-当前公开安装包仍为 [v6.0.20](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v6.0.20)；7.0.1 安装包尚未正式发布，详见[验收与发布者签名进度](docs/windows_release_readiness_7.0.1.md)。
-
 7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份应用数据及原始/输出文件，结束任务、退出托盘并断开 MCP 连接；不要因目录名中保留 `v6` 而手动改名。
 
 [完整使用说明](src/electrochem_v6/ui/static/help_manual.zh.md) · [合成 CV 示例](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [开发者接口指南](docs/api_guide.zh.md)

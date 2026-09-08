@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "packaging/acceptance/Invoke-WindowsAcceptance.ps1"
+POWERSHELL_TIMEOUT_SECONDS = 60
+POWERSHELL_STAGE_PREFIX = "acceptance-probe-stage:"
 
 
 def _powershell(code, *, value=None):
@@ -24,12 +26,33 @@ def _powershell(code, *, value=None):
         # Windows treats them as the same key. Remove every inherited spelling.
         environment = {key: item for key, item in environment.items() if key.casefold() != "psmodulepath"}
         environment["PSMODULEPATH"] = str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/Modules")
-    result = subprocess.run(
-        [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command",
-         "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; Import-Module Microsoft.PowerShell.Utility; . $env:ACCEPTANCE_SCRIPT; " + code],
-        env=environment,
-        capture_output=True, text=True, encoding="utf-8-sig", timeout=20,
+    command = (
+        "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+        f"[Console]::Error.WriteLine('{POWERSHELL_STAGE_PREFIX}import-utility'); "
+        "Import-Module Microsoft.PowerShell.Utility; "
+        f"[Console]::Error.WriteLine('{POWERSHELL_STAGE_PREFIX}load-acceptance-script'); "
+        ". $env:ACCEPTANCE_SCRIPT; "
+        f"[Console]::Error.WriteLine('{POWERSHELL_STAGE_PREFIX}run-fixture'); " + code
     )
+    try:
+        # This includes process/module cold start on shared Windows runners,
+        # not just fixture execution. Keep a finite budget and never retry.
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command", command],
+            env=environment,
+            capture_output=True, text=True, encoding="utf-8-sig", timeout=POWERSHELL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = exc.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8-sig", errors="replace")
+        stages = [line.removeprefix(POWERSHELL_STAGE_PREFIX) for line in stderr.splitlines()
+                  if line.startswith(POWERSHELL_STAGE_PREFIX)]
+        last_stage = stages[-1] if stages else "process-startup"
+        raise AssertionError(
+            f"PowerShell acceptance probe exceeded {POWERSHELL_TIMEOUT_SECONDS}s; "
+            f"last stage: {last_stage}; no retry was attempted."
+        ) from exc
     assert result.returncode == 0, result.stdout + result.stderr
     return json.loads(result.stdout)
 
@@ -52,10 +75,30 @@ def test_windows_powershell_hash_works_with_inherited_core_module_path(tmp_path,
 
     monkeypatch.setattr(subprocess, "run", run_with_valid_environment)
     result = _powershell("$f=ConvertFrom-Json $env:ACCEPTANCE_FIXTURE; "
+                         f"[Console]::Error.WriteLine('{POWERSHELL_STAGE_PREFIX}hash-fixture'); "
                          "@{hash=(Get-FileHash -LiteralPath $f.path -Algorithm SHA256).Hash; "
                          "major=$PSVersionTable.PSVersion.Major} | ConvertTo-Json", value={"path": str(payload)})
     assert result["major"] == 5
     assert result["hash"].lower() == hashlib.sha256(payload.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("stderr,stage", [
+    (None, "process-startup"),
+    (b"acceptance-probe-stage:import-utility\nacceptance-probe-stage:hash-fixture\n", "hash-fixture"),
+    ("acceptance-probe-stage:load-acceptance-script\n", "load-acceptance-script"),
+])
+def test_powershell_timeout_reports_last_stage_without_retry(monkeypatch, stderr, stage):
+    calls = []
+    monkeypatch.setattr(shutil, "which", lambda name: "powershell")
+
+    def time_out(args, **kwargs):
+        calls.append(args)
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"], stderr=stderr)
+
+    monkeypatch.setattr(subprocess, "run", time_out)
+    with pytest.raises(AssertionError, match=f"last stage: {stage}; no retry was attempted"):
+        _powershell("throw 'The fixture must not be retried'")
+    assert len(calls) == 1
 
 
 @pytest.fixture
