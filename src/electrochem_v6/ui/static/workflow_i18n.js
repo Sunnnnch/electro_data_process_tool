@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  if (!window.I18N?.zh || !window.I18N?.en) return; // Startup reloads this extension after a missing dictionary.
   const entries = {
     task_title: ["任务", "Tasks"],
     task_entry: ["任务 ({count})", "Tasks ({count})"],

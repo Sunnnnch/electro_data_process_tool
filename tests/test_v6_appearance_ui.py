@@ -45,7 +45,7 @@ def appearance_browser(monkeypatch, tmp_path):
             browser = _launch_chromium(playwright)
             errors = []
 
-            def open_page(*, storage=None, color_scheme="light", width=1400, block_storage=False, route_setup=None, wait_for_app=True):
+            def open_page(*, storage=None, color_scheme="light", width=1400, block_storage=False, route_setup=None, wait_for_app=True, navigation_wait="networkidle"):
                 context = browser.new_context(viewport={"width": width, "height": 1000}, color_scheme=color_scheme)
                 page = context.new_page()
                 page.on("pageerror", lambda error: errors.append(str(error)))
@@ -87,7 +87,7 @@ def appearance_browser(monkeypatch, tmp_path):
                     """)
                 if route_setup:
                     route_setup(page)
-                page.goto(f"http://127.0.0.1:{manager.port}/ui", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{manager.port}/ui", wait_until=navigation_wait)
                 if wait_for_app:
                     page.wait_for_function("() => Boolean(window.ElectrochemAppearance && document.querySelector('#appearance-dialog'))")
                 return page
@@ -171,7 +171,7 @@ def test_startup_recovers_missing_result_module_before_binding_ui(appearance_bro
 
     page = appearance_browser(
         storage={"electrochem_v6_appearance": '{"version":1,"theme":"<bad>","fontSize":"huge","density":false,"grid":"false","chartBackground":"black"}'},
-        route_setup=lambda page: page.route("**/process_result_page.js", intercept),
+        route_setup=lambda page: page.route("**/process_result_page.js*", intercept),
     )
     assert len(attempts) == 2
     assert during_retry == [{"appearanceBound": False, "resultModuleReady": False}]
@@ -197,12 +197,13 @@ def test_startup_module_failure_is_visible_and_reload_can_recover(appearance_bro
             route.continue_()
 
     page = appearance_browser(
-        route_setup=lambda page: page.route("**/process_result_page.js", intercept),
+        route_setup=lambda page: page.route("**/process_result_page.js*", intercept),
         wait_for_app=False,
     )
     page.locator("#app-startup-error").wait_for(state="visible", timeout=3000)
     assert len(attempts) == 2
-    assert "结果界面加载失败" in page.locator("#app-startup-error").inner_text()
+    assert "界面模块加载失败" in page.locator("#app-startup-error").inner_text()
+    assert "process_result_page.js" in page.locator("#app-startup-error").inner_text()
     assert page.locator("#app-startup-error").get_attribute("role") == "alert"
     assert page.locator("#appearance-dialog").count() == 0
     blocked = False

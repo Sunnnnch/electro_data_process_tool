@@ -60,7 +60,7 @@ let pendingAssistantApprovalDecision = null;
 let projectNavigationRevision = 0;
 const assistantSourceTokens = new Map();
 
-const uiCore = window.ElectrochemUiCore || {
+let uiCore = window.ElectrochemUiCore || {
   boolValue: (id) => Boolean(byId(id) && byId(id).checked),
   byId: (id) => document.getElementById(id),
   escapeHtml: (text) =>
@@ -82,20 +82,20 @@ const uiCore = window.ElectrochemUiCore || {
   },
   textValue: (id) => String((byId(id) && byId(id).value) || "").trim(),
 };
-const byId = uiCore.byId;
-const textValue = uiCore.textValue;
-const boolValue = uiCore.boolValue;
-const numberValue = uiCore.numberValue;
-const escapeHtml = uiCore.escapeHtml;
-const fileNameOnly = uiCore.fileNameOnly;
+let byId = uiCore.byId;
+let textValue = uiCore.textValue;
+let boolValue = uiCore.boolValue;
+let numberValue = uiCore.numberValue;
+let escapeHtml = uiCore.escapeHtml;
+let fileNameOnly = uiCore.fileNameOnly;
 
-const themeManager = window.ElectrochemTheme || {
+let themeManager = window.ElectrochemTheme || {
   apply: (themeName) => themeName || "",
   getTheme: () => "",
   init: () => "",
   save: (themeName) => themeName || "",
 };
-const processSchemaClient = window.ElectrochemProcessingSchema || {
+let processSchemaClient = window.ElectrochemProcessingSchema || {
   applyToControls: () => {},
   buildModuleCards: () => [],
   controlIds: () => [],
@@ -107,16 +107,16 @@ const processSchemaClient = window.ElectrochemProcessingSchema || {
   moduleMap: () => new Map(),
   validateControls: () => [],
 };
-const processPayloadBuilder = window.ElectrochemProcessPayload || {};
-const processSourceSelection = window.ElectrochemProcessSourceSelection || {
+let processPayloadBuilder = window.ElectrochemProcessPayload || {};
+let processSourceSelection = window.ElectrochemProcessSourceSelection || {
   PRIMARY_TYPES: ["LSV", "CV", "EIS", "ECSA"],
   merge: (current, incoming) => (current || []).concat(incoming || []),
   preferredFolder: (_items, fallback) => fallback || "",
   toInputFiles: () => [],
 };
-const processRuntime = window.ElectrochemProcessRuntime || {};
-const processTemplates = window.ElectrochemProcessTemplates || {};
-const preflightModel = window.ElectrochemPreflightModel || {
+let processRuntime = window.ElectrochemProcessRuntime || {};
+let processTemplates = window.ElectrochemProcessTemplates || {};
+let preflightModel = window.ElectrochemPreflightModel || {
   buildCheckItems: () => ({
     scan: null,
     items: {
@@ -145,7 +145,7 @@ const preflightModel = window.ElectrochemPreflightModel || {
   checkKeys: ["files", "params", "output", "runnable"],
   defaultTypes: ["LSV", "CV", "EIS", "ECSA", "COUPLED"],
 };
-const projectCompareModel = window.ElectrochemProjectCompareModel || {
+let projectCompareModel = window.ElectrochemProjectCompareModel || {
   availableTargetCurrents: (state, metric) => {
     const safe = state && typeof state === "object" ? state : {};
     if (metric === "overpotential_at_target") return safe.overpotential_target_currents || [];
@@ -172,8 +172,8 @@ const projectCompareModel = window.ElectrochemProjectCompareModel || {
     };
   },
 };
-const projectComparePage = window.ElectrochemProjectComparePage || {};
-const processResultModel = window.ElectrochemProcessResultModel || {
+let projectComparePage = window.ElectrochemProjectComparePage || {};
+let processResultModel = window.ElectrochemProcessResultModel || {
   buildResultFromHistoryRecord: (record, historyLabel) => {
     const safe = record && typeof record === "object" ? record : {};
     const type = String(safe.type || "").toUpperCase();
@@ -215,25 +215,27 @@ const processResultModel = window.ElectrochemProcessResultModel || {
   },
 };
 let processResultPage = window.ElectrochemProcessResultPage || {};
-let processResultPageRetryStarted = false;
-const processPage = window.ElectrochemProcessPage || {};
-const assistantPage = window.ElectrochemAssistantPage || {};
-const assistantContext = window.ElectrochemAssistantContext || {
+let startupState = "new";
+let applicationStarted = false;
+let desktopBootstrapPending = false;
+let processPage = window.ElectrochemProcessPage || {};
+let assistantPage = window.ElectrochemAssistantPage || {};
+let assistantContext = window.ElectrochemAssistantContext || {
   build: () => null,
   summary: () => "",
 };
-const aiSettingsPage = window.ElectrochemAISettingsPage || {};
-const projectPage = window.ElectrochemProjectPage || {};
-const projectWorkspace = window.ElectrochemProjectWorkspace || {};
-const projectWorkbench = window.ElectrochemProjectWorkbench || null;
-const projectPreferences = window.ElectrochemProjectPreferences || null;
-const projectRecovery = window.ElectrochemProjectRecovery || null;
-const projectReplay = window.ElectrochemProjectReplay || null;
-const projectReplicates = window.ElectrochemProjectReplicates || null;
-const assistantActions = window.ElectrochemAssistantActions || null;
-const taskCenter = window.ElectrochemTaskCenter || null;
-const projectHistoryWorkspace = window.ElectrochemProjectHistoryWorkspace || {};
-const assistantPrompt = window.ElectrochemAssistantPrompt || {
+let aiSettingsPage = window.ElectrochemAISettingsPage || {};
+let projectPage = window.ElectrochemProjectPage || {};
+let projectWorkspace = window.ElectrochemProjectWorkspace || {};
+let projectWorkbench = window.ElectrochemProjectWorkbench || null;
+let projectPreferences = window.ElectrochemProjectPreferences || null;
+let projectRecovery = window.ElectrochemProjectRecovery || null;
+let projectReplay = window.ElectrochemProjectReplay || null;
+let projectReplicates = window.ElectrochemProjectReplicates || null;
+let assistantActions = window.ElectrochemAssistantActions || null;
+let taskCenter = window.ElectrochemTaskCenter || null;
+let projectHistoryWorkspace = window.ElectrochemProjectHistoryWorkspace || {};
+let assistantPrompt = window.ElectrochemAssistantPrompt || {
   applyTemplate: () => {},
   buildMessage: (message) => String(message || "").trim(),
   getActivePrefix: () => "",
@@ -241,7 +243,7 @@ const assistantPrompt = window.ElectrochemAssistantPrompt || {
   renderTemplateOptions: () => {},
   save: () => {},
 };
-const assistantApi = window.ElectrochemAssistantApi || {
+let assistantApi = window.ElectrochemAssistantApi || {
   conversationListUrl: (options) => {
     const opts = options || {};
     const query = new URLSearchParams();
@@ -286,7 +288,7 @@ const assistantApi = window.ElectrochemAssistantApi || {
       body: JSON.stringify({}),
     }),
 };
-const llmApi = window.ElectrochemLLMApi || {
+let llmApi = window.ElectrochemLLMApi || {
   getConfig: () => apiFetch("/api/v1/llm/config"),
   listModels: (payload, options = {}) => apiFetch("/api/v1/llm/models", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -305,7 +307,7 @@ const llmApi = window.ElectrochemLLMApi || {
       body: JSON.stringify(payload || {}),
     }),
 };
-const systemApi = window.ElectrochemSystemApi || {
+let systemApi = window.ElectrochemSystemApi || {
   health: () => apiFetch("/health"),
   openPath: (pathValue, revealOnly) =>
     apiFetch("/api/v1/system/open-path", {
@@ -332,7 +334,7 @@ const systemApi = window.ElectrochemSystemApi || {
       body: JSON.stringify({ initial_path: initialPath, extensions: extensions || [".txt", ".csv"] }),
     }),
 };
-const projectApi =
+let projectApi =
   window.ElectrochemProjectApi ||
   (() => {
     const buildQuery = (params) => {
@@ -431,7 +433,7 @@ const projectApi =
       updateProject: (projectId, payload) => apiFetch(projectPath(projectId, "/update"), postJson(payload)),
     };
   })();
-const processingApi =
+let processingApi =
   window.ElectrochemProcessingApi ||
   (() => {
     const postJson = (payload) => ({
@@ -453,8 +455,8 @@ const processingApi =
     };
   })();
 /* I18N translations are loaded from i18n.js (see index.html <script> order). */
-const I18N = window.I18N || { zh: {}, en: {} };
-const electrochemApi = window.ElectrochemApi || { fetch: (...args) => window.fetch(...args) };
+let I18N = window.I18N || { zh: {}, en: {} };
+let electrochemApi = window.ElectrochemApi || { fetch: (...args) => window.fetch(...args) };
 const apiFetch = (...args) => electrochemApi.fetch(...args);
 
 let currentLang = "zh";
@@ -4005,63 +4007,164 @@ function bindEvents() {
   });
 }
 
-function ensureProcessResultPage() {
-  const required = ["buildResultFromHistoryRecord", "historyRecordKey", "renderError", "renderHistory", "renderPlaceholder", "renderResult", "setActiveHistoryItem"];
-  const ready = () => required.every((name) => typeof window.ElectrochemProcessResultPage?.[name] === "function");
-  if (ready()) {
-    processResultPage = window.ElectrochemProcessResultPage;
+// Fixed bundled dependencies, in the same order as index.html. Recovery never
+// accepts an arbitrary URL, retries a module repeatedly, or replays initialized UI.
+const startupModules = [
+  { file: "palette.js", name: "ElectrochemPalette", methods: "apply contrast normalize" },
+  { file: "theme.js", name: "ElectrochemTheme", methods: "init", bind: (value) => { themeManager = value; } },
+  { file: "purify.min.js", name: "DOMPurify", methods: "sanitize" },
+  { file: "i18n.js", name: "I18N", methods: "", ready: () => typeof window.I18N?.zh?.badge === "string" && typeof window.I18N?.en?.badge === "string", bind: (value) => { I18N = value; } },
+  { file: "workflow_i18n.js", ready: () => typeof window.I18N?.zh?.task_scope_hint === "string" && typeof window.I18N?.en?.task_scope_hint === "string" },
+  { file: "api.js", name: "ElectrochemApi", methods: "buildQuery fetch jsonRequest", bind: (value) => { electrochemApi = value; } },
+  { file: "ui_core.js", name: "ElectrochemUiCore", methods: "byId textValue boolValue numberValue escapeHtml fileNameOnly", bind: (value) => { uiCore = value; } },
+  { file: "appearance.js", name: "ElectrochemAppearance", methods: "init refresh" },
+  { file: "chart_preview.js", name: "ElectrochemChartPreview", methods: "applyVector paperMarkup refresh" },
+  { file: "process_schema.js", name: "ElectrochemProcessingSchema", methods: "applyToControls getDefault getModule load moduleList syncEisControls", bind: (value) => { processSchemaClient = value; } },
+  { file: "process_source_selection.js", name: "ElectrochemProcessSourceSelection", methods: "merge preferredFolder toInputFiles", bind: (value) => { processSourceSelection = value; } },
+  { file: "process_payload.js", name: "ElectrochemProcessPayload", methods: "collectPayload collectValidationErrors", bind: (value) => { processPayloadBuilder = value; } },
+  { file: "process_runtime.js", name: "ElectrochemProcessRuntime", methods: "exportDiagnostics formatPreflightSummary resetState runPreflight runProcess", bind: (value) => { processRuntime = value; } },
+  { file: "process_templates.js", name: "ElectrochemProcessTemplates", methods: "applyState deleteSelectedTemplate getCurrentState getLastApplyWarnings loadSelectedTemplate loadTemplates renderOptions saveTemplate", bind: (value) => { processTemplates = value; } },
+  { file: "preflight_model.js", name: "ElectrochemPreflightModel", methods: "buildSummary", bind: (value) => { preflightModel = value; } },
+  { file: "project_compare_model.js", name: "ElectrochemProjectCompareModel", methods: "filterSamples syncSelectedSamples selectTargetCurrent", bind: (value) => { projectCompareModel = value; } },
+  { file: "process_result_model.js", name: "ElectrochemProcessResultModel", methods: "buildResultView", bind: (value) => { processResultModel = value; } },
+  { file: "process_result_page.js", name: "ElectrochemProcessResultPage", methods: "buildResultFromHistoryRecord historyRecordKey renderError renderHistory renderPlaceholder renderResult setActiveHistoryItem", bind: (value) => { processResultPage = value; } },
+  { file: "process_page.js", name: "ElectrochemProcessPage", methods: "getProcessStepEntries keepActiveProcessStepVisible processTypeCardDescription renderPreflightChecks renderPreflightFileDetail renderProcessTypeCards setActiveProcessStep setPreflightItem setProcessStepStatus setResultTab syncProcessModulePanels toggleModuleExpansion", bind: (value) => { processPage = value; } },
+  { file: "assistant_actions.js", name: "ElectrochemAssistantActions", methods: "guardMatches init", bind: (value) => { assistantActions = value; } },
+  { file: "assistant_page.js", name: "ElectrochemAssistantPage", methods: "appendLocalMessage ensureChatLogReady focusRenameInput removeTypingIndicator renderConversations renderMessageBody renderMessageItem renderMessages roleTextByRole setPanelOpen showTypingIndicator", bind: (value) => { assistantPage = value; } },
+  { file: "project_page.js", name: "ElectrochemProjectPage", methods: "collectProjectOutputFiles renderProjectHeader renderProjectLSVSummary renderProjectList renderProjectOutputFiles renderStats setProjectEditForm", bind: (value) => { projectPage = value; } },
+  { file: "project_workspace.js", name: "ElectrochemProjectWorkspace", methods: "applyCurrentProjectToForms closeProjectCreateDialog createProject deleteCurrentProject emptyTargetCurrents exportCurrentProjectReport invalidateDetail loadProjects loadSelectedProjectDetail openProjectCreateDialog permanentlyDeleteCurrentProject restoreCurrentProject saveCurrentProject selectProject", bind: (value) => { projectWorkspace = value; } },
+  { file: "project_preferences.js", name: "ElectrochemProjectPreferences", methods: "enterProject init prepareCreate refresh renderColors setEditForm", bind: (value) => { projectPreferences = value; } },
+  { file: "project_workbench.js", name: "ElectrochemProjectWorkbench", methods: "clearSelection compareSelected exportReport init loadReportRuns readResponse refresh selectedKeys setView toggleRecord", bind: (value) => { projectWorkbench = value; } },
+  { file: "project_replay.js", name: "ElectrochemProjectReplay", methods: "init open", bind: (value) => { projectReplay = value; } },
+  { file: "project_recovery.js", name: "ElectrochemProjectRecovery", methods: "init open refresh", bind: (value) => { projectRecovery = value; } },
+  { file: "project_replicates.js", name: "ElectrochemProjectReplicates", methods: "init", bind: (value) => { projectReplicates = value; } },
+  { file: "project_history_workspace.js", name: "ElectrochemProjectHistoryWorkspace", methods: "archiveSelectedProjectHistory deleteSelectedProjectHistory getSelectedProjectHistoryRecord openSelectedProjectHistoryResult renderProjectHistory renderProjectHistoryDetail selectProjectHistory", bind: (value) => { projectHistoryWorkspace = value; } },
+  { file: "project_compare_page.js", name: "ElectrochemProjectComparePage", methods: "availableTargetCurrents filterSamples needsTargetCurrent renderPlot renderSelectionCount renderSummary renderTable syncControls syncSelection", bind: (value) => { projectComparePage = value; } },
+  { file: "assistant_context.js", name: "ElectrochemAssistantContext", methods: "build canonicalInputPath summary", bind: (value) => { assistantContext = value; } },
+  { file: "assistant_prompt.js", name: "ElectrochemAssistantPrompt", methods: "load save getActivePrefix renderTemplateOptions", bind: (value) => { assistantPrompt = value; } },
+  { file: "assistant_api.js", name: "ElectrochemAssistantApi", methods: "cancelMessageJob conversationListUrl deleteConversation getConversation getMessageJob listConversations renameConversation submitMessageJob", bind: (value) => { assistantApi = value; } },
+  { file: "llm_api.js", name: "ElectrochemLLMApi", methods: "getConfig listModels saveConfig testConfig", bind: (value) => { llmApi = value; } },
+  { file: "ai_settings_page.js", name: "ElectrochemAISettingsPage", methods: "applyLLMProviderPreset applyPromptTemplate buildLLMConfigPayload buildPromptedMessage clearModelDiscovery getActivePromptPrefix initModelDiscovery listLLMProviders loadLLMConfig loadPromptSettings renderLLMProviders renderModelDiscovery renderPromptTemplateOptions saveLLMConfig savePromptSettings scheduleModelDiscovery testLLMConnection updateLLMKeyHint", bind: (value) => { aiSettingsPage = value; } },
+  { file: "project_api.js", name: "ElectrochemProjectApi", methods: "cleanupStorage history historyDetail latestLsvComparePlot listProjects lsvComparePlot lsvTargetCurrents stats storageSummary", bind: (value) => { projectApi = value; } },
+  { file: "system_api.js", name: "ElectrochemSystemApi", methods: "health openPath selectFile selectFiles selectFolder", bind: (value) => { systemApi = value; } },
+  { file: "processing_api.js", name: "ElectrochemProcessingApi", methods: "discoverInputs", bind: (value) => { processingApi = value; } },
+  { file: "task_center.js", name: "ElectrochemTaskCenter", methods: "init refresh", bind: (value) => { taskCenter = value; } },
+  { file: "mcp_settings.js", name: "ElectrochemMCP", methods: "show" },
+  { file: "desktop.js", name: "ElectrochemDesktop", methods: "bootstrap changed chooseFiles init isEnabled isLocked isReady markReady refresh requested" },
+];
+
+function startupModuleReady(entry) {
+  if (entry.ready) return entry.ready();
+  const value = window[entry.name];
+  return Boolean(value && entry.methods.split(" ").filter(Boolean).every((method) => typeof value[method] === "function"));
+}
+
+function bindStartupModules() {
+  startupModules.forEach((entry) => { if (entry.bind) entry.bind(window[entry.name]); });
+  byId = uiCore.byId;
+  textValue = uiCore.textValue;
+  boolValue = uiCore.boolValue;
+  numberValue = uiCore.numberValue;
+  escapeHtml = uiCore.escapeHtml;
+  fileNameOnly = uiCore.fileNameOnly;
+}
+
+function showStartupFailure(files) {
+  const notice = document.createElement("section");
+  notice.id = "app-startup-error";
+  notice.className = "card";
+  notice.setAttribute("role", "alert");
+  notice.tabIndex = -1;
+  const message = document.createElement("p");
+  message.textContent = "界面模块加载失败，页面尚未启动。请重新加载；若仍失败，请重启软件。 / The interface could not load. Reload the page; if this continues, restart the application.";
+  const details = document.createElement("p");
+  details.textContent = files.join(", ");
+  const reload = document.createElement("button");
+  reload.id = "app-startup-reload";
+  reload.type = "button";
+  reload.className = "btn primary";
+  reload.textContent = "重新加载 / Reload";
+  reload.addEventListener("click", () => window.location.reload());
+  notice.append(message, details, reload);
+  (document.querySelector(".shell") || document.body).prepend(notice);
+  notice.focus();
+}
+
+function ensureStartupModules() {
+  if (startupState === "ready") return true;
+  if (startupState !== "new") return false;
+  const missing = startupModules.filter((entry) => !startupModuleReady(entry));
+  if (!missing.length) {
+    bindStartupModules();
+    startupState = "ready";
     return true;
   }
-  if (processResultPageRetryStarted) return false;
-  processResultPageRetryStarted = true;
-  // A failed classic-script request does not stop the parser from running app.js.
-  // Retry this required renderer once, before binding any partially working UI.
-  const script = document.createElement("script");
-  let settled = false;
-  const finish = () => {
-    if (settled) return;
-    settled = true;
+  startupState = "recovering";
+  const files = new Set(missing.map((entry) => entry.file));
+  // These pure modules capture their dependency at script evaluation time.
+  // Reload exactly those captures, not event-owning theme/chart/desktop modules.
+  if (files.has("api.js")) ["process_schema.js", "assistant_api.js", "llm_api.js", "project_api.js", "system_api.js", "processing_api.js"].forEach((file) => files.add(file));
+  if (files.has("i18n.js")) ["workflow_i18n.js", "appearance.js"].forEach((file) => files.add(file));
+  const pending = startupModules.filter((entry) => files.has(entry.file));
+  let activeScript = null;
+  let position = 0;
+  const detach = () => {
+    if (!activeScript) return;
+    activeScript.onload = null;
+    activeScript.onerror = null;
+    activeScript.remove();
+    activeScript = null;
+  };
+  const fail = (failed) => {
+    if (startupState !== "recovering") return;
+    startupState = "failed";
     clearTimeout(timeout);
-    script.onload = null;
-    script.onerror = null;
-    script.remove();
-    if (ready()) {
-      processResultPage = window.ElectrochemProcessResultPage;
+    detach();
+    showStartupFailure(failed);
+  };
+  const timeout = setTimeout(() => fail(pending.slice(position).map((entry) => entry.file)), 15000);
+  const loadNext = () => {
+    if (startupState !== "recovering") return;
+    if (position === pending.length) {
+      const invalid = startupModules.filter((entry) => !startupModuleReady(entry));
+      if (invalid.length) { fail(invalid.map((entry) => entry.file)); return; }
+      clearTimeout(timeout);
+      bindStartupModules();
+      startupState = "ready";
       init();
       return;
     }
-    const notice = document.createElement("section");
-    notice.id = "app-startup-error";
-    notice.className = "card";
-    notice.setAttribute("role", "alert");
-    notice.tabIndex = -1;
-    const message = document.createElement("p");
-    message.textContent = "结果界面加载失败，页面尚未启动。请重新加载；若仍失败，请重启软件。 / The results interface could not load. Reload the page; if this continues, restart the application.";
-    const reload = document.createElement("button");
-    reload.id = "app-startup-reload";
-    reload.type = "button";
-    reload.className = "btn primary";
-    reload.textContent = "重新加载 / Reload";
-    reload.addEventListener("click", () => window.location.reload());
-    notice.append(message, reload);
-    (document.querySelector(".shell") || document.body).prepend(notice);
-    notice.focus();
+    const entry = pending[position];
+    const previous = entry.name ? window[entry.name] : null;
+    const script = document.createElement("script");
+    activeScript = script;
+    script.onload = () => {
+      if (startupState !== "recovering") return;
+      // A successful HTTP response with no valid export is still a failure.
+      if (!startupModuleReady(entry) || (entry.name && window[entry.name] === previous)) { fail([entry.file]); return; }
+      detach();
+      position += 1;
+      loadNext();
+    };
+    script.onerror = () => fail([entry.file]);
+    // Bypass the already evaluated resource so recovery can fetch corrected
+    // content instead of reusing an incomplete first response from memory.
+    script.src = `/ui/static/${entry.file}?startup-recovery=1`;
+    document.head.appendChild(script);
   };
-  const timeout = setTimeout(finish, 15000);
-  script.onload = finish;
-  script.onerror = finish;
-  script.src = "/ui/static/process_result_page.js";
-  document.head.appendChild(script);
+  loadNext();
   return false;
 }
 
 function init() {
-  if (!ensureProcessResultPage()) return;
+  if (applicationStarted || desktopBootstrapPending || !ensureStartupModules()) return;
   const desktop = window.ElectrochemDesktop;
   if (desktop && desktop.requested() && !desktop.isEnabled()) {
-    desktop.bootstrap().then(init).catch(() => {});
+    desktopBootstrapPending = true;
+    desktop.bootstrap().then(() => { desktopBootstrapPending = false; init(); }).catch(() => { desktopBootstrapPending = false; });
     return;
   }
+  applicationStarted = true;
   const restored = desktop && desktop.isEnabled() ? desktop.getWorkspace() : null;
   currentLang = localStorage.getItem("electrochem_v6_lang") || "zh";
   themeManager.init();

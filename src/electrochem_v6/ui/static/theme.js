@@ -260,7 +260,7 @@
   };
 
   // Migrate and resolve saved appearance before the stylesheet and first paint.
-  if (typeof document !== "undefined" && document.documentElement) {
+  if (typeof document !== "undefined" && document.documentElement && paletteEngine()) {
     init();
     if (!document.body && typeof MutationObserver === "function") {
       bodyObserver = new MutationObserver(() => {

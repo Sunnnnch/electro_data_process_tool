@@ -33,6 +33,9 @@ def browser_project(monkeypatch, tmp_path):
             page = browser.new_page(viewport={"width": 1440, "height": 1100})
             errors = []
             page.on("pageerror", lambda error: errors.append(error.stack or str(error)))
+            page.on("requestfailed", lambda request: print(f"[browser:{page.url}] requestfailed {request.url}: {request.failure}"))
+            page.on("response", lambda response: print(f"[browser:{page.url}] HTTP {response.status}: {response.url}") if response.status >= 400 else None)
+            page.on("console", lambda message: print(f"[browser:{page.url}] console error: {message.text}") if message.type == "error" else None)
             yield page, f"http://127.0.0.1:{manager.port}", project_id
             assert errors == []
             browser.close()
