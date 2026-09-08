@@ -59,7 +59,7 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 ### Windows 双击方式
 
-当前桌面发布目标为 Windows 10 22H2 / Windows 11 **x64**，要求 WebView2 Runtime **120+**。安装版内置 Python 和计算依赖；ARM、32 位 Windows、macOS/Linux 客户端尚未正式支持。完整条件、环境自检和三种下载方式见[客户端说明](docs/desktop_client.md)；独立系统验收进度见[验收矩阵](docs/windows_acceptance_7.0.1.md)。
+当前桌面发布目标为 Windows 10 22H2 / Windows 11 **x64**，要求 WebView2 Runtime **120+**。安装版内置 Python 和计算依赖；ARM、32 位 Windows、macOS/Linux 客户端尚未正式支持。完整条件、环境自检和三种下载方式见[客户端说明](docs/desktop_client.md)。
 
 标准安装包需要电脑已有合适的 WebView2；文件名带 `-offline` 的离线安装包包含微软运行库；便携 ZIP 需要保留整个解压目录。基础分析可离线使用，云端 AI 需要网络。通过“客户端 → 环境自检”可查看检查结果并复制诊断。
 

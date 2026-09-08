@@ -59,7 +59,7 @@ Typical use cases:
 
 ### Windows
 
-The current desktop release targets **Windows 10 22H2 / Windows 11 x64**, with **WebView2 Runtime 120+**. Python and computation dependencies are bundled. ARM, 32-bit Windows, macOS and Linux desktops are not formally supported in this release. These are support requirements, not a claim that every OS or minimum runtime version has passed clean-machine testing; see the [acceptance matrix](docs/windows_acceptance_7.0.1.md).
+The current desktop release targets **Windows 10 22H2 / Windows 11 x64**, with **WebView2 Runtime 120+**. Python and computation dependencies are bundled. ARM, 32-bit Windows, macOS and Linux desktops are not formally supported in this release. See the [desktop guide](docs/desktop_client.md) for requirements, environment diagnostics and download options.
 
 The standard installer requires a suitable WebView2 installation. The `-offline` installer includes Microsoft's signed standalone WebView2 installer; the portable ZIP still needs WebView2 on the target PC. Basic analysis works offline; cloud AI needs network access. **Desktop → Environment check** provides refreshable checks and a copyable diagnostic report without uploading it.
 
