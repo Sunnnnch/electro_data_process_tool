@@ -376,8 +376,26 @@ def test_dark_settings_and_rendered_ir_pairings_keep_readable_surfaces(appearanc
         assert_contrast(selector)
 
 
-def test_product_name_language_and_manual_assets_fit_desktop_and_narrow_screens(appearance_browser):
-    page = appearance_browser(width=1440)
+@pytest.mark.parametrize("delay_health", [False, True], ids=["normal-health", "delayed-health"])
+def test_product_name_language_and_manual_assets_fit_desktop_and_narrow_screens(appearance_browser, delay_health):
+    def configure_health_delay(page):
+        if delay_health:
+            # Keep the real server response, but deliver it after the language
+            # change handler returns. A synchronous route handler would hide
+            # this race by blocking the Playwright action itself.
+            page.add_init_script("""(() => {
+              const fetch = window.fetch.bind(window);
+              window.fetch = async (input, init) => {
+                const response = await fetch(input, init);
+                const url = input instanceof Request ? input.url : String(input);
+                if (new URL(url, location.href).pathname === '/health') {
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                return response;
+              };
+            })();""")
+
+    page = appearance_browser(width=1440, route_setup=configure_health_delay)
     screenshot_dir = Path(__file__).resolve().parents[1] / ".test_runtime" / "rename"
     screenshot_dir.mkdir(parents=True, exist_ok=True)
     expected_names = {
@@ -391,6 +409,13 @@ def test_product_name_language_and_manual_assets_fit_desktop_and_narrow_screens(
             assert page.title() == name
             assert page.locator(".hero .badge").inner_text() == name
             assert APP_VERSION not in name
+            # Language changes start a new health request and reset the version
+            # to "-" until its response has been rendered.
+            page.wait_for_function(
+                "version => document.querySelector('#sys-panel-version').textContent === version",
+                arg=APP_VERSION,
+                timeout=5000,
+            )
             assert page.locator("#sys-panel-version").inner_text() == APP_VERSION
             assert page.locator('label[for="pro-ecsa-ev"]').inner_text() == ("评价电位 Ev (V)" if language == "zh" else "Evaluation potential Ev (V)")
             bounds = page.locator(".hero").evaluate("""hero => {
