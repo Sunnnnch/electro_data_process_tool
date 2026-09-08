@@ -13,7 +13,9 @@ Data processing · Project management · Result review · AI-assisted analysis
 
 ElectroChem processes local electrochemical data for batch `LSV`, `CV`, `EIS`, `ECSA`, and `COUPLED/FE` workflows, with project history, reproducible reports, and optional AI-assisted analysis. Core data processing works without configuring AI.
 
-Current version: **7.0.1** · [Release notes and upgrade guidance](docs/release_7.0.1.md) · [Changelog](CHANGELOG.md)
+Current source version: **7.0.1** · [Release notes and upgrade guidance](docs/release_7.0.1.md) · [Changelog](CHANGELOG.md)
+
+The current public installer remains [v6.0.20](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v6.0.20). The 7.0.1 installer has not been formally released; see [acceptance and publisher-signing progress (Chinese)](docs/windows_release_readiness_7.0.1.md).
 
 Version 7.0.1 retains existing data locations and internal compatibility identifiers. Back up application data and original/output files, finish tasks, exit the tray application, and disconnect MCP clients before upgrading. Do not rename data folders merely because their names still contain `v6`.
 

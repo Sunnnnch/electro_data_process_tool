@@ -20,7 +20,10 @@ def _powershell(code, *, value=None):
     environment = {**os.environ, "ACCEPTANCE_SCRIPT": str(SCRIPT), "ACCEPTANCE_FIXTURE": json.dumps(value)}
     if os.name == "nt" and Path(shell).stem.lower() == "powershell":
         # Do not import PowerShell 7 bundled modules into the 5.1 test process.
-        environment["PSModulePath"] = str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/Modules")
+        # A plain dict can retain both PSMODULEPATH and PSModulePath even though
+        # Windows treats them as the same key. Remove every inherited spelling.
+        environment = {key: item for key, item in environment.items() if key.casefold() != "psmodulepath"}
+        environment["PSMODULEPATH"] = str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/Modules")
     result = subprocess.run(
         [shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command",
          "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; Import-Module Microsoft.PowerShell.Utility; . $env:ACCEPTANCE_SCRIPT; " + code],
@@ -29,6 +32,30 @@ def _powershell(code, *, value=None):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return json.loads(result.stdout)
+
+
+@pytest.mark.skipif(os.name != "nt" or not shutil.which("powershell"), reason="Windows PowerShell 5.1 required")
+def test_windows_powershell_hash_works_with_inherited_core_module_path(tmp_path, monkeypatch):
+    import hashlib
+
+    payload = tmp_path / "hash fixture.txt"
+    payload.write_bytes(b"real file hash, independent of the parent PowerShell edition")
+    monkeypatch.setenv("PSMODULEPATH", str(tmp_path / "PowerShell7-only-modules"))
+    run = subprocess.run
+
+    def run_with_valid_environment(*args, **kwargs):
+        # The Windows process environment must contain only one spelling. On
+        # older Python versions duplicate entries can select the inherited one.
+        module_keys = [key for key in kwargs["env"] if key.casefold() == "psmodulepath"]
+        assert len(module_keys) == 1
+        return run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run_with_valid_environment)
+    result = _powershell("$f=ConvertFrom-Json $env:ACCEPTANCE_FIXTURE; "
+                         "@{hash=(Get-FileHash -LiteralPath $f.path -Algorithm SHA256).Hash; "
+                         "major=$PSVersionTable.PSVersion.Major} | ConvertTo-Json", value={"path": str(payload)})
+    assert result["major"] == 5
+    assert result["hash"].lower() == hashlib.sha256(payload.read_bytes()).hexdigest()
 
 
 @pytest.fixture
@@ -98,12 +125,14 @@ def test_default_preflight_never_reaches_process_or_filesystem_mutation(clean_fi
     assert result["installationAttempted"] is False
 
 
-@pytest.mark.parametrize("status,allowed,expected", [
-    ("NotSigned", False, False), ("NotSigned", True, True),
-    ("HashMismatch", True, False), ("NotTrusted", True, False),
-    ("Valid", False, True),
+@pytest.mark.parametrize("status,allowed,expected,error", [
+    ("NotSigned", False, False, "Unsigned candidate requires explicit -AllowUnsignedCandidate."),
+    ("NotSigned", True, True, None),
+    ("HashMismatch", True, False, "Invalid signature or unexpected publisher certificate."),
+    ("NotTrusted", True, False, "Invalid signature or unexpected publisher certificate."),
+    ("Valid", False, True, None),
 ])
-def test_unsigned_opt_in_never_accepts_invalid_signature(tmp_path, status, allowed, expected):
+def test_unsigned_opt_in_never_accepts_invalid_signature(tmp_path, status, allowed, expected, error):
     # Mock Windows PE/signature providers only; the real file hash is checked.
     import hashlib
 
@@ -123,6 +152,21 @@ def test_unsigned_opt_in_never_accepts_invalid_signature(tmp_path, status, allow
     assert result["accepted"] is expected, result
     if expected:
         assert result["unsigned"] is (status == "NotSigned")
+    else:
+        assert result["message"] == error
+
+
+def test_installer_hash_mismatch_is_rejected_before_signature(tmp_path):
+    installer = tmp_path / "fixture.exe"
+    installer.write_bytes(b"payload differs from the manifest hash")
+    result = _powershell("""
+      $f=ConvertFrom-Json $env:ACCEPTANCE_FIXTURE;
+      function Assert-NoReparsePath { }
+      function Get-AuthenticodeSignature { throw 'Signature must not be queried for a hash mismatch' }
+      try { $null=Read-AcceptanceArtifact $f.spec $f.directory $true; @{accepted=$true}|ConvertTo-Json }
+      catch { @{accepted=$false; message=$_.Exception.Message}|ConvertTo-Json }
+    """, value={"spec": {"path": str(installer), "sha256": "0" * 64}, "directory": str(tmp_path)})
+    assert result == {"accepted": False, "message": "Installer SHA-256 mismatch."}
 
 
 def test_runner_keeps_explicit_execution_no_force_cleanup_and_release_limitations():
