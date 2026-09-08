@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "runId": "REPLACE-WITH-NEW-GUID",
+  "vmUuid": "REPLACE-WITH-THE-DISPOSABLE-VM-UUID",
+  "computerName": "REPLACE-WITH-VM-COMPUTER-NAME",
+  "osFamily": "Windows11",
+  "scenario": "upgrade",
+  "target": {
+    "path": "artifacts/ElectroChem-Setup-7.0.1.exe",
+    "version": "7.0.1",
+    "executableName": "ElectroChem.exe",
+    "sha256": "d8ad08d9264f3fe36a86530b0de417227502aa544ec249ed8b6dc5b1c4e5cc09",
+    "signerThumbprint": ""
+  },
+  "baseline": {
+    "path": "artifacts/ElectroChem-Setup-6.0.20.exe",
+    "version": "6.0.20",
+    "executableName": "ElectroChem.exe",
+    "sha256": "e24175f5d2762c8d2e831178a5dbc4a90863598c0e9e43c494d4607b56fd94ff",
+    "signerThumbprint": ""
+  }
+}

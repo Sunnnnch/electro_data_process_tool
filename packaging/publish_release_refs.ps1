@@ -3,6 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedCommit,
     [Parameter(Mandatory = $true)][string]$PortableZip,
     [Parameter(Mandatory = $true)][string]$Installer,
+    [string]$OfflineInstaller = "",
+    [string]$WebView2Installer = "",
     [string]$Remote = "origin",
     [string]$TargetBranch = "",
     [string]$PythonPath = "python",
@@ -16,6 +18,12 @@ $Validator = Join-Path $PSScriptRoot "release_validation.py"
 $Arguments = @($Validator, "--tag", $Tag, "--expected-commit", $ExpectedCommit,
                "--portable-zip", $PortableZip, "--installer", $Installer, "--remote", $Remote)
 if ($VerifyRemoteTag) { $Arguments += "--verify-remote-tag" }
+if ($OfflineInstaller -or $WebView2Installer) {
+    if (-not $OfflineInstaller -or -not $WebView2Installer) {
+        throw "OfflineInstaller and WebView2Installer are required together; no refs were published"
+    }
+    $Arguments += @("--offline-installer", $OfflineInstaller, "--webview2-installer", $WebView2Installer)
+}
 & $PythonPath @Arguments
 if ($LASTEXITCODE -ne 0) { throw "Release validation failed; no refs were published" }
 if ($VerifyOnly) { return }

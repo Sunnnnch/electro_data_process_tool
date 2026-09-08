@@ -28,6 +28,11 @@ _METRICS = {
         "CPE_n": ("CPE n", ""),
         "randles_r2": ("拟合 R²", ""),
         "fit_rmse_ohm": ("拟合 RMSE", "Ω"),
+        "sigma": ("Warburg σ", "Ω·s⁻½"),
+        "R1": ("快支路 R1", "Ω"), "R2": ("慢支路 R2", "Ω"),
+        "C1": ("快支路 C1", "F"), "C2": ("慢支路 C2", "F"),
+        "Q1": ("快支路 Q1", "S·sⁿ¹"), "Q2": ("慢支路 Q2", "S·sⁿ²"),
+        "n1": ("快支路 n1", ""), "n2": ("慢支路 n2", ""),
     },
     "ECSA": {
         "Cdl": ("面积归一化 Cdl", "mF/cm²"),
@@ -185,12 +190,13 @@ def build_history_comparison(
         before, after = old.get("value") if old else None, new.get("value") if new else None
         info = new or old or {}
         units_match = not old or not new or old["unit"] == new["unit"]
-        if data_type == "EIS" and key == "CPE_Q" and old and new:
-            old_n = left_metrics.get("CPE_n", {}).get("value")
-            new_n = right_metrics.get("CPE_n", {}).get("value")
-            if old_n is not None and new_n is not None and old_n != new_n:
+        if data_type == "EIS" and key in {"CPE_Q", "Q1", "Q2"} and old and new:
+            exponent_key = {"CPE_Q": "CPE_n", "Q1": "n1", "Q2": "n2"}[key]
+            old_n = left_metrics.get(exponent_key, {}).get("value")
+            new_n = right_metrics.get(exponent_key, {}).get("value")
+            if old_n is None or new_n is None or old_n != new_n:
                 units_match = False
-                warnings.append("CPE n 不同会改变 Q 的量纲，Q 仅并列展示，不计算差值")
+                warnings.append(f"CPE 指数不同或未记录，无法确认 Q 的量纲相同，{key} 仅并列展示，不计算差值")
         valid = before is not None and after is not None and units_match
         delta = after - before if before is not None and after is not None and units_match else None
         if delta is not None and not math.isfinite(delta):
@@ -208,6 +214,8 @@ def build_history_comparison(
             "relative_change_percent": relative, "status": status,
         })
     left_params, right_params = _params(left_recipe), _params(right_recipe)
+    if data_type == "EIS" and (left.get("results") or {}).get("circuit_model") != (right.get("results") or {}).get("circuit_model"):
+        warnings.append("EIS 电路模型不同；同名参数未必代表同一物理过程，请结合电路和拟合诊断复核")
     parameters_known = left_params is not None and right_params is not None
     if not parameters_known:
         warnings.append("部分历史未保留完整参数；无法确认两次处理的设置是否相同")

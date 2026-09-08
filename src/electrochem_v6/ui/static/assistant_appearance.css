@@ -136,7 +136,7 @@
 }
 .msg .content th { background: var(--panel-soft); font-weight: 700; }
 .msg .content :is(img, svg) { max-width: 100%; height: auto; }
-.msg .content a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.15em; }
+.msg .content a { color: var(--primary-text, var(--primary)); text-decoration: underline; text-underline-offset: 0.15em; }
 
 .msg .meta,
 .msg-sources-label,
@@ -175,7 +175,7 @@
 .assistant-auto-description { color: var(--text); }
 .assistant-auto-mode strong { font-size: var(--ui-font-size); }
 .assistant-context-details summary,
-.assistant-quick-btn { color: var(--primary); }
+.assistant-quick-btn { color: var(--primary-text, var(--primary)); }
 .assistant-quick-btn {
   background: var(--panel-solid);
   border: 1px solid var(--control-border);

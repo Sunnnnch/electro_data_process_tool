@@ -383,6 +383,30 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
         logger=logger,
     )
     slope_mVdec = optional_metrics.tafel_slope_mVdec
+    _tafel_data = tafel_fit_data_ir or tafel_fit_data_original
+    tafel_warning = None
+    if params.get('tafel_enabled') and optional_metrics.tafel_slope_mVdec is None:
+        tafel_warning = "Tafel 未计算：拟合区间需至少三个有限正电流点，且电位与 log10(j) 均须有可区分的跨度；请检查电流/电位平台或拟合区间。"
+    if _tafel_data and _tafel_data.get('r2') is not None:
+        _r2 = _tafel_data['r2']
+        if _r2 < 0.99:
+            tafel_warning = f"Tafel 拟合 R²={_r2:.4f} < 0.99，拟合质量偏低，请检查拟合区间"
+    if tafel_warning:
+        if lsv_quality_report is None:
+            lsv_quality_report = {'filename': f'{os.path.basename(subfolder)}/{file}', 'data_type': 'LSV',
+                                  'is_valid': True, 'quality_level': 'warning', 'issues': [], 'warnings': [], 'stats': {}}
+        lsv_quality_report.setdefault('warnings', []).append(tafel_warning)
+        if lsv_quality_report.get('quality_level') in {None, 'good', 'normal', 'acceptable'}:
+            lsv_quality_report['quality_level'] = 'warning'
+        if lsv_quality_report.get('recommendation') in {None, 'none', 'ready_to_use'}:
+            lsv_quality_report['recommendation'] = 'inspect_fit'
+        lsv_quality_report.setdefault('stats', {})['tafel_fit'] = {
+            'status': 'unavailable' if optional_metrics.tafel_slope_mVdec is None else 'low_r2',
+            'r2': _tafel_data.get('r2') if _tafel_data else None,
+            'reason': tafel_warning,
+        }
+        logger.warning(f"{file}: {tafel_warning}")
+
     result_row = build_lsv_result_row(
         sample_name=subname,
         file_stem=file_stem,
@@ -485,17 +509,6 @@ def process_lsv(subfolder, file, params, project_id=None, enable_quality_check=T
             add_lsv_history_record(history_mgr, record, data=record_data, project_id=project_id)
         except Exception as e:
             log(f"保存LSV历史记录失败: {e}")
-
-    _tafel_data = tafel_fit_data_ir or tafel_fit_data_original
-    if _tafel_data and _tafel_data.get('r2') is not None:
-        _r2 = _tafel_data['r2']
-        if _r2 < 0.99 and lsv_quality_report is not None:
-            msg = f"Tafel 拟合 R²={_r2:.4f} < 0.99，拟合质量偏低，请检查拟合区间"
-            if 'warnings' in lsv_quality_report:
-                lsv_quality_report['warnings'].append(msg)
-            else:
-                lsv_quality_report['warnings'] = [msg]
-            logger.warning(f"{file}: {msg}")
 
     return {
         'result_row': result_row,

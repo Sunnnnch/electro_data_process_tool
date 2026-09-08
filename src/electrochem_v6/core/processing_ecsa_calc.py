@@ -181,6 +181,16 @@ def calculate_ecsa_fit(
     if slope is None or intercept is None or r2 is None:
         return None
 
+    finite_delta = np.asarray(dJ_list, dtype=float)
+    finite_delta = finite_delta[np.isfinite(finite_delta)]
+    resolution = np.finfo(float).eps * float(np.max(np.abs(finite_delta))) * 32.0
+    if slope <= 0 or float(np.ptp(finite_delta)) <= resolution:
+        raise ValueError(
+            "ECSA requires a distinguishable positive DeltaJ-versus-scan-rate slope; "
+            f"observed slope={slope:.12g} mF/cm2, intercept={intercept:.12g} mA/cm2, R2={r2:.12g}. "
+            "Inspect the scan-rate series and evaluation potential; no Cdl, RF or ECSA is reported."
+        )
+
     cdl_mFcm2 = slope / 2.0
     cs_input = as_float(cs_value, 40.0)
     cs_mFcm2 = _to_mF_per_cm2(cs_input, cs_unit)

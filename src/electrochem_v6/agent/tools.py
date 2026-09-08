@@ -8,11 +8,29 @@ BASIC_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_processing_schema",
+            "description": "读取当前处理引擎的参数键、类型、单位、默认值与可选项，包括EIS六种模型、Hz频段、权重与KK开关。准备处理或参数建议前按数据类型查询；软件默认值不代表已确认的实验条件。不读取用户数据或执行处理。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data_types": {
+                        "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": True,
+                        "items": {"type": "string", "enum": ["LSV", "CV", "EIS", "ECSA", "COUPLED"]},
+                        "description": "优先指定本次数据类型，例如 [EIS]；省略时返回全部模块。",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_professional_mode_context",
             "description": (
-                "按需读取用户当前界面的专业模式摘要，包括已选数据文件名和类型、模板、处理参数、"
+                "按需读取用户当前界面的数据处理摘要，包括已选数据文件名和类型、模板、处理参数、"
                 "预检状态及结果摘要，不包含原始文件内容。仅当用户询问当前设置、当前参数、当前预检、"
-                "当前处理结果，或明确指代专业模式界面时调用；一般知识问答和纯数据库查询不要调用。"
+                "当前处理结果，或明确指代数据处理界面时调用；一般知识问答和纯数据库查询不要调用。"
             ),
             "parameters": {
                 "type": "object",
@@ -280,6 +298,10 @@ ENHANCED_TOOLS = [
                     "coupled_results_csv_filename": {
                         "type": "string",
                         "description": "Output CSV file name for COUPLED/FE results"
+                    },
+                    "extra_gui_params": {
+                        "type": "object", "maxProperties": 80,
+                        "description": "通过get_processing_schema发现的正式参数键及用户已确认的值；可传EIS列映射/单位/虚部约定、eis_randles_fit、eis_circuit_model、Hz窗口、eis_fit_weighting、eis_kk_check。不得猜测实验条件。参数会进入现有处理确认并由正式引擎校验。"
                     }
                 },
                 "required": ["folder_path", "data_type"]
@@ -431,7 +453,7 @@ VISION_TOOLS = [
 ACTION_TOOLS = [
     {"type": "function", "function": {
         "name": "propose_parameter_changes",
-        "description": "生成当前专业模式参数建议卡，显示当前值、建议值和理由；不修改界面或处理数据。Tafel区间必须来自本轮已验证候选；缺实验条件时先补全。用户随后预览并确认应用，保留输入来源。",
+        "description": "生成当前数据处理参数建议卡，显示当前值、建议值和理由；不修改界面或处理数据。Tafel区间必须来自本轮已验证候选；缺实验条件时先补全。用户随后预览并确认应用，保留输入来源。",
         "parameters": {"type": "object", "properties": {"changes": {"type": "array", "items": {
             "type": "object", "properties": {"key": {"type": "string"}, "value": {}, "reason": {"type": "string"}},
             "required": ["key", "value", "reason"], "additionalProperties": False,

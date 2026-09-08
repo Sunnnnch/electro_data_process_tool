@@ -157,7 +157,7 @@ def test_v6_ui_chat_rename_and_ai_settings(monkeypatch, tmp_path):
             assert "AI 自动选择上下文" in page.locator(".assistant-context-card").inner_text()
             assert "未选择文件" in page.locator("#assistant-context-summary").inner_text()
             page.click("#assistant-suggest-btn")
-            assert "当前专业模式" in page.locator("#msg-input").input_value()
+            assert "当前数据处理" in page.locator("#msg-input").input_value()
             page.click("#assistant-database-suggest")
             assert "数据库" in page.locator("#msg-input").input_value()
             page.fill("#msg-input", "请输出 markdown 测试")
@@ -876,7 +876,8 @@ def test_v6_project_workbench_replay_comparison_reports_and_themes(monkeypatch, 
             assert page.locator('#project-report-scope option[value="selected"]').text_content() == "Selected results"
             for theme in ("lab", "dark", "pixel"):
                 page.click("#appearance-open")
-                page.check(f'input[name="appearance-theme"][value="{theme}"]')
+                page.check(f'input[name="appearance-style"][value="{"pixel" if theme == "pixel" else "modern"}"]')
+                page.check(f'input[name="appearance-palette"][value="{"cream" if theme == "pixel" else theme}"]')
                 page.click("#appearance-close")
                 assert page.locator("#project-view-results").is_visible()
                 assert page.locator(".project-main").evaluate("el => el.scrollWidth <= el.clientWidth + 1")

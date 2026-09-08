@@ -1,0 +1,338 @@
+"""Small, offline desktop diagnostics; never import the processing engine.
+
+Only explicitly selected platform facts are reported. Configuration contents,
+environment dumps, access tokens, input files and logs are never collected.
+The minimum versions below are release policy, not a claim of VM validation.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import errno
+import json
+import os
+import platform
+import re
+import struct
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+from electrochem_v6.config import APP_VERSION
+
+from .data import resolve_desktop_data_dir
+
+MIN_WINDOWS_BUILD = 19045
+MIN_WEBVIEW2_MAJOR = 120
+MIN_DOTNET_RELEASE = 394802  # pywebview WinForms requires .NET Framework 4.6.2.
+WEBVIEW2_CLIENT_ID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+WEBVIEW_RUNTIME_URL = "https://developer.microsoft.com/microsoft-edge/webview2/"
+
+
+def parse_version(value: Any) -> tuple[int, ...] | None:
+    """Reject arbitrary registry text; accept only finite dotted version numbers."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{1,6}(?:\.\d{1,6}){1,3}", value.strip()):
+        return None
+    return tuple(int(part) for part in value.strip().split("."))
+
+
+def _architecture(value: str) -> str:
+    return {"amd64": "x64", "x86_64": "x64", "x64": "x64", "arm64": "arm64",
+            "aarch64": "arm64", "x86": "x86", "i386": "x86", "i686": "x86"}.get(value.lower(), "unknown")
+
+
+def _platform_facts() -> dict[str, Any]:
+    system = platform.system()
+    system = system if system in {"Windows", "Linux", "Darwin"} else "Other"
+    host = _architecture(platform.machine())
+    process = "x86" if struct.calcsize("P") == 4 else host
+    result = {"system": system, "major": 0, "minor": 0, "build": 0,
+              "product_type": 0, "process_arch": process, "native_arch": host}
+    if system != "Windows":
+        return result
+    version = sys.getwindowsversion()
+    major, minor, build = getattr(version, "platform_version", version[:3])
+    result.update(major=int(major), minor=int(minor), build=int(build),
+                  product_type=int(getattr(version, "product_type", 0)))
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        fn = kernel.IsWow64Process2
+        fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ushort)]
+        fn.restype = ctypes.c_bool
+        process_machine, native_machine = ctypes.c_ushort(), ctypes.c_ushort()
+        if fn(kernel.GetCurrentProcess(), ctypes.byref(process_machine), ctypes.byref(native_machine)):
+            machines = {0x8664: "x64", 0xAA64: "arm64", 0x014C: "x86"}
+            result["native_arch"] = machines.get(native_machine.value, "unknown")
+            result["process_arch"] = machines.get(process_machine.value or native_machine.value, "unknown")
+    except (AttributeError, OSError):
+        # Older Windows may lack IsWow64Process2. Only accept known architecture names.
+        result["native_arch"] = _architecture(os.environ.get("PROCESSOR_ARCHITEW6432", "")) if os.environ.get("PROCESSOR_ARCHITEW6432") else host
+    return result
+
+
+def _registry_versions() -> dict[str, Any]:
+    """Read the stable Evergreen runtime in both hives and registry views."""
+    import winreg
+
+    found: list[tuple[int, ...]] = []
+    inaccessible = False
+    dotnet = 0
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+            try:
+                with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_ID}",
+                                    0, winreg.KEY_READ | view) as key:
+                    parsed = parse_version(winreg.QueryValueEx(key, "pv")[0])
+                    if parsed and parsed[0] > 0:
+                        found.append(parsed)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                inaccessible = True
+    for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full",
+                                0, winreg.KEY_READ | view) as key:
+                value = winreg.QueryValueEx(key, "Release")[0]
+                if isinstance(value, int) and 0 < value < 10_000_000:
+                    dotnet = max(dotnet, value)
+        except OSError:
+            pass
+    return {"webview2_version": ".".join(map(str, max(found))) if found else None,
+            "registry_inaccessible": inaccessible, "dotnet_release": dotnet}
+
+
+def _probe_directory(path: Path) -> None:
+    """Create/read/remove only a unique probe and newly created empty parents."""
+    created: list[Path] = []
+    probe: Path | None = None
+    missing = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    try:
+        for directory in reversed(missing):
+            try:
+                directory.mkdir()
+                created.append(directory)
+            except FileExistsError:
+                if not directory.is_dir():
+                    raise
+        descriptor, name = tempfile.mkstemp(prefix=".electrochem-envcheck-", suffix=".tmp", dir=path)
+        probe = Path(name)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(b"ElectroChem environment probe\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if probe.read_bytes() != b"ElectroChem environment probe\n":
+            raise OSError(errno.EIO, "Probe read-back failed")
+    finally:
+        try:
+            if probe is not None:
+                probe.unlink(missing_ok=True)
+        finally:
+            for directory in reversed(created):
+                try:
+                    directory.rmdir()
+                except OSError as exc:
+                    # Concurrent application data is never removed recursively.
+                    if exc.errno not in {errno.ENOTEMPTY, errno.EEXIST}:
+                        raise
+
+
+def _check(check_id: str, label: str, label_en: str, status: str, detail: str, detail_en: str,
+           remedy: str = "", remedy_en: str = "") -> dict[str, str]:
+    return dict(id=check_id, label=label, label_en=label_en, status=status, detail=detail,
+                detail_en=detail_en, remedy=remedy, remedy_en=remedy_en)
+
+
+def _summarize(report: dict[str, Any]) -> dict[str, Any]:
+    states = {check["status"] for check in report["checks"]}
+    report["can_start"] = "fail" not in states
+    if not report["can_start"]:
+        report["can_use_embedded_window"] = False
+    report["summary"] = ("环境检查未通过，请处理下列问题。" if "fail" in states else
+                         "环境检查完成，有需要注意的项目。" if "warn" in states else "环境检查通过。")
+    report["summary_en"] = ("Environment checks failed. Resolve the issues below." if "fail" in states else
+                            "Environment checks completed with warnings." if "warn" in states else "Environment checks passed.")
+    return report
+
+
+def collect_environment_report(runtime_root: Path, location: Mapping[str, str] | None = None) -> dict[str, Any]:
+    facts = _platform_facts()
+    checks = []
+    report: dict[str, Any] = {"schema_version": 1, "app_version": APP_VERSION,
+        "python_version": platform.python_version(), "distribution": "packaged" if getattr(sys, "frozen", False) else "source",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "support_policy": {"minimum_windows_build": MIN_WINDOWS_BUILD, "minimum_webview2_major": MIN_WEBVIEW2_MAJOR,
+                           "desktop_architecture": "x64", "minimum_versions_vm_verified": False},
+        "platform": facts, "data_dir": "", "data_mode": "unknown", "checks": checks,
+        "privacy_note": "仅包含版本、架构和数据目录检查；不收集密钥、配置内容、实验数据或完整环境变量。",
+        "privacy_note_en": "Contains versions, architecture and data-directory checks only; no keys, configuration contents, experiment data or environment dumps."}
+    windows = facts["system"] == "Windows"
+    supported_os = windows and facts["major"] >= 10 and facts["build"] >= MIN_WINDOWS_BUILD
+    detail = (f"Windows {facts['major']}.{facts['minor']}，内部版本 {facts['build']}" if windows else facts["system"])
+    checks.append(_check("os", "操作系统", "Operating system", "pass" if supported_os else "fail", detail, detail,
+        "当前客户端支持策略为 Windows 10 22H2（19045）或更新版本；其他系统请等待适配。" if not supported_os else "",
+        "The current desktop policy requires Windows 10 22H2 (19045) or newer; other systems are not supported." if not supported_os else ""))
+    if supported_os and facts["product_type"] != 1:
+        checks[-1].update(status="warn", remedy="Windows Server 或无法确认的系统类型未做桌面适配验证。",
+                         remedy_en="Windows Server or an unidentified edition has not been validated for desktop use.")
+    process, native = facts["process_arch"], facts["native_arch"]
+    arch_status = "fail" if process != "x64" else "pass" if native == "x64" else "warn"
+    checks.append(_check("architecture", "运行架构", "Architecture", arch_status,
+        f"程序 {process} / 本机 {native}", f"Process {process} / native {native}",
+        "请使用 64 位 Windows 和 x64 客户端。" if arch_status == "fail" else "ARM 或未知架构上的 x64 兼容运行尚未验证。" if arch_status == "warn" else "",
+        "Use 64-bit Windows and the x64 desktop client." if arch_status == "fail" else "x64 emulation on ARM or an unknown architecture has not been validated." if arch_status == "warn" else ""))
+    runtime = _registry_versions() if windows else {"webview2_version": None, "registry_inaccessible": False, "dotnet_release": 0}
+    version = parse_version(runtime["webview2_version"])
+    runtime_ok = bool(version and version[0] >= MIN_WEBVIEW2_MAJOR)
+    runtime_detail = (f"Microsoft WebView2 {runtime['webview2_version']}" if version else
+                      "无法读取 WebView2 注册信息。" if runtime["registry_inaccessible"] else "未检测到稳定版 WebView2 Runtime。")
+    runtime_detail_en = (runtime_detail if version else "Cannot read WebView2 registration." if runtime["registry_inaccessible"] else "Stable WebView2 Runtime was not detected.")
+    checks.append(_check("webview2", "桌面浏览器组件", "Desktop browser component", "pass" if runtime_ok else "warn",
+        runtime_detail, runtime_detail_en,
+        f"安装或更新 Microsoft WebView2 Runtime 至 {MIN_WEBVIEW2_MAJOR} 或更新版本；本次可使用浏览器工作区。离线电脑请使用离线完整安装包。" if not runtime_ok else "",
+        f"Install or update Microsoft WebView2 Runtime to {MIN_WEBVIEW2_MAJOR} or newer. Use the browser workspace in the meantime; use the complete offline installer on disconnected computers." if not runtime_ok else ""))
+    net_ok = runtime["dotnet_release"] >= MIN_DOTNET_RELEASE
+    checks.append(_check("dotnet", ".NET Framework", ".NET Framework", "pass" if net_ok else "warn",
+        f"Release {runtime['dotnet_release']}" if net_ok else "未检测到可用的 .NET Framework 4.6.2 或更新版本。",
+        f"Release {runtime['dotnet_release']}" if net_ok else ".NET Framework 4.6.2 or newer was not detected.",
+        "通过 Windows 更新修复或安装 .NET Framework；本次可使用浏览器工作区。" if not net_ok else "",
+        "Repair or install .NET Framework through Windows Update; use the browser workspace in the meantime." if not net_ok else ""))
+    report["webview2_version"] = runtime["webview2_version"]
+    report["can_use_embedded_window"] = supported_os and arch_status != "fail" and runtime_ok and net_ok
+    try:
+        selected = dict(location) if location is not None else resolve_desktop_data_dir(runtime_root)
+        data_dir = Path(selected["path"]).expanduser().resolve()
+        report["data_dir"] = str(data_dir)
+        report["data_mode"] = selected["mode"] if selected["mode"] in {"user", "portable", "environment"} else "unknown"
+        _probe_directory(data_dir)
+        # Existing dedicated child directories can have different ACLs.
+        for child in ("logs", "webview"):
+            if (data_dir / child).exists():
+                _probe_directory(data_dir / child)
+        checks.append(_check("data_directory", "数据目录", "Data directory", "pass",
+            "唯一临时文件的写入、读取和清理成功。", "Unique temporary-file write, read and cleanup succeeded."))
+    except (OSError, ValueError, KeyError, RuntimeError) as exc:
+        error_number = getattr(exc, "errno", None)
+        code = errno.errorcode.get(error_number, type(exc).__name__) if isinstance(error_number, int) else type(exc).__name__
+        checks.append(_check("data_directory", "数据目录", "Data directory", "fail",
+            f"无法选择或写入数据目录（{code}）。", f"Cannot select or write the data directory ({code}).",
+            "检查目录是否存在、磁盘空间和当前账户权限。便携版请解压到可写目录；修正自定义数据目录或冲突的模式标记后重试。",
+            "Check the directory, free disk space and account permissions. Extract the portable edition to a writable folder; correct a custom data directory or conflicting mode markers, then retry."))
+    return _summarize(report)
+
+
+def with_startup_failure(report: Mapping[str, Any], phase: str, error: BaseException) -> dict[str, Any]:
+    """Append a safe error identifier, never an exception's potentially secret payload."""
+    result = dict(report)
+    result["checks"] = list(report["checks"])
+    error_number = getattr(error, "errno", None)
+    code = errno.errorcode.get(error_number, type(error).__name__) if isinstance(error_number, int) else type(error).__name__
+    if phase == "report_export":
+        result["checks"].append(_check("report_export", "诊断导出", "Diagnostic export", "fail",
+            f"无法创建诊断文件（{code}）。", f"Cannot create the diagnostic file ({code}).",
+            "请使用可写目录中的新文件名；不会覆盖已有文件。",
+            "Choose a new filename in a writable directory; existing files are never overwritten."))
+        return _summarize(result)
+    label = "本地服务" if phase == "service" else "客户端启动"
+    result["checks"].append(_check("startup", label, "Local service" if phase == "service" else "Desktop startup", "fail",
+        f"启动未完成（{code}）。", f"Startup did not complete ({code}).",
+        "重启客户端；若仍失败，请复制此诊断并检查本机端口限制、安装完整性和目录权限。",
+        "Restart the client. If the problem persists, copy this report and check local port restrictions, installation integrity and directory permissions."))
+    return _summarize(result)
+
+
+def format_environment_report(report: Mapping[str, Any]) -> str:
+    lines = [f"ElectroChem {report['app_version']} — 环境诊断 / Environment diagnostics",
+             str(report["generated_at"]), str(report["summary"]), str(report["summary_en"]),
+             f"Python {report['python_version']} / {report['distribution']}",
+             f"数据目录 / Data directory: {report['data_dir'] or '(unresolved)'} ({report['data_mode']})",
+             f"支持策略 / Support policy: Windows build >= {MIN_WINDOWS_BUILD}; x64; WebView2 >= {MIN_WEBVIEW2_MAJOR}",
+             "最低版本尚需独立系统验收 / Minimum versions still require independent system validation.", ""]
+    for check in report["checks"]:
+        lines.append(f"[{check['status'].upper()}] {check['label']} / {check['label_en']}: {check['detail']}")
+        if check["detail_en"] != check["detail"]:
+            lines.append(f"  {check['detail_en']}")
+        if check["remedy"]:
+            lines.extend((f"  {check['remedy']}", f"  {check['remedy_en']}"))
+    lines.extend(("", report["privacy_note"], report["privacy_note_en"]))
+    return "\n".join(lines)
+
+
+def show_environment_report(report: Mapping[str, Any], *, parent: Any = None) -> None:
+    """Selectable native report with an explicit copy button; usable without WebView2."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    root = tk.Toplevel(parent) if parent is not None else tk.Tk()
+    root.title("ElectroChem — 环境诊断 / Environment diagnostics")
+    root.geometry("780x560")
+    root.minsize(520, 360)
+    body = ttk.Frame(root, padding=16)
+    body.pack(fill="both", expand=True)
+    ttk.Label(body, text=report["summary"], font=("Microsoft YaHei", 12, "bold")).pack(anchor="w", pady=(0, 10))
+    area = ttk.Frame(body)
+    area.pack(fill="both", expand=True)
+    text = tk.Text(area, wrap="word", height=18, font=("Microsoft YaHei", 10))
+    scrollbar = ttk.Scrollbar(area, command=text.yview)
+    text.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+    text.pack(side="left", fill="both", expand=True)
+    report_text = format_environment_report(report)
+    text.insert("1.0", report_text)
+    text.configure(state="disabled")
+    status = ttk.Label(body, text="")
+    status.pack(anchor="w")
+    controls = ttk.Frame(body)
+    controls.pack(fill="x", pady=(8, 0))
+
+    def copy() -> None:
+        try:
+            root.clipboard_clear()
+            root.clipboard_append(report_text)
+            root.update()
+            status.configure(text="已复制 / Copied")
+        except tk.TclError:
+            text.tag_add("sel", "1.0", "end-1c")
+            text.focus_set()
+            status.configure(text="剪贴板暂不可用，已选中文本，请按 Ctrl+C 重试。 / Clipboard unavailable; text selected. Retry with Ctrl+C.")
+
+    ttk.Button(controls, text="复制诊断 / Copy report", command=copy).pack(side="left")
+    ttk.Button(controls, text="关闭 / Close", command=root.destroy).pack(side="right")
+    if parent is None:
+        root.mainloop()
+    else:
+        root.transient(parent)
+        root.wait_window()
+
+
+def run_environment_check(runtime_root: Path, *, json_output: bool = False,
+                          output_path: Path | None = None, windowed: bool = False) -> int:
+    report = collect_environment_report(runtime_root)
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) if json_output else format_environment_report(report)
+    if output_path is not None:
+        # An explicit filename is required and existing reports are never overwritten.
+        try:
+            with Path(output_path).open("x", encoding="utf-8") as stream:
+                stream.write(rendered + "\n")
+        except OSError as exc:
+            failure = with_startup_failure(report, "report_export", exc)
+            if windowed:
+                show_environment_report(failure)
+            elif sys.stderr is not None:
+                print(f"Cannot create diagnostic output: {type(exc).__name__}", file=sys.stderr)
+            return 2
+    elif windowed:
+        show_environment_report(report)
+    else:
+        print(rendered)
+    return 0 if report["can_start"] else 1

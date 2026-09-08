@@ -7,9 +7,58 @@ comparison selections, and run automated data processing.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 _logger = logging.getLogger(__name__)
+
+_EIS_PARAMETERS = ("Rs", "Rct", "Cdl", "Q", "n", "sigma", "R1", "C1", "Q1", "n1", "R2", "C2", "Q2", "n2")
+
+
+def _pick_fields(value: Any, keys) -> Dict[str, Any]:
+    return {key: deepcopy(value[key]) for key in keys if key in value} if isinstance(value, dict) else {}
+
+
+def _compact_eis_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep scientific interpretation and uncertainty without pointwise arrays."""
+    fit_source = analysis.get("fit") or {}
+    fit = _pick_fields(fit_source, (
+        "model", "model_label", "equivalent_circuit", "status", "accepted", "numerical_converged",
+        "rejection_reason", "review_required", "review_reasons", "r2", "rmse_real_ohm", "rmse_imag_ohm",
+        "rmse_complex_ohm", "normalized_rmse", "weighting", "weighting_floor_ohm", "acceptance_criterion",
+        "assumptions", "branch_order", "time_constants_s",
+    ))
+    if isinstance(fit_source, dict):
+        fit["parameters"] = _pick_fields(fit_source.get("parameters") or fit_source, _EIS_PARAMETERS)
+        fit["parameter_units"] = _pick_fields(fit_source.get("parameter_units"), _EIS_PARAMETERS)
+        intervals = fit_source.get("parameter_ci95") or {}
+        fit["parameter_ci95"] = {
+            name: _pick_fields(intervals[name], ("lower", "upper", "standard_error", "estimable", "reason"))
+            for name in _EIS_PARAMETERS if isinstance(intervals, dict) and name in intervals
+        }
+        fit["identifiability"] = _pick_fields(fit_source.get("identifiability"), (
+            "jacobian_rank", "condition_number", "condition_number_is_infinite", "boundary_parameters",
+            "high_correlations", "branches_indistinguishable", "time_constant_ratio", "branch_resolution_rule",
+            "residual_degrees_of_freedom", "ci_method", "ci_assumptions",
+        ))
+    kk_source = analysis.get("kk") or {}
+    kk = _pick_fields(kk_source, (
+        "method", "method_version", "status", "reason", "order", "mu", "normalized_rms", "max_residual",
+        "data_points", "unique_frequencies", "frequency_span_decades", "thresholds", "notes", "limitations",
+    ))
+    if isinstance(kk_source, dict) and isinstance(kk_source.get("selection"), dict):
+        kk["selection"] = _pick_fields(kk_source["selection"], (
+            "input_points", "fit_points", "fit_unique_frequencies", "subsampled", "residual_evaluation_points", "maximum_order",
+        ))
+    return {
+        "fit": fit,
+        "kk": kk,
+        "frequency_selection": _pick_fields(analysis.get("frequency_selection"), (
+            "requested_min_hz", "requested_max_hz", "actual_min_hz", "actual_max_hz", "total_points",
+            "selected_points", "excluded_points", "index_basis", "interval", "unit",
+        )),
+        "point_arrays_omitted": True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +104,7 @@ def _simplify_v6_history_record(record: Dict[str, Any]) -> Dict[str, Any]:
     results = _raw_results if isinstance(_raw_results, dict) else {}
     _raw_output = record.get("output_files")
     output_files = _raw_output if isinstance(_raw_output, list) else []
-    return {
+    summary = {
         "timestamp": record.get("timestamp"),
         "type": record.get("type"),
         "sample_name": record.get("sample_name"),
@@ -71,6 +120,14 @@ def _simplify_v6_history_record(record: Dict[str, Any]) -> Dict[str, Any]:
             "tafel_slope": results.get("tafel_slope"),
         },
     }
+    if str(record.get("type") or "").upper() == "EIS":
+        summary["record_key"] = record.get("record_key")
+        summary["run_id"] = record.get("run_id")
+        summary["results"] = _pick_fields(results, (*_EIS_PARAMETERS, "CPE_Q", "CPE_n", "circuit_model",
+            "equivalent_circuit", "randles_r2", "fit_rmse_ohm", "frequency_range", "data_points", "fit_status", "kk_status"))
+        if isinstance(record.get("eis_analysis"), dict):
+            summary["eis_analysis"] = _compact_eis_analysis(record["eis_analysis"])
+    return summary
 
 
 def _simplify_v6_compare_row(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,6 +144,23 @@ def _simplify_v6_compare_row(item: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
+
+
+def tool_get_processing_schema(data_types: Optional[List[str]] = None) -> Dict:
+    """Expose the live registry, independently of model prompts and UI defaults."""
+    from electrochem_v6.core.processing_registry import processing_parameter_schema
+
+    if data_types is not None and (
+        not isinstance(data_types, list) or not 1 <= len(data_types) <= 5
+        or any(not isinstance(item, str) for item in data_types) or len(set(data_types)) != len(data_types)
+    ):
+        return {"success": False, "error": "data_types 必须是含1至5种不重复数据类型的列表"}
+    try:
+        schema = processing_parameter_schema(data_types)
+    except (KeyError, ValueError) as exc:
+        return {"success": False, "error": str(exc)}
+    return {"success": True, "schema": schema,
+            "note": "这里的默认值是软件设置，不代表已确认实验条件；应用参数或执行处理沿用已有流程。"}
 
 
 def tool_get_current_project_summary(

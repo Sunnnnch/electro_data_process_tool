@@ -192,7 +192,9 @@ sample-A,CO,0.000001,2,1.0
 
 ## 5. 数据分析助手与明确确认
 
-先在软件中配置可用的模型供应商。`GET /api/v1/llm/config` 返回脱敏配置；对话可指定 `provider`、`model`，否则按当前配置选择。以下代码复用上节 `api` 和 `wait_job`；`processing_result` 绑定刚完成的具体结果，避免依赖“最新记录”：
+先在软件中配置可用的模型供应商。`GET /api/v1/llm/config` 返回脱敏配置。`POST /api/v1/llm/models` 接受 `provider`、可选的 `base_url` 和 `api_key`，返回 `models` 字符串列表；它只查询该地址的 `/models`，不保存新密钥或发送对话。未提供新密钥时，仅允许向已保存地址的同源端点使用保存的密钥；支持 HTTPS 和回环 HTTP，不跟随重定向。不支持列表的服务仍可手动指定模型。失败返回 HTTP 400 及稳定 `code`，例如 `unauthorized`、`unsupported`、`timeout`；不要将空列表或列表可见性等同于对话调用权限。
+
+对话可指定 `provider`、`model`，否则按当前配置选择。以下代码复用上节 `api` 和 `wait_job`；`processing_result` 绑定刚完成的具体结果，避免依赖“最新记录”：
 
 ```python
 submitted = api("/api/v1/agent/jobs", {

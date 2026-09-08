@@ -138,7 +138,7 @@ def test_parameter_defaults_follow_selected_modules():
 def test_processing_parameter_schema_describes_selected_modules_and_bounds():
     schema = processing_parameter_schema(["LSV", "FE"])
 
-    assert schema["schema_version"] == "1.8"
+    assert schema["schema_version"] == "1.9"
     assert schema["data_types"] == ["LSV", "COUPLED"]
     modules = {item["key"]: item for item in schema["modules"]}
     assert modules["LSV"]["file_match"]["default_value"] == "LSV"

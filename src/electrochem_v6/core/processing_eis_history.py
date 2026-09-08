@@ -16,6 +16,7 @@ def build_eis_history_record(
     z_real: Sequence[float],
     randles_result: Mapping[str, Any] | None = None,
     project_manager: Any | None = None,
+    analysis: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an EIS history record in the legacy-compatible shape."""
     rs = None
@@ -25,7 +26,7 @@ def build_eis_history_record(
     cpe_n = None
     if randles_result:
         rs = randles_result["Rs"]
-        rct = randles_result["Rct"]
+        rct = randles_result.get("Rct")
         cdl = randles_result.get("Cdl")
         q = randles_result.get("Q")
         cpe_n = randles_result.get("n")
@@ -55,6 +56,17 @@ def build_eis_history_record(
             "data_points": len(frequency),
         },
     }
+    if randles_result:
+        for key in ("sigma", "R1", "R2", "C1", "C2", "Q1", "Q2", "n1", "n2"):
+            if randles_result.get(key) is not None:
+                record["results"][key] = float(randles_result[key])
+    if analysis is not None:
+        record["eis_analysis"] = dict(analysis)
+        diagnostics = analysis.get("fit") or {}
+        record["results"]["circuit_model"] = diagnostics.get("model")
+        record["results"]["equivalent_circuit"] = diagnostics.get("equivalent_circuit")
+        record["results"]["fit_status"] = diagnostics.get("status", "not_requested")
+        record["results"]["kk_status"] = (analysis.get("kk") or {}).get("status", "not_requested")
     if params.get("run_id"):
         record["run_id"] = params.get("run_id")
 

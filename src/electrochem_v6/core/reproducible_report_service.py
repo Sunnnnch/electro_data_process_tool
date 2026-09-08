@@ -50,6 +50,8 @@ _PARAMETER_LABELS = {
     "ecsa_avg_last_n": "多圈平均", "avg_last_n": "多圈平均", "ecsa_cs_value": "比电容 Cs", "cs_value": "比电容 Cs",
     "ecsa_cs_unit": "Cs 单位", "cs_unit": "Cs 单位", "ecsa_use_abs_delta": "电流差取绝对值",
     "eis_circuit_model": "等效电路", "eis_randles_fit": "阻抗拟合", "eis_fit_min_r2": "拟合最低 R²",
+    "eis_fit_frequency_min_hz": "拟合频率下限 (Hz)", "eis_fit_frequency_max_hz": "拟合频率上限 (Hz)",
+    "eis_fit_weighting": "阻抗拟合权重", "eis_kk_check": "KK 一致性检查", "plot_eis_residuals": "EIS 残差图",
     "coupled_input_mode": "定量方式", "coupled_products_sheet": "定量表工作表",
 }
 _CALCULATION_KEYS = (
@@ -62,6 +64,7 @@ _CALCULATION_KEYS = (
     "ev", "ecsa_ev", "last_n", "ecsa_last_n", "avg_last_n", "ecsa_avg_last_n",
     "cs_value", "ecsa_cs_value", "cs_unit", "ecsa_cs_unit", "ecsa_use_abs_delta",
     "eis_circuit_model", "eis_fit_min_r2", "eis_randles_fit", "eis_fit_min_points", "coupled_input_mode",
+    "eis_fit_frequency_min_hz", "eis_fit_frequency_max_hz", "eis_fit_weighting", "eis_kk_check", "plot_eis_residuals",
     "coupled_products_file", "coupled_products_sheet", "coupled_peak_method_source", "coupled_peak_method_file",
 )
 
@@ -126,6 +129,60 @@ def _display_number(value: Any) -> str:
 def _short_id(value: Any) -> str:
     text = str(value or "")
     return (text[:8] if len(text) > 12 else text) or MISSING
+
+
+def _eis_analysis_blocks(analysis: Mapping[str, Any], sample: str) -> list[dict[str, Any]]:
+    """Present saved diagnostics; never infer missing historical fit evidence."""
+    fit, kk = _map(analysis.get("fit")), _map(analysis.get("kk"))
+    if not fit and not kk:
+        return []
+    selection = _map(analysis.get("frequency_selection"))
+    bounds = {key: ("不限" if selection[key] is None else selection[key]) if key in selection else MISSING
+              for key in ("requested_min_hz", "requested_max_hz")}
+    blocks = [_section(sample + " · EIS 分析频段", fields=[
+        ["频率单位", selection.get("unit")], ["请求下限", bounds["requested_min_hz"]],
+        ["请求上限", bounds["requested_max_hz"]], ["实际下限 (Hz)", selection.get("actual_min_hz")],
+        ["实际上限 (Hz)", selection.get("actual_max_hz")], ["分析点数", selection.get("selected_points")],
+        ["原始有效点数", selection.get("total_points")], ["区间规则", selection.get("interval")],
+    ], paragraphs=["频段仅用于拟合与 KK 检查，原始数据保持完整；空的请求边界表示该侧不限频率。"], level=3)]
+    if fit:
+        reasons = [str(value) for value in _items(fit.get("review_reasons"))]
+        if fit.get("rejection_reason"):
+            reasons.insert(0, str(fit["rejection_reason"]))
+        if fit.get("acceptance_note"):
+            reasons.append(str(fit["acceptance_note"]))
+        blocks.append(_section(sample + " · 等效电路拟合", fields=[
+            ["模型", fit.get("model")], ["电路", fit.get("equivalent_circuit")],
+            ["状态", fit.get("status")], ["权重", fit.get("weighting")],
+            ["达到数值门槛", fit.get("accepted")], ["需要复核", fit.get("review_required")],
+            ["复数 R²", _display_number(fit.get("r2"))],
+            ["复数 RMSE (Ω)", _display_number(fit.get("rmse_complex_ohm"))],
+        ], paragraphs=reasons, level=3))
+        parameters = _map(fit.get("parameters"))
+        intervals, units = _map(fit.get("parameter_ci95")), _map(fit.get("parameter_units"))
+        rows = []
+        for name in _items(fit.get("parameter_order")) or list(parameters):
+            interval = _map(intervals.get(name))
+            display = (f"[{_display_number(interval.get('lower'))}, {_display_number(interval.get('upper'))}]"
+                       if interval.get("estimable") else str(interval.get("reason") or MISSING))
+            rows.append([name, _display_number(parameters.get(name)), units.get(name) or "—", display])
+        blocks.append(_section(sample + " · 拟合参数与局部近似 95% 区间", columns=["参数", "估计值", "单位", "95% 区间 / 不可估计原因"],
+            rows=rows, paragraphs=["区间来自局部线性近似，依赖模型与残差假设；不能代替重复实验的不确定度，也不能证明电路具有唯一物理解释。"], level=3))
+    if kk:
+        blocks.append(_section(sample + " · KK 一致性诊断", fields=[
+            ["方法", kk.get("method")], ["状态", kk.get("status")], ["原因", kk.get("reason")],
+            ["阶数", kk.get("order")], ["μ", _display_number(kk.get("mu"))],
+            ["归一化 RMS", _display_number(kk.get("normalized_rms"))],
+            ["最大归一化残差", _display_number(kk.get("max_residual"))],
+            ["保存的诊断门槛", kk.get("thresholds")],
+        ], paragraphs=[str(value) for value in [*_items(kk.get("notes")), *_items(kk.get("limitations"))]], level=3))
+    return blocks
+
+
+def _normalized_eis_analysis(result: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = _map(result.get("metadata"))
+    return {"fit": metadata.get("equivalent_circuit_fit"), "kk": metadata.get("kk_validation"),
+            "frequency_selection": metadata.get("frequency_selection")}
 
 
 def _brief_parameters(params: Mapping[str, Any]) -> list[list[Any]]:
@@ -380,6 +437,9 @@ def build_run_report_document(manifest: Mapping[str, Any], *, generated_at: str 
     ]
     paths = _items(outputs.get("output_files"))
     for item in normalized:
+        result = _map(item)
+        summary.extend(_eis_analysis_blocks(_normalized_eis_analysis(result),
+            str(result.get("sample_name") or _map(result.get("source")).get("file_name") or "EIS")))
         paths.extend(_items(_map(item).get("artifacts")))
     roots = [str(outputs["output_dir"])] if outputs.get("output_dir") else []
     appendix = [
@@ -535,6 +595,109 @@ def _record_results(record: Mapping[str, Any], recipe: Mapping[str, Any]) -> lis
     return matches
 
 
+def _record_quality(record: Mapping[str, Any], recipe: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild record-only quality from identifiable saved file reports.
+
+    Historical quality_summary and output_files can describe the whole run.
+    Relative file labels are usable only when they identify a unique saved input.
+    Missing attribution must not turn run totals into sample-level evidence.
+    """
+    manifest = _map(recipe.get("manifest"))
+    quality = _map(record.get("quality_summary"))
+    references = _items(recipe.get("inputs")) or _items(_map(manifest.get("inputs")).get("files"))
+
+    def identity(path):
+        return os.path.normcase(os.path.abspath(str(path))).replace("\\", "/").rstrip("/")
+
+    all_paths = {identity(_map(item)["path"]) for item in references
+                 if _map(item).get("path") and _map(item).get("role") in {None, "primary"}}
+    selected_paths = {identity(item["path"]) for item in _record_inputs(record, recipe)
+                      if item.get("path") and item.get("role") in {None, "primary"}}
+    if record.get("file_path"):
+        selected_paths.add(identity(record["file_path"]))
+    all_paths.update(selected_paths)
+    group_labels: dict[str, set[str]] = {}
+    if record.get("type") == "ECSA":
+        for raw in _items(manifest.get("processing_results")):
+            result = _map(raw)
+            source = _map(result.get("source")).get("path")
+            if result.get("data_type") == "ECSA" and source:
+                label = os.path.normcase(os.path.basename(str(source).rstrip("/\\")) + "/ECSA").replace("\\", "/")
+                group_labels.setdefault(label, set()).add(identity(source))
+
+    candidates = _items(manifest.get("quality_reports")) or _items(quality.get("files"))
+    if not candidates and quality and "files" not in quality:
+        candidates = [quality]
+
+    def labels_for(item):
+        stats, source = _map(item.get("stats")), _map(item.get("source"))
+        return [item.get("file_path"), source.get("path"), item.get("filename"),
+                item.get("file_name"), stats.get("file_name"), stats.get("file_path")]
+
+    relative_counts: dict[str, int] = {}
+    for raw in candidates:
+        labels = {os.path.normcase(os.path.normpath(value)).replace("\\", "/").rstrip("/")
+                  for value in labels_for(_map(raw)) if isinstance(value, str) and value.strip()
+                  and not os.path.isabs(value)}
+        for label in labels:
+            relative_counts[label] = relative_counts.get(label, 0) + 1
+
+    def belongs(item):
+        if item.get("data_type") and str(item["data_type"]).upper() != str(record.get("type") or "").upper():
+            return False
+        absolute = {identity(value) for value in labels_for(item)
+                    if isinstance(value, str) and value.strip() and os.path.isabs(value)}
+        if absolute:
+            # An explicit different source cannot fall back to a matching basename.
+            return len(absolute) == 1 and bool(absolute & selected_paths)
+        for value in labels_for(item):
+            if not isinstance(value, str) or not value.strip():
+                continue
+            label = os.path.normcase(os.path.normpath(value)).replace("\\", "/").rstrip("/")
+            if os.path.isabs(value):
+                candidates = {identity(value)} & all_paths
+            else:
+                if not references or relative_counts.get(label, 0) != 1:
+                    continue
+                candidates = {path for path in all_paths if path.endswith("/" + label)}
+                if not candidates:
+                    candidates = group_labels.get(label, set())
+            if len(candidates) == 1:
+                return bool(candidates & selected_paths)
+        return False
+
+    matched = [deepcopy(dict(_map(item))) for item in candidates if belongs(_map(item))]
+    if not matched:
+        return {"scope": "record", "status": "unavailable", "files": [],
+                "issues": ["未记录可确认属于该记录的质量明细；整次运行的质量汇总未用于该样品。"]}
+    levels: dict[str, int] = {}
+    recommendations: dict[str, int] = {}
+    for item in matched:
+        level = str(item.get("quality_level") or "unknown")
+        recommendation = str(item.get("recommendation") or "unknown")
+        levels[level] = levels.get(level, 0) + 1
+        recommendations[recommendation] = recommendations.get(recommendation, 0) + 1
+    return {"scope": "record", "total_files": len(matched),
+            "passed": sum(item.get("is_valid") is True for item in matched),
+            "failed": sum(item.get("is_valid") is False for item in matched),
+            "warnings": sum(bool(item.get("warnings")) for item in matched),
+            "quality_levels": levels, "recommendations": recommendations, "files": matched}
+
+
+def _record_report_snapshot(record: Mapping[str, Any], recipe: Mapping[str, Any]) -> dict[str, Any]:
+    """Filter report copies without rewriting the saved run or history."""
+    snapshot = deepcopy(dict(record))
+    snapshot["quality_summary"] = _record_quality(record, recipe)
+    outputs = []
+    for result in _record_results(record, recipe):
+        for output in _items(result.get("artifacts")):
+            if output not in outputs:
+                outputs.append(output)
+    snapshot["output_files"] = outputs
+    snapshot["report_attribution"] = "仅保留来源可确认的本记录质量明细与结果文件；整运行共享输出未列入。"
+    return snapshot
+
+
 def build_project_report_document(
     *, project: Mapping[str, Any], report_data: Mapping[str, Any], generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -597,14 +760,20 @@ def build_project_report_document(
             "以下运行有部分历史记录被删除，仅报告仍存在的历史记录；完整运行快照不再用于恢复已删除结果。",
             f"涉及 {len(excluded_deleted)} 次运行，完整编号见附录。",
         ]))
+    report_records = []
     for raw in records:
         record = _map(redact_report_value(raw))
         run_id = str(record.get("run_id") or "")
         if run_id in summarized_runs:
+            report_records.append(record)
             continue  # Its full run metrics/parameters already appear above.
         if run_id not in recipes:
             recipes[run_id] = _load_recipe(run_id) if run_id else {}
         recipe = recipes[run_id]
+        restricted = scope.get("mode") == "record_keys" or run_id in excluded or run_id in excluded_deleted
+        if restricted:
+            record = _record_report_snapshot(record, recipe)
+        report_records.append(record)
         params = _record_params(record, recipe)
         sample = _sample_label(record)
         details = [["类型", record.get("type")], ["时间", record.get("timestamp")], ["状态", record.get("status")],
@@ -617,20 +786,26 @@ def build_project_report_document(
             rows=[[item["label"], _display_number(item["value"]), item["unit"] or "—"] for item in display_metrics.values()],
             paragraphs=[] if display_metrics else ["未记录可展示的数值指标；保存的原始结果见附录。"], level=3))
         summary.append(_quality_brief(_map(record.get("quality_summary")), heading="质量摘要"))
+        analysis = _map(record.get("eis_analysis"))
+        if analysis:
+            summary.extend(_eis_analysis_blocks(analysis, sample))
+        else:
+            for result in _record_results(record, recipe):
+                summary.extend(_eis_analysis_blocks(_normalized_eis_analysis(result), sample))
         outputs = _items(record.get("output_files"))
         output_block = _section(sample + " · 结果文件", paragraphs=[str(item) for item in outputs], level=3)
         output_block["paragraph_label"] = "结果文件"
         appendix.append(output_block)
         roots = [str(value) for value in (record.get("artifact_root"), recipe.get("output_dir")) if value]
         figure_paths = outputs
-        if scope.get("mode") == "record_keys" or run_id in excluded or run_id in excluded_deleted:
+        if restricted:
             # History output_files may be run-wide. Only result-level artifact
             # associations prove that a chart belongs to this selected sample.
             figure_paths = []
             for result in _record_results(record, recipe):
                 figure_paths.extend(_items(result.get("artifacts")))
-            if not figure_paths and outputs:
-                appendix.append(_section(sample + " · 图表范围", paragraphs=["历史输出清单可能包含整次运行的共享图表，未确认样品归属的图表不嵌入；原始输出位置保留供核对。"], level=3))
+            if not figure_paths:
+                appendix.append(_section(sample + " · 图表范围", paragraphs=["未保存可确认属于该记录的输出清单；未确认样品归属的图表不嵌入，整次运行的共享文件不作为该样品的结果。"], level=3))
         record_figures = _figures(figure_paths, roots)
         for figure in record_figures:
             figure["caption"] = sample + " · " + str(figure["caption"])
@@ -654,6 +829,7 @@ def build_project_report_document(
                 **{key: value for key, value in ir_info.items() if key not in {"results", "items"}}, "results": ir_rows,
             }, level=3))
         appendix.extend(_formula_blocks(calculation, prefix=sample + " · "))
+    appendix[1] = _section("完整历史记录（所选范围内的保存值）", payload=report_records)
     if not records and not _items(report_data.get("runs")):
         summary.append(_section("所选记录", paragraphs=["暂无历史记录"]))
     # Deduplicate shared run charts without dropping their associated captions.

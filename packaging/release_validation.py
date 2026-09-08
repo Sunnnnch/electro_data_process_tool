@@ -18,6 +18,13 @@ from typing import Any
 
 TAG_PATTERN = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 EXECUTABLES = ("ElectroChem.exe", "ElectroChem-MCP.exe")
+REQUIRED_DEPENDENCIES = {
+    "runtime-requirements.txt", "_internal/python312.dll", "_internal/vcruntime140.dll",
+    "_internal/vcruntime140_1.dll", "_internal/ucrtbase.dll", "_internal/clr_loader/ffi/dlls/amd64/clrloader.dll",
+    "_internal/pythonnet/runtime/python.runtime.dll", "_internal/webview/lib/microsoft.web.webview2.core.dll",
+    "_internal/webview/lib/microsoft.web.webview2.winforms.dll",
+    "_internal/webview/lib/runtimes/win-x64/native/webview2loader.dll",
+}
 
 
 def extract_release_notes(changelog: str, version: str) -> str:
@@ -121,11 +128,97 @@ def _read_windows_info(paths: list[Path]) -> list[dict[str, Any]]:
     return info
 
 
-def validate_artifacts(source: dict[str, str], portable_zip: Path, installer: Path) -> dict[str, Any]:
+def _read_webview2_info(path: Path) -> dict[str, Any]:
+    """Reuse the build gate to verify Microsoft's signature and signed x64 payload."""
+    if os.name != "nt":
+        raise ValueError("Windows verification is required for an offline runtime")
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        raise ValueError("PowerShell is required for offline runtime verification")
+    helper = Path(__file__).resolve().with_name("installer_prerequisites.ps1")
+    command = (
+        "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+        ". $env:ELECTROCHEM_RELEASE_PREREQUISITES; "
+        "Get-ValidatedWebView2Installer $env:ELECTROCHEM_RELEASE_WEBVIEW2 | ConvertTo-Json -Depth 8 -Compress"
+    )
+    result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", command],
+                            env={**os.environ, "ELECTROCHEM_RELEASE_PREREQUISITES": str(helper),
+                                 "ELECTROCHEM_RELEASE_WEBVIEW2": str(path.resolve())},
+                            capture_output=True, text=True, encoding="utf-8-sig", timeout=180)
+    if result.returncode:
+        raise ValueError("Offline WebView2 signature or signed runtime payload verification failed")
+    info = json.loads(result.stdout)
+    if not isinstance(info, dict):
+        raise ValueError("Incomplete offline runtime verification")
+    info.pop("path", None)
+    return info
+
+
+def _validate_dependency_manifest(path: Path, source: dict[str, str], installer: Path, digest: str,
+                                  archive: zipfile.ZipFile, entries: dict[str, zipfile.ZipInfo], *,
+                                  runtime: dict[str, Any] | None = None) -> str:
+    manifest_digest = _verify_checksum(path)
+    if path.stat().st_size > 1024 * 1024:
+        raise ValueError("Dependency manifest is too large")
+    manifest = json.loads(path.read_text(encoding="utf-8-sig"))
+    variant = "offline" if runtime is not None else "standard"
+    if (not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1
+            or manifest.get("applicationVersion") != source["version"] or manifest.get("variant") != variant
+            or manifest.get("installer") != {"filename": installer.name, "sha256": digest}):
+        raise ValueError("Dependency manifest does not identify the exact release installer")
+    platform = manifest.get("platform", {})
+    if platform != {"os": "Windows", "minimumBuild": 19045, "architecture": "x64", "arm64": "not-supported-by-installer"}:
+        raise ValueError("Dependency manifest has an unsupported platform policy")
+    prerequisites = manifest.get("prerequisites")
+    expected = {
+        "webview2": {"minimumMajor": 120, "bundled": runtime is not None, "installer": runtime},
+        "dotnetFramework": {"minimumVersion": "4.6.2", "suppliedByTargetWindows": True, "bundledInstaller": False},
+        "visualCpp": {"distribution": "application-local", "bundledInstaller": False},
+        "python": {"version": "3.12", "distribution": "application-local"},
+    }
+    if prerequisites != expected:
+        raise ValueError("Dependency manifest does not match the verified runtime and prerequisite policy")
+    dependencies = manifest.get("dependencyFiles")
+    if not isinstance(dependencies, list) or not dependencies:
+        raise ValueError("Dependency manifest has no bundled runtime inventory")
+    seen = set()
+    for item in dependencies:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            raise ValueError("Invalid dependency inventory entry")
+        name = item["path"].casefold()
+        entry = entries.get(name)
+        if name in seen or entry is None or entry.is_dir() or not 0 < entry.file_size <= 256 * 1024 * 1024:
+            raise ValueError("Dependency inventory contains a duplicate or missing portable runtime file")
+        seen.add(name)
+        with archive.open(entry) as stream:
+            checksum = hashlib.sha256()
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                checksum.update(chunk)
+            actual = checksum.hexdigest()
+        if item.get("sha256") != actual or item.get("bytes") != entry.file_size:
+            raise ValueError(f"Bundled runtime hash or size does not match the portable archive: {item['path']}")
+    if not REQUIRED_DEPENDENCIES <= seen or not any(re.fullmatch(r"_internal/numpy\.libs/msvcp140[^/]*\.dll", name) for name in seen):
+        raise ValueError("Dependency inventory is missing required application-local runtimes")
+    with archive.open(entries["runtime-requirements.txt"]) as stream:
+        requirements = [line for line in stream.read().decode("utf-8-sig").splitlines() if line.strip()]
+    if manifest.get("runtimeRequirements") != requirements:
+        raise ValueError("Dependency manifest runtime requirements differ from the portable archive")
+    return manifest_digest
+
+
+def validate_artifacts(source: dict[str, str], portable_zip: Path, installer: Path, *,
+                       offline_installer: Path | None = None, webview2_installer: Path | None = None) -> dict[str, Any]:
     version = source["version"]
     if portable_zip.name != f"ElectroChem-{version}-win64.zip" or installer.name != f"ElectroChem-Setup-{version}.exe":
         raise ValueError("Release artifact filenames must match the exact source version")
-    digests = {path.name: _verify_checksum(path) for path in (portable_zip, installer)}
+    if (offline_installer is None) != (webview2_installer is None):
+        raise ValueError("Offline installer and its verified WebView2 source must be supplied together")
+    if offline_installer is not None and offline_installer.name != f"ElectroChem-Setup-{version}-offline.exe":
+        raise ValueError("Offline installer filename must match the exact source version")
+    installers = [installer] if offline_installer is None else [installer, offline_installer]
+    digests = {path.name: _verify_checksum(path) for path in (portable_zip, *installers)}
+    runtime = _read_webview2_info(webview2_installer) if webview2_installer is not None else None
+    manifests = []
     with zipfile.ZipFile(portable_zip) as archive, tempfile.TemporaryDirectory(prefix="electrochem-release-") as temp:
         entries = {}
         for entry in archive.infolist():
@@ -150,9 +243,19 @@ def validate_artifacts(source: dict[str, str], portable_zip: Path, installer: Pa
             with archive.open(entry) as incoming, target.open("wb") as outgoing:
                 shutil.copyfileobj(incoming, outgoing)
             binaries.append(target)
-        information = _read_windows_info([*binaries, installer.resolve()])
+        for current in installers:
+            manifest = Path(str(current) + ".dependencies.json")
+            # Previous standard-only releases remain valid; new manifests and every
+            # offline release must be checked against the real packaged runtime.
+            if manifest.exists() or offline_installer is not None:
+                digests[manifest.name] = _validate_dependency_manifest(
+                    manifest, source, current, digests[current.name], archive, entries,
+                    runtime=runtime if current == offline_installer else None,
+                )
+                manifests.append(manifest.name)
+        information = _read_windows_info([*binaries, *(path.resolve() for path in installers)])
         signers = set()
-        for info, name in zip(information, [*EXECUTABLES, installer.name], strict=True):
+        for info, name in zip(information, [*EXECUTABLES, *(path.name for path in installers)], strict=True):
             if info.get("filename") != name or str(info.get("version", "")).strip() != version:
                 raise ValueError(f"Executable version does not match the release tag: {name}")
             if str(info.get("product_name", "")).strip() != source["product_name"]:
@@ -163,8 +266,9 @@ def validate_artifacts(source: dict[str, str], portable_zip: Path, installer: Pa
                 raise ValueError(f"Official release requires a verified Authenticode signature: {name}")
             signers.add(info["signer"])
         if len(signers) != 1:
-            raise ValueError("GUI, MCP companion, and installer must use the same publisher certificate")
-    return {**source, "sha256": digests, "signed_executables": information}
+            raise ValueError("GUI, MCP companion, and installers must use the same publisher certificate")
+    return {**source, "sha256": digests, "signed_executables": information, "dependency_manifests": manifests,
+            "offline_runtime": runtime}
 
 
 def main() -> int:
@@ -178,6 +282,8 @@ def main() -> int:
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--portable-zip", type=Path)
     parser.add_argument("--installer", type=Path)
+    parser.add_argument("--offline-installer", type=Path, help="Optional signed offline installer; requires its original WebView2 source")
+    parser.add_argument("--webview2-installer", type=Path, help="Original Microsoft x64 runtime used to build the offline installer")
     args = parser.parse_args()
     try:
         report = validate_source(args.root, args.tag, args.expected_commit,
@@ -188,7 +294,8 @@ def main() -> int:
         if not args.source_only:
             if args.portable_zip is None or args.installer is None:
                 raise ValueError("Both portable ZIP and installer are required")
-            report = validate_artifacts(report, args.portable_zip, args.installer)
+            report = validate_artifacts(report, args.portable_zip, args.installer,
+                                        offline_installer=args.offline_installer, webview2_installer=args.webview2_installer)
         print(json.dumps(report, ensure_ascii=True))
         return 0
     except (ValueError, OSError, subprocess.TimeoutExpired, zipfile.BadZipFile) as exc:

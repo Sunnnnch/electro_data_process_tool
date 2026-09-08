@@ -35,6 +35,9 @@ def main() -> int:
     sub.add_parser("check", help="Run ElectroChem health checks")
     sub.add_parser("version", help="Show application version")
     sub.add_parser("desktop", help="Open the native desktop client")
+    p_environment = sub.add_parser("environment-check", help="Check desktop requirements offline without starting services")
+    p_environment.add_argument("--json", action="store_true", help="Emit a structured JSON report")
+    p_environment.add_argument("--output", type=Path, help="Create a report file (must not already exist)")
     p_mcp = sub.add_parser("mcp", help="Connect an MCP host to the open desktop over stdio (read-only by default)")
     add_mcp_arguments(p_mcp)
     p_server = sub.add_parser("server", help="Start ElectroChem embedded HTTP server")
@@ -72,6 +75,7 @@ def main() -> int:
         "check",
         "version",
         "desktop",
+        "environment-check",
         "mcp",
         "server",
         "smoke",
@@ -97,6 +101,10 @@ def main() -> int:
     if args.cmd == "desktop":
         from electrochem_v6.desktop.shell import run_desktop
         return run_desktop(ROOT)
+
+    if args.cmd == "environment-check":
+        from electrochem_v6.desktop.environment import run_environment_check
+        return run_environment_check(ROOT, json_output=args.json, output_path=args.output)
 
     if args.cmd == "mcp":
         from electrochem_v6.mcp_cli import run

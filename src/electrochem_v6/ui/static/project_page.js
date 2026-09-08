@@ -147,6 +147,7 @@
         )}</div>
       </div>
       <section class="project-result-metrics"><div class="proc-block-title">${escapeHtml(translate("project_result_metrics"))}</div><ul class="proc-list">${resultItems}</ul></section>
+      ${renderEisAnalysis(record, translate, escapeHtml)}
       <div class="project-history-sections">
         <details class="project-history-subblock project-sample-editor">
           <summary>${escapeHtml(translate("project_sample_info"))}</summary>
@@ -181,6 +182,51 @@
     }
   }
 
+  function renderEisAnalysis(record, t, escapeHtml) {
+    const analysis = record && record.eis_analysis;
+    if (!analysis || typeof analysis !== "object") return "";
+    const fit = analysis.fit;
+    const kk = analysis.kk;
+    const selection = analysis.frequency_selection;
+    const number = (value) => typeof value === "number" && Number.isFinite(value) ? String(Number(value.toPrecision(6))) : "—";
+    const line = (label, value) => `<p><strong>${escapeHtml(label)}</strong>: ${escapeHtml(value)}</p>`;
+    const reason = (value) => String(value || "").split("; ").map((item) => {
+      const key = `eis_reason_${item}`;
+      return t(key) !== key ? t(key) : item.replaceAll("_", " ");
+    }).join("; ");
+    const items = (values) => (Array.isArray(values) ? values : values ? [values] : []).map((value) => `<li>${escapeHtml(typeof value === "object" ? JSON.stringify(value) : reason(value))}</li>`).join("");
+    const status = (value) => {
+      const key = `eis_status_${value}`;
+      const translated = t(key);
+      return translated && translated !== key ? translated : String(value || "—");
+    };
+    let content = "";
+    if (selection) content += line(t("eis_analysis_frequency"), `${number(selection.actual_min_hz)}–${number(selection.actual_max_hz)} Hz · ${number(selection.selected_points)}/${number(selection.total_points)} ${t("eis_analysis_points")}`);
+    if (fit) {
+      const modelKey = `opt_eis_${fit.model}`;
+      const modelLabel = t(modelKey) === modelKey ? fit.model || "—" : t(modelKey);
+      const fitState = fit.review_required && fit.status === "accepted" ? "needs_review" : fit.status;
+      content += line(t("eis_analysis_fit"), `${status(fitState)} · ${modelLabel} · ${t(fit.weighting === "modulus" ? "opt_eis_weight_modulus" : "opt_eis_weight_uniform")}`);
+      const parameters = fit.parameters || {};
+      const order = Array.isArray(fit.parameter_order) ? fit.parameter_order : Object.keys(parameters);
+      if (order.length) content += `<details class="project-history-subblock"><summary>${escapeHtml(t("eis_analysis_ci"))}</summary><ul class="proc-list">${order.map((name) => {
+        const interval = fit.parameter_ci95 && fit.parameter_ci95[name];
+        const unit = fit.parameter_units && fit.parameter_units[name] || "";
+        const bounds = interval && interval.estimable ? `[${number(interval.lower)}, ${number(interval.upper)}]` : `${t("eis_analysis_ci_unavailable")}${interval && interval.reason ? ` (${reason(interval.reason)})` : ""}`;
+        return `<li><strong>${escapeHtml(name)}</strong>: ${escapeHtml(`${number(parameters[name])} ${unit} · ${bounds}${interval && interval.estimable && unit ? ` ${unit}` : ""}`)}</li>`;
+      }).join("")}</ul></details>`;
+      content += `<ul class="proc-list">${items(fit.review_reasons)}${items(fit.rejection_reason || fit.reason || fit.message)}</ul>`;
+    }
+    if (kk) {
+      content += line(t("eis_analysis_kk"), status(kk.status));
+      content += line(t("eis_analysis_normalized_rms"), number(kk.normalized_rms));
+      content += line(t("eis_analysis_max_residual"), number(kk.max_residual));
+      if (kk.thresholds) content += line(t("eis_analysis_thresholds"), `RMS ≤ ${number(kk.thresholds.normalized_rms_max)} · max ≤ ${number(kk.thresholds.max_residual_max)}`);
+      content += `<ul class="proc-list">${items(kk.reason)}${items(kk.notes)}${items(kk.limitations)}</ul>`;
+    }
+    return `<section class="project-history-subblock project-eis-analysis"><div class="proc-block-title">${escapeHtml(t("eis_analysis_title"))}</div>${content}<p class="param-tip">${escapeHtml(t("tip_eis_model_limitations"))}</p></section>`;
+  }
+
   function groupHistoryByRun(records, keyOf) {
     const groups = new Map();
     (Array.isArray(records) ? records : []).forEach((record, index) => {
@@ -201,12 +247,16 @@
   function resultMetricEntries(record) {
     const results = record && record.results && typeof record.results === "object" ? record.results : {};
     const known = { tafel_slope: ["Tafel", "mV/dec"], Rs: ["Rs", "Ω"], Rct: ["Rct", "Ω"], ir_compensation: ["iR", "Ω"], equilibrium_potential: ["Eeq", "V"], Cdl: ["Cdl", record.type === "ECSA" ? "mF/cm²" : "F"], ECSA: ["ECSA", "cm²"], RF: ["RF", ""], cdl_mFcm2: ["Cdl", "mF/cm²"], ecsa_cm2: ["ECSA", "cm²"], delta_ep_mV: ["ΔEp", "mV"], charge_mC: ["Q", "mC"], CPE_Q: ["CPE Q", "S·sⁿ"], CPE_n: ["CPE n", ""], randles_r2: ["R²", ""], R2: ["R²", ""], fit_rmse_ohm: ["RMSE", "Ω"], Cs_mFcm2: ["Cs", "mF/cm²"], geometric_area_cm2: ["Ageo", "cm²"] };
+    if (record.type === "EIS") known.R2 = ["R2", "Ω"];
     const metrics = new Map();
     Object.entries(results).forEach(([key, value]) => {
+      if (record.eis_analysis && ["circuit_model", "equivalent_circuit", "fit_status", "kk_status"].includes(key)) return;
       const target = /^(potential|overpotential)_(?:at_)?([0-9]+(?:\.[0-9]+)?)$/.exec(key);
       const canonical = target ? `${target[1]}_${Number(target[2])}` : key;
       if (metrics.has(canonical) && !key.includes("_at_")) return;
-      const [label, unit] = target ? [`${target[1] === "potential" ? "E" : "η"}@${Number(target[2])}`, target[1] === "potential" ? "V" : "mV"] : known[key] || [key.replaceAll("_", " "), ""];
+      const modelUnits = record.type === "EIS" && record.eis_analysis?.fit?.parameter_units || {};
+      const circuitMetric = Object.hasOwn(modelUnits, key) ? [key, modelUnits[key]] : null;
+      const [label, unit] = target ? [`${target[1] === "potential" ? "E" : "η"}@${Number(target[2])}`, target[1] === "potential" ? "V" : "mV"] : circuitMetric || known[key] || [key.replaceAll("_", " "), ""];
       const formatted = value === null || value === undefined ? "—" : `${typeof value === "number" ? Number.isFinite(value) ? Number(value.toPrecision(6)) : "—" : typeof value === "object" ? JSON.stringify(value) : String(value)}${unit ? ` ${unit}` : ""}`;
       metrics.set(canonical, { key: canonical, label, unit, value, formatted });
     });

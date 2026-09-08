@@ -63,7 +63,7 @@ def tool_get_professional_mode_context() -> Dict[str, Any]:
         return {
             "success": False,
             "available": False,
-            "error": "当前请求没有可用的专业模式上下文",
+            "error": "当前请求没有可用的数据处理上下文",
         }
     return {
         "success": True,

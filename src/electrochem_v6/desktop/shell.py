@@ -24,6 +24,13 @@ from .data import (
     migrate_desktop_data,
     resolve_desktop_data_dir,
 )
+from .environment import (
+    WEBVIEW_RUNTIME_URL,
+    collect_environment_report,
+    format_environment_report,
+    show_environment_report,
+    with_startup_failure,
+)
 from .instance import SingleInstance
 from .mcp_integration import DesktopServiceDiscovery
 from .native import (
@@ -39,7 +46,6 @@ from .native import (
 from .state import DesktopState, fit_window
 
 APP_TITLE = f"ElectroChem｜{APP_NAME}"
-WEBVIEW_RUNTIME_URL = "https://developer.microsoft.com/microsoft-edge/webview2/"
 _logger = logging.getLogger(__name__)
 
 
@@ -62,6 +68,7 @@ class DesktopShellApp:
         self.port: int | None = None
         self.ui_url = ""
         self.webview_error = ""
+        self.environment_report: dict[str, Any] | None = None
         self.closing_mode: str | None = None
         self.migration_notice = ""
         self._mcp_discovery: DesktopServiceDiscovery | None = None
@@ -156,12 +163,14 @@ class DesktopShellApp:
         progress.pack(pady=18)
         progress.start()
         result: list[tuple[bool, str]] = []
+        startup_errors: list[BaseException] = []
 
         def start():
             try:
                 result.append(self._start_server())
             except Exception as exc:
                 _logger.exception("Desktop startup failed")
+                startup_errors.append(exc)
                 result.append((False, str(exc)))
 
         worker = threading.Thread(target=start, daemon=True)
@@ -172,10 +181,14 @@ class DesktopShellApp:
         splash.destroy()
         ok, message = result[0]
         if not ok:
-            self._show_error(message)
+            report = self.environment_report or collect_environment_report(self.runtime_root, self.location)
+            show_environment_report(with_startup_failure(report, "service", startup_errors[0] if startup_errors else RuntimeError()))
         return ok
 
     def _run_webview(self) -> bool:
+        if self.environment_report and not self.environment_report["can_use_embedded_window"]:
+            self.webview_error = "WebView2 或 .NET Framework 未满足桌面窗口要求。 / WebView2 or .NET Framework does not meet desktop window requirements."
+            return False
         try:
             import webview  # type: ignore[import-not-found]
             rectangle = self._normal_window
@@ -457,7 +470,7 @@ class DesktopShellApp:
         self._fallback_root = root
         root.title(APP_TITLE)
         _set_tk_icon(root)
-        root.geometry("620x320")
+        root.geometry("680x400")
         body = ttk.Frame(root, padding=20)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="桌面窗口暂不可用 / Desktop component unavailable", font=("Microsoft YaHei", 13, "bold")).pack(anchor="w")
@@ -465,6 +478,8 @@ class DesktopShellApp:
         ttk.Label(body, text=self.webview_error[:300], wraplength=570).pack(anchor="w")
         ttk.Button(body, text="打开浏览器工作区 / Open browser", command=lambda: webbrowser.open(self.ui_url.split("?", 1)[0])).pack(anchor="w", pady=(12, 4))
         ttk.Button(body, text="安装 WebView2 / Get WebView2", command=lambda: self.open_link(WEBVIEW_RUNTIME_URL)).pack(anchor="w", pady=4)
+        ttk.Button(body, text="查看并复制环境诊断 / View and copy diagnostics", command=lambda: show_environment_report(
+            collect_environment_report(self.runtime_root, self.location), parent=root)).pack(anchor="w", pady=4)
 
         def close():
             if self.closing_mode:
@@ -526,14 +541,42 @@ def _review_first_start_migration(runtime_root: Path, location: dict[str, str]) 
 
 
 def run_desktop(runtime_root: Path) -> int:
+    report: dict[str, Any] | None = None
     try:
         configure_process_identity()
-        location = configure_desktop_environment(resolve_desktop_data_dir(runtime_root))
+        # Activation is read-only and precedes the probe, migration and new service.
+        # A race with another launch is still handled by acquire() in app.run().
+        try:
+            selected = resolve_desktop_data_dir(runtime_root)
+        except (OSError, ValueError, RuntimeError):
+            selected = None
+        if selected is not None:
+            existing = SingleInstance(Path(selected["path"]), lambda: None)
+            if existing.metadata_path.is_file() and existing.activate_existing(timeout=0.2):
+                return 0
+        report = collect_environment_report(runtime_root, selected)
+        if not report["can_start"]:
+            show_environment_report(report)
+            return 1
+        location = configure_desktop_environment({"path": report["data_dir"], "mode": report["data_mode"]})
+        # Migration owns both directory locks itself. Preserve its position before
+        # acquiring the desktop lease; an existing instance was activated above.
         notice = _review_first_start_migration(runtime_root, location)
         app = DesktopShellApp(runtime_root, location)
+        app.environment_report = report
         app.migration_notice = notice
         return app.run()
     except Exception as exc:
         _logger.exception("Desktop client failed")
-        DesktopShellApp._show_error(str(exc))
+        if report is None:
+            # Collection is stdlib only; a failure to create the native window
+            # should still leave a report available from the CLI.
+            report = collect_environment_report(runtime_root)
+        failure = with_startup_failure(report, "desktop", exc)
+        try:
+            show_environment_report(failure)
+        except Exception:
+            import sys
+            if sys.stderr is not None:
+                print(format_environment_report(failure), file=sys.stderr)
         return 1

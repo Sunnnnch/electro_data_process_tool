@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import math
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from electrochem_v6.core.processing_eis_calc import EIS_CIRCUIT_MODELS
+from electrochem_v6.core.processing_eis_validation import kk_validation_metadata
 from electrochem_v6.core.utils import as_bool
 
-FORMULA_SCHEMA_VERSION = "1.3"
+FORMULA_SCHEMA_VERSION = "1.4"
 
 
 @dataclass(frozen=True)
@@ -48,8 +52,74 @@ class CalculationFormula:
             "result_unit": self.result_unit,
             "assumptions": list(self.assumptions),
             "references": list(self.references),
-            "metadata": dict(self.metadata),
+            "metadata": deepcopy(dict(self.metadata)),
         }
+
+
+_EIS_EXPRESSIONS = {
+    "randles_rc": "omega = 2*pi*f; Z = Rs + Rct/(1 + j*omega*Rct*Cdl)",
+    "randles_cpe": "omega = 2*pi*f; Z = Rs + Rct/(1 + Rct*Q*(j*omega)^n)",
+    "randles_warburg_rc": "omega = 2*pi*f; Z_W = sigma*(1-j)/sqrt(omega); Z = Rs + 1/(j*omega*Cdl + 1/(Rct + Z_W))",
+    "randles_warburg_cpe": "omega = 2*pi*f; Z_W = sigma*(1-j)/sqrt(omega); Z = Rs + 1/(Q*(j*omega)^n + 1/(Rct + Z_W))",
+    "two_time_constants_rc": "omega = 2*pi*f; Z = Rs + R1/(1 + j*omega*R1*C1) + R2/(1 + j*omega*R2*C2); tau_k = Rk*Ck; tau1 <= tau2",
+    "two_time_constants_cpe": "omega = 2*pi*f; Z = Rs + R1/(1 + R1*Q1*(j*omega)^n1) + R2/(1 + R2*Q2*(j*omega)^n2); tau_k = (Rk*Qk)^(1/nk); tau1 <= tau2",
+}
+
+
+def _eis_formula_catalog() -> tuple[CalculationFormula, ...]:
+    descriptions = {
+        "Rs": "Series solution resistance", "Rct": "Charge-transfer resistance in the selected circuit",
+        "R1": "Faster mathematical branch resistance", "R2": "Slower mathematical branch resistance",
+        "Cdl": "Ideal double-layer capacitance in the selected circuit", "C1": "Faster branch ideal capacitance",
+        "C2": "Slower branch ideal capacitance", "Q": "CPE coefficient", "Q1": "Faster branch CPE coefficient",
+        "Q2": "Slower branch CPE coefficient", "n": "CPE exponent", "n1": "Faster branch CPE exponent",
+        "n2": "Slower branch CPE exponent", "sigma": "Semi-infinite Warburg coefficient for the stated convention",
+    }
+    formulas = []
+    for model, expression in _EIS_EXPRESSIONS.items():
+        info = EIS_CIRCUIT_MODELS[model]
+        variables = (
+            FormulaVariable("Z", "Complex model impedance", "Ohm", "calculated"),
+            FormulaVariable("f", "Frequency after source-unit normalization and inclusive interval selection", "Hz", "input data"),
+            FormulaVariable("omega", "Angular frequency", "rad/s", "calculated"),
+            FormulaVariable("j", "Imaginary unit, sqrt(-1); not current density", "dimensionless", "constant"),
+            *(FormulaVariable(name, descriptions[name], info["parameter_units"][name], "fit") for name in info["parameters"]),
+        )
+        formulas.append(CalculationFormula(
+            key=f"eis.{model}", name=info["label"], expression=expression, data_types=("EIS",),
+            variables=variables, result_unit="Ohm",
+            assumptions=(*info["assumptions"],
+                "Real and imaginary residuals are fitted jointly using the same point weight; deterministic bounded multi-start least squares uses an analytic Jacobian.",
+                "A converged solution and the complex-R2 acceptance threshold do not establish physical validity or parameter identifiability.",
+                "Local 95% intervals assume a locally linear model and independent zero-mean residuals with common variance after weighting; empirical modulus weights are not measured noise uncertainties.",
+                "Intervals exclude model error, are not simultaneous, and are unavailable at parameter bounds, rank/conditioning failures or unresolved double branches.",
+            ),
+            references=("https://impedancepy.readthedocs.io/en/latest/circuit-elements.html",
+                        "https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html"),
+            metadata={
+                "model": model, "equivalent_circuit": info["equivalent_circuit"],
+                "parameter_units": dict(info["parameter_units"]),
+                "uncertainty_formula": "Cov(theta) ~= inverse(J_weighted.T*J_weighted) * SSE_weighted/(2*N-P); Cov(p) = D*Cov(theta)*D.T; CI95(p_k) = p_k +/- t(0.975,2*N-P)*sqrt(Cov(p)[k,k])",
+                "uncertainty_coordinates": "theta uses logarithms for positive elements, scaled linear Rs and linear CPE exponents; D is dp/dtheta. Numerical rank/conditioning gates precede covariance estimation.",
+            },
+        ))
+    kk = kk_validation_metadata()
+    formulas.append(CalculationFormula(
+        key="eis.lin_kk_validation", name="Finite-band linear Kramers-Kronig screening",
+        expression="omega = 2*pi*f; Z_KK = R0 + sum[Rk/(1+j*omega*tau_k)] + j*omega*L + 1/(j*omega*C); tau_k is log-spaced from 1/omega_max to 1/omega_min; residual_i = (Z_i-Z_KK,i)/max(abs(Z_i),1e-12*impedance_scale)",
+        data_types=("EIS",), result_unit="dimensionless residual",
+        variables=(
+            FormulaVariable("f", "Selected frequency, identical closed interval to the circuit fit when both are enabled", "Hz", "input data"),
+            FormulaVariable("R0,Rk", "Signed diagnostic expansion weights; not identified physical resistances", "Ohm", "linear fit"),
+            FormulaVariable("tau_k", "Fixed logarithmically distributed relaxation times", "s", "selected frequency band"),
+            FormulaVariable("L", "Diagnostic series inductance coefficient", "H", "linear fit"),
+            FormulaVariable("1/C", "Diagnostic inverse series capacitance coefficient", "1/F", "linear fit"),
+            FormulaVariable("impedance_scale", "Maximum absolute real or imaginary input component", "Ohm", "input data"),
+            FormulaVariable("residual_i", "Complex relative residual, evaluated at every selected input point", "dimensionless", "calculated"),
+        ),
+        assumptions=tuple(kk["limitations"]), references=(kk["reference"],), metadata=kk,
+    ))
+    return tuple(formulas)
 
 
 FORMULA_CATALOG: tuple[CalculationFormula, ...] = (
@@ -299,7 +369,7 @@ FORMULA_CATALOG: tuple[CalculationFormula, ...] = (
         result_unit="C",
         assumptions=("Current is treated as constant over the provided time interval.",),
     ),
-)
+) + _eis_formula_catalog()
 
 FORMULA_BY_KEY: dict[str, CalculationFormula] = {item.key: item for item in FORMULA_CATALOG}
 
@@ -338,6 +408,37 @@ def formulas_for_run(data_types: Sequence[str], params: Mapping[str, Any] | None
         cv_scan_rate = 0.0
     if cv_scan_rate <= 0:
         formulas = [item for item in formulas if item.get("key") != "cv.absolute_charge"]
+    fit_requested = as_bool(values.get("randles_fit", values.get("eis_randles_fit", False)), False)
+    model = str(values.get("eis_circuit_model") or "randles_rc").strip().lower()
+    kk_requested = as_bool(values.get("eis_kk_check"), False)
+    allowed_eis = {f"eis.{model}"} if fit_requested and model in EIS_CIRCUIT_MODELS else set()
+    if kk_requested:
+        allowed_eis.add("eis.lin_kk_validation")
+    formulas = [item for item in formulas if not item["key"].startswith("eis.") or item["key"] in allowed_eis]
+    for formula in formulas:
+        if not formula["key"].startswith("eis."):
+            continue
+        bounds = {}
+        for side in ("min", "max"):
+            raw = values.get(f"eis_fit_frequency_{side}_hz")
+            try:
+                value = None if raw is None or str(raw).strip() == "" else float(raw)
+            except (TypeError, ValueError, OverflowError):
+                value = None
+            bounds[f"requested_{side}_hz"] = value if value is not None and math.isfinite(value) else None
+        formula["metadata"]["frequency_window"] = {**bounds, "interval": "closed", "unit": "Hz",
+            "empty_bound": "all available frequencies on that side", "source_data_modified": False}
+        if formula["key"] != "eis.lin_kk_validation":
+            weighting = str(values.get("eis_fit_weighting") or "uniform").strip().lower()
+            formula["metadata"]["weighting"] = weighting
+            formula["metadata"]["objective"] = (
+                "minimize sum[(Re(Z_fit-Z_data)^2 + Im(Z_fit-Z_data)^2) / max(abs(Z_data),median(abs(Z_data))*1e-6,1e-12 Ohm)^2]"
+                if weighting == "modulus" else "minimize sum[Re(Z_fit-Z_data)^2 + Im(Z_fit-Z_data)^2]"
+            )
+            formula["metadata"]["acceptance_criterion"] = {
+                "metric": "complex_r2", "minimum": values.get("eis_fit_min_r2", 0.5),
+                "separate_review": "parameter identifiability and KK diagnostics remain separate from R2 acceptance",
+            }
     coupled_mode = str(values.get("coupled_input_mode") or "product_table").strip().lower()
     peak_mode = coupled_mode in {"peak_analysis", "peak", "peaks", "qnmr", "analytical_peaks"}
     peak_formula_keys = {

@@ -1,7 +1,12 @@
 """Regression tests for release tag selection and least-privilege CI permissions."""
 
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,3 +79,38 @@ def test_release_does_not_overwrite_an_already_public_asset_set():
     assert workflow.index("- name: Verify release artifacts") < workflow.index("- name: Recheck publication state")
     assert workflow.index("- name: Recheck publication state") < workflow.index("- name: Create GitHub Release")
     assert "--print-notes" in workflow
+
+
+@pytest.mark.parametrize("step", ["Reject an already published version", "Recheck publication state before uploading"])
+@pytest.mark.parametrize("release, accepted", [
+    ({"draft": True, "assets": [{"name": "ElectroChem-Setup-7.0.1-offline.exe"}]}, False),
+    ({"draft": True, "assets": []}, True),
+    ({"draft": False, "assets": []}, False),
+    ({"missing": True}, True),
+])
+def test_release_publication_gates_reject_nonempty_drafts_without_removing_assets(step, release, accepted):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required to execute the GitHub Actions script boundary")
+    section = _workflow("release.yml").split(f"      - name: {step}\n", 1)[1].split("      - name:", 1)[0]
+    script = section.split("          script: |\n", 1)[1]
+    script = "\n".join(line[12:] for line in script.splitlines() if line.startswith("            "))
+    harness = """
+      const release = JSON.parse(process.argv[1]);
+      const context = {repo:{owner:'test', repo:'test'}};
+      const github = {rest:{repos:{getReleaseByTag:async () => {
+        if (release.missing) { const error = new Error('Not found'); error.status = 404; throw error; }
+        return {data:release};
+      }}}};
+      (async () => {
+        try { await (async () => { SCRIPT })(); process.stdout.write(JSON.stringify({ok:true, release})); }
+        catch (error) { process.stdout.write(JSON.stringify({ok:false, message:error.message, release})); }
+      })();
+    """.replace("SCRIPT", script)
+    result = subprocess.run([node, "-e", harness, json.dumps(release)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    value = json.loads(result.stdout)
+    assert value["ok"] is accepted
+    assert value["release"] == release
+    if release.get("draft") and release.get("assets"):
+        assert "assets that this run has not verified" in value["message"]

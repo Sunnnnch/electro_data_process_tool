@@ -549,6 +549,14 @@ def _validate_payload(payload: Dict[str, Any], data_types: list[str]) -> str | N
             )
             if message:
                 return message
+    if "EIS" in selected:
+        lower = _payload_get(payload, "eis_fit_frequency_min_hz")
+        upper = _payload_get(payload, "eis_fit_frequency_max_hz")
+        for key, value in (("eis_fit_frequency_min_hz", lower), ("eis_fit_frequency_max_hz", upper)):
+            if value not in (None, "") and (isinstance(value, bool) or float(value) <= 0):
+                return f"EIS 频率必须大于 0 Hz ({key})"
+        if lower not in (None, "") and upper not in (None, "") and float(lower) > float(upper):
+            return "EIS 最低频率不能高于最高频率 (eis_fit_frequency_min_hz/eis_fit_frequency_max_hz)"
     if _potential_mode(payload) == "formula_rhe":
         if _payload_get(payload, "rhe_ph") in (None, ""):
             return "pH 不能为空 (rhe_ph)"

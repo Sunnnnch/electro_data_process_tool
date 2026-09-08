@@ -232,6 +232,11 @@ class EcsaDirectModule:
             except Exception as exc:
                 skipped += 1
                 messages.append(f"ECSA skipped {os.path.basename(folder_path)}: {exc}")
+                quality_reports.append({
+                    "filename": f"{os.path.basename(folder_path)}/ECSA", "data_type": "ECSA",
+                    "is_valid": False, "quality_level": "error", "issues": [str(exc)],
+                    "warnings": [], "recommendation": "inspect_fit", "stats": {"input_files": len(filenames)},
+                })
                 continue
             if not isinstance(payload, Mapping):
                 skipped += 1

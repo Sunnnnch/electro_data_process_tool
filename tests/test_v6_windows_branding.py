@@ -1,5 +1,6 @@
 """Validate public Windows names and real PE resources without installing an app."""
 
+import hashlib
 import json
 import os
 import runpy
@@ -91,6 +92,7 @@ def test_installer_upgrade_script_compiles_without_installing(tmp_path, offline)
     command = [str(ISCC), "/O-", "/Q", f"/DAppVersion={APP_VERSION}", f"/DAppSourceDir={source_dir}"]
     if offline:
         command.append(f"/DWebView2OfflineInstaller={fixture}")
+        command.append(f"/DWebView2OfflineSHA256={hashlib.sha256(fixture.read_bytes()).hexdigest()}")
     result = subprocess.run([*command, str(script)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert not list(tmp_path.rglob("*.exe"))

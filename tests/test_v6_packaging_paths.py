@@ -102,13 +102,20 @@ def test_build_scripts_parse_without_execution(tmp_path):
 def test_installer_prerequisites_markers_and_non_destructive_running_guard():
     installer = (ROOT / "packaging/installer.iss").read_text(encoding="utf-8-sig")
     build = (ROOT / "packaging/build_installer.ps1").read_text(encoding="utf-8-sig")
+    prerequisites = (ROOT / "packaging/installer_prerequisites.ps1").read_text(encoding="utf-8-sig")
     onedir = (ROOT / "packaging/build_onedir.ps1").read_text(encoding="utf-8-sig")
     assert "AppMutex=Local\\ElectroChemV6.Desktop" in installer
     assert "CloseApplications=no" in installer
     assert "RestartApplications=no" in installer
     assert "HasRuntimeAt(HKLM32) or HasRuntimeAt(HKCU32)" in installer
     assert "#ifdef WebView2OfflineInstaller" in installer
-    assert "Get-AuthenticodeSignature" in build and "O=Microsoft Corporation" in build
+    assert "Get-AuthenticodeSignature" in prerequisites and "O=Microsoft Corporation" in prerequisites
+    assert "Get-ValidatedWebView2Installer" in build
+    assert "MinVersion=10.0.19045" in installer
+    assert "ArchitecturesAllowed=x64os" in installer
+    assert "MinimumWebView2Major = 120" in installer
+    assert "ComparePackedVersion" in installer
+    assert "IsDotNetInstalled(net462, 0)" in installer
     assert "ELECTROCHEM_ISCC_PATH" in build and "[string]$IsccPath" in build
     assert 'Excludes: "user_data\\*,portable.marker,installed.marker"' in installer
     assert "DeleteFile(PortableMarker)" in installer

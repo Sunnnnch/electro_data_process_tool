@@ -14,17 +14,20 @@ from test_v6_assistant_appearance_ui import _contrast
 from test_v6_ui_playwright import _get_free_port, _launch_chromium, _sync_playwright_factory
 
 DEFAULTS = {
-    "version": 1,
-    "theme": "lab",
+    "version": 2,
+    "style": "modern",
     "fontSize": "standard",
     "density": "comfortable",
     "grid": False,
     "chartBackground": "theme",
+    "paletteByStyle": {"modern": {"id": "lab"}, "paper": {"id": "cream"}, "soft": {"id": "mist"}, "pixel": {"id": "cream"}},
 }
+LEGACY_DEFAULTS = {"version": 1, "theme": "lab", "fontSize": "standard", "density": "comfortable", "grid": False, "chartBackground": "theme"}
 
 
 @pytest.fixture
 def appearance_browser(monkeypatch, tmp_path):
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "runtime"))
     for key, name in {
         "ELECTROCHEM_V6_HISTORY_FILE": "history.json",
         "ELECTROCHEM_V6_PROJECTS_FILE": "projects.json",
@@ -93,8 +96,12 @@ def _prefs(page):
     return page.evaluate("ElectrochemTheme.getPreferences()")
 
 
-def _choose_theme(page, theme):
-    page.locator(f'input[name="appearance-theme"][value="{theme}"]').check()
+def _choose_style(page, style):
+    page.locator(f'input[name="appearance-style"][value="{style}"]').check()
+
+
+def _choose_palette(page, palette):
+    page.locator(f'input[name="appearance-palette"][value="{palette}"]').check()
 
 
 def test_appearance_first_visit_is_lab_before_first_paint(appearance_browser):
@@ -104,18 +111,20 @@ def test_appearance_first_visit_is_lab_before_first_paint(appearance_browser):
     assert page.evaluate("window.__appearanceFrames") == ["lab"] * 3
     assert page.evaluate("JSON.parse(localStorage.getItem('electrochem_v6_appearance'))") == DEFAULTS
     page.click("#appearance-open")
-    assert page.locator('.appearance-theme-card[data-appearance-theme="lab"]').evaluate("node => node.classList.contains('selected')")
+    assert page.locator('[data-appearance-style="modern"]').evaluate("node => node.classList.contains('selected')")
     assert page.locator("#appearance-grid").is_checked() is False
 
 
 @pytest.mark.parametrize("saved_theme", ["lab", "ocean", "dark", "pixel"])
 def test_appearance_migrates_each_saved_theme_and_new_preferences_win(appearance_browser, saved_theme):
     page = appearance_browser(storage={"electrochem_v6_theme": saved_theme})
-    assert _prefs(page) == {**DEFAULTS, "theme": saved_theme}
+    expected = {**DEFAULTS, "style": "pixel" if saved_theme == "pixel" else "modern",
+                "paletteByStyle": {**DEFAULTS["paletteByStyle"], "modern": {"id": saved_theme if saved_theme != "pixel" else "lab"}}}
+    assert _prefs(page) == expected
     assert page.evaluate("window.__appearanceFrames") == [saved_theme] * 3
     page.click("#appearance-open")
     page.select_option("#appearance-font-size", "large")
-    _choose_theme(page, "lab" if saved_theme != "lab" else "dark")
+    _choose_style(page, "modern" if saved_theme == "pixel" else "pixel")
     chosen = _prefs(page)
     page.reload(wait_until="networkidle")
     assert _prefs(page) == chosen
@@ -123,7 +132,7 @@ def test_appearance_migrates_each_saved_theme_and_new_preferences_win(appearance
 
 
 @pytest.mark.parametrize("stored", [
-    "not-json", "null", "[]", '{"version":2,"theme":"dark"}',
+    "not-json", "null", "[]", '{"version":3,"style":"pixel"}',
     '{"version":1,"theme":"<bad>","fontSize":"huge","density":false,"grid":"false","chartBackground":"black"}',
 ])
 def test_appearance_validates_broken_storage_without_stopping_the_page(appearance_browser, stored):
@@ -136,24 +145,24 @@ def test_appearance_validates_broken_storage_without_stopping_the_page(appearanc
 def test_appearance_system_follows_changes_and_manual_choice_stays_fixed(appearance_browser):
     page = appearance_browser(color_scheme="light")
     page.click("#appearance-open")
-    _choose_theme(page, "system")
+    _choose_palette(page, "system")
     page.emulate_media(color_scheme="dark")
     page.wait_for_function("() => document.body.dataset.theme === 'dark'")
-    assert _prefs(page)["theme"] == "system"
+    assert _prefs(page)["paletteByStyle"]["modern"] == {"id": "system"}
     page.emulate_media(color_scheme="light")
     page.wait_for_function("() => document.body.dataset.theme === 'lab'")
     page.emulate_media(color_scheme="dark")
     page.wait_for_function("() => document.body.dataset.theme === 'dark'")
     page.reload(wait_until="networkidle")
-    assert _prefs(page)["theme"] == "system"
+    assert _prefs(page)["paletteByStyle"]["modern"] == {"id": "system"}
     assert page.evaluate("window.__appearanceFrames") == ["dark"] * 3
     page.click("#appearance-open")
-    assert page.locator('input[name="appearance-theme"][value="system"]').is_checked()
-    _choose_theme(page, "ocean")
+    assert page.locator('input[name="appearance-palette"][value="system"]').is_checked()
+    _choose_palette(page, "ocean")
     page.emulate_media(color_scheme="light")
     page.emulate_media(color_scheme="dark")
     assert page.locator("body").get_attribute("data-theme") == "ocean"
-    assert _prefs(page)["theme"] == "ocean"
+    assert _prefs(page)["paletteByStyle"]["modern"] == {"id": "ocean"}
     assert page.evaluate("window.__appearanceEvents.filter(e => e.body).every(e => e.detail.theme === e.body)")
 
 
@@ -165,8 +174,8 @@ def test_appearance_controls_are_independent_persist_and_reset_visibly(appearanc
     page.select_option("#appearance-density", "compact")
     page.check("#appearance-grid")
     page.select_option("#appearance-chart-background", "paper")
-    _choose_theme(page, "pixel")
-    expected = {"version": 1, "theme": "pixel", "fontSize": "large", "density": "compact", "grid": True, "chartBackground": "paper"}
+    _choose_style(page, "pixel")
+    expected = {**DEFAULTS, "style": "pixel", "fontSize": "large", "density": "compact", "grid": True, "chartBackground": "paper"}
     assert _prefs(page) == expected
     assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--ui-font-size').trim()") == "16px"
     assert page.evaluate("getComputedStyle(document.body).getPropertyValue('--font-space').trim()") == "4px"
@@ -185,7 +194,7 @@ def test_appearance_controls_are_independent_persist_and_reset_visibly(appearanc
     page.click("#appearance-reset")
     assert _prefs(page) == DEFAULTS
     assert "已恢复默认" in page.locator("#appearance-status").inner_text()
-    assert page.locator('input[name="appearance-theme"][value="lab"]').is_checked()
+    assert page.locator('input[name="appearance-style"][value="modern"]').is_checked()
     assert page.locator("#appearance-font-size").input_value() == "standard"
     assert page.locator("#appearance-density").input_value() == "comfortable"
     assert page.locator("#appearance-chart-background").input_value() == "theme"
@@ -195,16 +204,16 @@ def test_appearance_controls_are_independent_persist_and_reset_visibly(appearanc
 def test_appearance_storage_denied_keeps_changes_in_memory(appearance_browser):
     page = appearance_browser(block_storage=True)
     page.click("#appearance-open")
-    _choose_theme(page, "dark")
+    _choose_palette(page, "dark")
     page.select_option("#appearance-font-size", "large")
-    assert _prefs(page)["theme"] == "dark"
+    assert _prefs(page)["paletteByStyle"]["modern"] == {"id": "dark"}
     assert _prefs(page)["fontSize"] == "large"
     assert "仅在本次页面" in page.locator("#appearance-status").inner_text()
     page.evaluate("ElectrochemTheme.init()")
     assert _prefs(page)["fontSize"] == "large"
     page.click("#appearance-close")
     page.click("#appearance-open")
-    assert page.locator('input[name="appearance-theme"][value="dark"]').is_checked()
+    assert page.locator('input[name="appearance-palette"][value="dark"]').is_checked()
 
 
 def test_appearance_keyboard_language_and_600px_layout(appearance_browser):
@@ -215,9 +224,9 @@ def test_appearance_keyboard_language_and_600px_layout(appearance_browser):
     assert page.locator("#appearance-title").inner_text() == "Appearance settings"
     assert page.evaluate("document.activeElement.id") == "appearance-close"
     page.keyboard.press("Tab")
-    assert page.evaluate("document.activeElement.name") == "appearance-theme"
+    assert page.evaluate("document.activeElement.name") == "appearance-style"
     page.keyboard.press("ArrowRight")
-    assert _prefs(page)["theme"] == "ocean"
+    assert _prefs(page)["style"] == "paper"
     page.select_option("#appearance-font-size", "extra-large")
     page.select_option("#appearance-density", "compact")
     dimensions = page.locator("#appearance-dialog").evaluate("node => ({width: node.getBoundingClientRect().width, client: node.clientWidth, scroll: node.scrollWidth, viewport: innerWidth})")
@@ -230,12 +239,12 @@ def test_appearance_keyboard_language_and_600px_layout(appearance_browser):
     assert page.locator("#appearance-dialog").is_visible() is False
     assert page.evaluate("document.activeElement.id") == "appearance-open"
     page.keyboard.press("Enter")
-    assert _prefs(page)["theme"] == "ocean"
+    assert _prefs(page)["style"] == "paper"
     assert page.locator("#appearance-dialog").is_visible()
 
 
 def test_dark_settings_and_rendered_ir_pairings_keep_readable_surfaces(appearance_browser):
-    page = appearance_browser(storage={"electrochem_v6_appearance": json.dumps({**DEFAULTS, "theme": "dark"})})
+    page = appearance_browser(storage={"electrochem_v6_appearance": json.dumps({**DEFAULTS, "paletteByStyle": {"modern": {"id": "dark"}, "pixel": {"id": "cream"}}})})
 
     def assert_contrast(selector):
         node = page.locator(selector).first

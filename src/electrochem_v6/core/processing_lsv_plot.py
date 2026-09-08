@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .processing_common import apply_plot_font, save_current_figure, serialized_plotting
-from .processing_lsv_calc import _parse_tafel_range
+from .processing_lsv_metrics import fit_tafel_data
 from .utils import as_int
 
 
@@ -66,45 +66,12 @@ def _add_tafel_overlay(
     if not params.get("tafel_enabled"):
         return None
     try:
-        I_all = np.asarray(current, dtype=float)
-        E_all = np.asarray(potential, dtype=float)
-        tafel_range = _parse_tafel_range(params.get("tafel_range", "1-10"))
-        if not tafel_range:
-            if logger is not None:
-                logger.warning("Invalid Tafel range: %s", params.get("tafel_range"))
-            raise ValueError("invalid tafel_range")
-        lo, hi = tafel_range
-        mask = (
-            np.isfinite(I_all)
-            & np.isfinite(E_all)
-            & (I_all > 0)
-            & (I_all >= min(lo, hi))
-            & (I_all <= max(lo, hi))
-        )
-        if mask.sum() < 3:
+        data = fit_tafel_data(potential, current, params.get("tafel_range", "1-10"), logger=logger)
+        if data is None:
             return None
-        x = np.log10(np.clip(I_all[mask], 1e-12, None))
-        y = E_all[mask]
-        b, a = np.polyfit(x, y, 1)
-        ss_res = float(np.sum((y - (a + b * x)) ** 2))
-        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-        r2 = 1.0 - ss_res / max(1e-12, ss_tot)
-        order = np.argsort(I_all[mask])
-        I_fit = I_all[mask][order]
-        E_fit = a + b * np.log10(np.clip(I_fit, 1e-12, None))
-        label = "Tafel fit: {:.1f} mV/dec, R²={:.3f}".format(float(b * 1000.0), float(r2))
-        plt.plot(E_fit, I_fit, "r-.", linewidth=1.5, label=label)
-        plt.scatter(E_all[mask], I_all[mask], c="red", s=20, zorder=5, label="Tafel used points")
-
-        data: dict[str, Any] = {
-            "I_data": I_all[mask],
-            "E_data": E_all[mask],
-            "I_fit": I_fit,
-            "E_fit": E_fit,
-            "slope_mVdec": float(b * 1000.0),
-            "r2": float(r2),
-            "range": (lo, hi),
-        }
+        label = "Tafel fit: {:.1f} mV/dec, R²={:.3f}".format(data["slope_mVdec"], data["r2"])
+        plt.plot(data["E_fit"], data["I_fit"], "r-.", linewidth=1.5, label=label)
+        plt.scatter(data["E_data"], data["I_data"], c="red", s=20, zorder=5, label="Tafel used points")
         if ir_compensation is not None:
             data["ir_compensation"] = ir_compensation
         return data

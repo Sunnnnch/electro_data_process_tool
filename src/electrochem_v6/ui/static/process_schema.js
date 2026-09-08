@@ -112,6 +112,11 @@
     eis_randles_fit: "pro-eis-randles-fit",
     eis_circuit_model: "pro-eis-circuit-model",
     eis_fit_min_r2: "pro-eis-fit-min-r2",
+    eis_fit_frequency_min_hz: "pro-eis-fit-frequency-min-hz",
+    eis_fit_frequency_max_hz: "pro-eis-fit-frequency-max-hz",
+    eis_fit_weighting: "pro-eis-fit-weighting",
+    eis_kk_check: "pro-eis-kk-check",
+    plot_eis_residuals: "pro-eis-plot-residuals",
 
     ecsa_match: "pro-ecsa-match",
     ecsa_prefix: "pro-ecsa-prefix",
@@ -339,6 +344,30 @@
       syncSelectOptions(el, param.options);
       applyDefault(el, param, schema && schema.schema_version);
     });
+    ["pro-eis-circuit-model", "pro-eis-randles-fit", "pro-eis-kk-check"].forEach((id) => {
+      const control = document.getElementById(id);
+      if (control && !control.dataset.eisBound) {
+        control.addEventListener("change", syncEisControls);
+        control.dataset.eisBound = "true";
+      }
+    });
+    syncEisControls();
+  }
+
+  function syncEisControls() {
+    if (typeof document === "undefined") return;
+    const model = document.getElementById("pro-eis-circuit-model");
+    document.querySelectorAll("[data-eis-model-hint]").forEach((hint) => {
+      hint.hidden = hint.dataset.eisModelHint !== (model && model.value);
+    });
+    const residuals = document.getElementById("pro-eis-residual-options");
+    if (residuals) {
+      residuals.hidden = !["pro-eis-randles-fit", "pro-eis-kk-check"].some((id) => {
+        const toggle = document.getElementById(id);
+        return toggle && toggle.checked;
+      });
+      residuals.classList.toggle("hidden", residuals.hidden);
+    }
   }
 
   function controlLabel(el, param) {
@@ -442,5 +471,6 @@
     moduleMap,
     paramMap,
     validateControls,
+    syncEisControls,
   };
 })();

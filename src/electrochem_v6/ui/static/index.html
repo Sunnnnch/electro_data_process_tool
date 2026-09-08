@@ -6,12 +6,14 @@
   <meta name="electrochem-session-token" content="__ELECTROCHEM_SESSION_TOKEN__">
   <title>ElectroChem｜智能电化学数据处理软件</title>
   <link rel="icon" type="image/png" href="/ui/static/app_icon.png">
+  <script src="/ui/static/palette.js"></script>
   <script src="/ui/static/theme.js"></script>
   <link rel="stylesheet" href="/ui/static/styles.css">
   <link rel="stylesheet" href="/ui/static/appearance.css">
   <link rel="stylesheet" href="/ui/static/assistant_appearance.css">
   <link rel="stylesheet" href="/ui/static/desktop.css">
   <link rel="stylesheet" href="/ui/static/mcp_settings.css">
+  <link rel="stylesheet" href="/ui/static/style_variants.css">
   <script src="/ui/static/purify.min.js"></script>
 </head>
 <body>
@@ -20,12 +22,18 @@
     <header class="hero">
       <div class="hero-top">
         <div class="brand-nav">
-          <p class="badge" data-i18n="badge">ElectroChem｜智能电化学数据处理软件</p>
-          <nav class="tabs-shell" aria-label="Workbench modes">
-            <button id="tab-btn-pro" class="tab-btn active" data-tab="pro" data-i18n="tab_pro">专业模式</button>
-            <button id="tab-btn-project" class="tab-btn" data-tab="project" data-i18n="tab_project">项目管理</button>
-          </nav>
+          <img class="brand-logo" src="/ui/static/app_icon.png" width="48" height="48" alt="">
+          <div class="brand-copy">
+            <h1 class="badge brand-title" data-i18n="badge">ElectroChem｜智能电化学数据处理软件</h1>
+            <p class="sub"><span data-i18n="hero_sub">数据处理 · 项目管理 · 结果复核 · AI 辅助分析</span> <a href="https://github.com/Sunnnnch/electro_data_process_tool" target="_blank" rel="noopener noreferrer" class="github-link">GitHub ↗</a></p>
+          </div>
         </div>
+      </div>
+      <div class="hero-workspace-bar">
+        <nav class="tabs-shell" aria-label="Workbench modes">
+          <button id="tab-btn-pro" class="tab-btn active" data-tab="pro" data-i18n="tab_pro">数据处理</button>
+          <button id="tab-btn-project" class="tab-btn" data-tab="project" data-i18n="tab_project">项目管理</button>
+        </nav>
         <div class="hero-controls">
           <button id="task-center-btn" class="hero-ghost-btn" type="button" aria-haspopup="dialog" aria-controls="task-center-dialog"><span id="task-center-label" data-i18n="task_title">任务</span></button>
           <button id="help-docs-btn" class="hero-ghost-btn" type="button" data-i18n="btn_help_docs">&#20351;&#29992;&#35828;&#26126;</button>
@@ -43,7 +51,6 @@
           </div>
         </div>
       </div>
-      <p class="sub"><span data-i18n="hero_sub">数据处理 · 项目管理 · 结果复核 · AI 辅助分析</span> <a href="https://github.com/Sunnnnch/electro_data_process_tool" target="_blank" rel="noopener noreferrer" class="github-link">📦 GitHub</a></p>
     </header>
 
     <section id="tab-pro" class="tab-panel active">
@@ -52,7 +59,7 @@
             <div class="side-mode-panel">
               <div class="process-stepper-title" data-i18n="work_mode_title">工作模式</div>
               <div class="side-mode-list">
-                <button class="side-mode-btn active" type="button" data-side-tab="pro" data-i18n="tab_pro">专业模式</button>
+                <button class="side-mode-btn active" type="button" data-side-tab="pro" data-i18n="tab_pro">数据处理</button>
                 <button class="side-mode-btn" type="button" data-side-tab="project" data-i18n="tab_project">项目管理</button>
               </div>
             </div>
@@ -113,10 +120,10 @@
 
         <article class="card workflow-card">
           <div class="section-head">
-            <h2 data-i18n="proc_title">专业数据处理</h2>
+            <h2 data-i18n="proc_title">数据处理</h2>
           </div>
           <details class="mode-help">
-            <summary data-i18n="guide_pro_summary">专业模式使用说明</summary>
+            <summary data-i18n="guide_pro_summary">数据处理使用说明</summary>
             <div class="mode-help-body">
               <p data-i18n="guide_pro_intro">用于批量处理 LSV/CV/EIS/ECSA/COUPLED 数据。先核对数据列、单位、电极面积与电位基准，再预检并运行。</p>
               <ol>
@@ -874,7 +881,8 @@
                     <span class="module-group-note" data-i18n="module_group_calc_hint">这些参数会直接影响计算结果，建议按实验方案确认。</span>
                   </div>
                   <div class="check-grid">
-                    <label><input id="pro-eis-randles-fit" type="checkbox"><span data-i18n="randles_fit">Randles 等效电路拟合</span></label>
+                    <label><input id="pro-eis-randles-fit" type="checkbox"><span data-i18n="randles_fit">等效电路拟合</span></label>
+                    <label><input id="pro-eis-kk-check" type="checkbox"><span data-i18n="label_eis_kk_check">KK 一致性检查（可独立开启）</span></label>
                   </div>
                   <div class="field-grid two">
                     <div class="input-item">
@@ -882,14 +890,31 @@
                       <select id="pro-eis-circuit-model">
                         <option value="randles_rc" data-i18n="opt_eis_randles_rc">Rs + (Rct || Cdl)</option>
                         <option value="randles_cpe" data-i18n="opt_eis_randles_cpe">Rs + (Rct || CPE)</option>
+                        <option value="randles_warburg_rc" data-i18n="opt_eis_randles_warburg_rc">Rs + (Cdl || (Rct + W))</option>
+                        <option value="randles_warburg_cpe" data-i18n="opt_eis_randles_warburg_cpe">Rs + (CPE || (Rct + W))</option>
+                        <option value="two_time_constants_rc" data-i18n="opt_eis_two_time_constants_rc">Rs + (R1 || C1) + (R2 || C2)</option>
+                        <option value="two_time_constants_cpe" data-i18n="opt_eis_two_time_constants_cpe">Rs + (R1 || CPE1) + (R2 || CPE2)</option>
                       </select>
                     </div>
-                    <div class="input-item">
-                      <label class="input-label" for="pro-eis-fit-min-r2" data-i18n="label_eis_fit_min_r2">最低接受 R²</label>
-                      <input id="pro-eis-fit-min-r2" type="text" inputmode="decimal" placeholder="0.5">
-                    </div>
                   </div>
-                  <div class="param-tip" data-i18n="tip_eis_model_limitations">模型仅包含一个时间常数；未包含 Warburg 扩散、感抗或额外时间常数。拟合结果会保存残差与接受标准。</div>
+                  <p class="param-tip" data-eis-model-hint="randles_rc" data-i18n="tip_eis_randles_rc">单一理想电容弧；不含扩散或额外时间常数。</p>
+                  <p class="param-tip" data-eis-model-hint="randles_cpe" data-i18n="tip_eis_randles_cpe" hidden>单一压扁电容弧；CPE 的 Q 不能直接当作 Cdl。</p>
+                  <p class="param-tip" data-eis-model-hint="randles_warburg_rc" data-i18n="tip_eis_randles_warburg_rc" hidden>单一电容弧加半无限 Warburg 扩散；不适合有限长度扩散。</p>
+                  <p class="param-tip" data-eis-model-hint="randles_warburg_cpe" data-i18n="tip_eis_randles_warburg_cpe" hidden>非理想电容弧加半无限扩散；须核对参数相关性与置信区间。</p>
+                  <p class="param-tip" data-eis-model-hint="two_time_constants_rc" data-i18n="tip_eis_two_time_constants_rc" hidden>两个理想电容支路，按快到慢编号；R1/R2 不直接等同 Rct。</p>
+                  <p class="param-tip" data-eis-model-hint="two_time_constants_cpe" data-i18n="tip_eis_two_time_constants_cpe" hidden>两个非理想电容支路；时间常数重叠时参数可能不可辨识。</p>
+                  <details class="source-profile-panel" id="pro-eis-analysis-advanced">
+                    <summary data-i18n="eis_analysis_advanced">高级拟合与一致性设置</summary>
+                    <div class="field-grid two">
+                      <div class="input-item"><label class="input-label" for="pro-eis-fit-frequency-min-hz" data-i18n="label_eis_fit_frequency_min_hz">最低频率（Hz）</label><input id="pro-eis-fit-frequency-min-hz" type="text" inputmode="decimal" data-i18n-placeholder="eis_frequency_unlimited" placeholder="留空不限制"></div>
+                      <div class="input-item"><label class="input-label" for="pro-eis-fit-frequency-max-hz" data-i18n="label_eis_fit_frequency_max_hz">最高频率（Hz）</label><input id="pro-eis-fit-frequency-max-hz" type="text" inputmode="decimal" data-i18n-placeholder="eis_frequency_unlimited" placeholder="留空不限制"></div>
+                      <div class="input-item"><label class="input-label" for="pro-eis-fit-weighting" data-i18n="label_eis_fit_weighting">拟合权重</label><select id="pro-eis-fit-weighting"><option value="uniform" data-i18n="opt_eis_weight_uniform">等权重</option><option value="modulus" data-i18n="opt_eis_weight_modulus">模值归一化（1/|Z|）</option></select></div>
+                      <div class="input-item"><label class="input-label" for="pro-eis-fit-min-r2" data-i18n="label_eis_fit_min_r2">最低接受 R²</label><input id="pro-eis-fit-min-r2" type="text" inputmode="decimal" placeholder="0.5"></div>
+                    </div>
+                    <p class="param-tip" data-i18n="tip_eis_frequency">频段为 Hz 闭区间，填写值须大于 0；留空使用全部可用频率。拟合和 KK 使用所选点，原始曲线保留全部点。</p>
+                    <div class="check-grid" id="pro-eis-residual-options" hidden><label><input id="pro-eis-plot-residuals" type="checkbox" checked><span data-i18n="label_plot_eis_residuals">导出残差图（拟合或 KK 开启时）</span></label></div>
+                  </details>
+                  <p class="param-tip" data-i18n="tip_eis_model_limitations">R² 通过仅表示达到数值门槛，仍需复核残差、参数区间与适用性。KK 检查可独立运行；一致性通过不能证明所选电路正确。</p>
                 </div>
               </section>
 
@@ -1331,7 +1356,7 @@
       <div class="assistant-drawer-head">
         <div>
           <strong data-i18n="tab_ai">数据分析助手</strong>
-          <span data-i18n="assistant_drawer_sub">按需调用专业模式与项目数据库</span>
+          <span data-i18n="assistant_drawer_sub">按需读取数据处理界面与项目数据库</span>
         </div>
         <div class="mini-actions">
           <button id="assistant-history-toggle" class="btn mini" type="button" aria-controls="assistant-conversation-panel" aria-expanded="false" data-i18n="assistant_conversations">会话</button>
@@ -1385,10 +1410,10 @@
                 <strong data-i18n="assistant_auto_context">AI 自动选择上下文</strong>
               </div>
             </div>
-            <p class="assistant-auto-description" data-i18n="assistant_auto_context_desc">普通问答直接回答；涉及当前设置时读取专业模式，涉及历史数据时查询项目数据库。</p>
+            <p class="assistant-auto-description" data-i18n="assistant_auto_context_desc">普通问答直接回答；涉及当前设置时读取数据处理界面，涉及历史数据时查询项目数据库。</p>
             <p id="assistant-context-summary" class="assistant-context-summary"></p>
             <details class="assistant-context-details">
-              <summary data-i18n="assistant_context_details">查看可供 AI 按需读取的专业模式摘要</summary>
+              <summary data-i18n="assistant_context_details">查看可供 AI 按需读取的数据处理摘要</summary>
               <pre id="assistant-context-preview"></pre>
             </details>
           </section>
@@ -1532,7 +1557,12 @@
   </main>
 
   <button id="assistant-fab" class="assistant-fab" type="button" aria-controls="assistant-drawer" aria-expanded="false">
-    <span class="assistant-fab-icon" aria-hidden="true">AI</span>
+    <span class="assistant-fab-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+        <path d="M7.5 3.5h7m-5 0v6l-5 8.5a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-8.5v-6M7 16h9"/>
+        <path d="m19.5 4 .6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6Z" stroke-width="1.2"/>
+      </svg>
+    </span>
     <span data-i18n="tab_ai">数据分析助手</span>
   </button>
 
@@ -1619,6 +1649,12 @@
         <div class="input-item">
           <label class="input-label" for="llm-model" data-i18n="llm_model">模型</label>
           <input id="llm-model" type="text" data-i18n-placeholder="ph_llm_model" placeholder="例如 gpt-4o-mini">
+          <select id="llm-model-options" hidden disabled aria-label="选择已获取的模型" data-i18n-aria-label="llm_models_choose"></select>
+          <div class="mini-actions">
+            <button id="llm-model-refresh" class="btn mini ghost" type="button" data-i18n="llm_models_refresh">获取模型</button>
+          </div>
+          <small id="llm-model-status" class="hint" role="status" aria-live="polite"></small>
+          <small class="hint" data-i18n="llm_models_note">输入密钥后自动读取列表，不保存密钥或发送对话。请选择支持对话的模型，也可手动填写。</small>
         </div>
         <div class="input-item">
           <label class="input-label" for="llm-base-url" data-i18n="llm_base_url">Base URL</label>

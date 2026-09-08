@@ -166,7 +166,7 @@ def propose_parameter_changes(changes: list[dict[str, Any]]) -> dict[str, Any]:
     before = context.get("parameters")
     data_types = context.get("data_types") or []
     if not isinstance(before, dict) or not data_types or context.get("configuration_warning"):
-        raise ValueError("当前专业模式参数不可用，请先检查设置")
+        raise ValueError("当前数据处理参数不可用，请先检查设置")
     if not isinstance(changes, list) or not changes or any(not isinstance(item, dict) for item in changes):
         raise ValueError("请提供参数、建议值和理由")
     values = {str(item.get("key") or ""): item.get("value") for item in changes}
@@ -214,7 +214,7 @@ def propose_parameter_changes(changes: list[dict[str, Any]]) -> dict[str, Any]:
         digest = str(provenance.get("sha256") or "未记录")[:12]
         extra = {"recommendation": recommendation_info, "preview": {"warnings": [
             f"候选分析范围：{provenance['file_name']}（SHA-256 {digest}），仅此一个输入文件。",
-            "专业模式的参数由当前批次所选文件共享；应用后请重新预检并核对每个文件。",
+            "数据处理的参数由当前批次所选文件共享；应用后请重新预检并核对每个文件。",
             *recommendation_info["limitations"],
         ]}}
     return _card("parameter_changes", changes=rows, data_types=data_types, context_guard=guard,

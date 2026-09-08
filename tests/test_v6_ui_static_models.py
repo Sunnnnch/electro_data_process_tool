@@ -257,6 +257,7 @@ def test_theme_defaults_to_lab_and_preserves_saved_choice() -> None:
           saved,
         };
         """,
+        dependencies=("palette.js",),
     )
 
     assert payload == {
@@ -1332,6 +1333,27 @@ def test_project_page_renders_project_widgets_and_output_groups() -> None:
         "outputHtml": True,
         "saveDisabled": False,
         "total": "7",
+    }
+
+
+def test_eis_branch_units_do_not_relabel_resistance_as_fit_r_squared() -> None:
+    payload = _node_json(
+        "project_page.js",
+        """
+        const entries = window.ElectrochemProjectPage.resultMetricEntries;
+        const compact = record => entries(record).map(item => [item.label, item.formatted]);
+        return {
+          eis: compact({type:'EIS', results:{R1:25, R2:100, randles_r2:1},
+            eis_analysis:{fit:{parameter_units:{R1:'Ohm', R2:'Ohm'}}}}),
+          thinEis: compact({type:'EIS', results:{R2:100, randles_r2:1}}),
+          ecsa: compact({type:'ECSA', results:{R2:0.99}}),
+        };
+        """,
+    )
+    assert payload == {
+        "eis": [["R1", "25 Ohm"], ["R2", "100 Ohm"], ["R²", "1"]],
+        "thinEis": [["R2", "100 Ω"], ["R²", "1"]],
+        "ecsa": [["R²", "0.99"]],
     }
 
 

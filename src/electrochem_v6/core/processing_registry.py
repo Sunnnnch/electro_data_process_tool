@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 
 from electrochem_v6.core.utils import as_bool
 
-PARAM_SCHEMA_VERSION = "1.8"
+PARAM_SCHEMA_VERSION = "1.9"
 
 FILE_MATCH_MODES = ("prefix", "suffix", "contains", "regex")
 POTENTIAL_MODES = ("manual", "formula_rhe")
@@ -299,6 +299,8 @@ NUMERIC_PARAM_SPECS: tuple[NumericParamSpec, ...] = (
         default=0.5,
         group="calculation",
     ),
+    NumericParamSpec("eis_fit_frequency_min_hz", "EIS minimum frequency (Hz)", min_value=0.0, data_type="EIS", group="calculation", help_text="Optional, strictly positive; inclusive lower bound in Hz. Empty means no lower limit."),
+    NumericParamSpec("eis_fit_frequency_max_hz", "EIS maximum frequency (Hz)", min_value=0.0, data_type="EIS", group="calculation", help_text="Optional, strictly positive; inclusive upper bound in Hz. Empty means no upper limit."),
     NumericParamSpec(
         "eis_frequency_column",
         "EIS frequency column",
@@ -941,7 +943,7 @@ GUI_PARAM_SPECS: tuple[GuiParamSpec, ...] = (
         "bool",
         ("EIS",),
         group="calculation",
-        label="Enable Randles fit",
+        label="Enable equivalent circuit fitting",
         ui_control="checkbox",
     ),
     GuiParamSpec(
@@ -952,7 +954,7 @@ GUI_PARAM_SPECS: tuple[GuiParamSpec, ...] = (
         group="calculation",
         label="Equivalent circuit model",
         ui_control="select",
-        options=("randles_rc", "randles_cpe"),
+        options=("randles_rc", "randles_cpe", "randles_warburg_rc", "randles_warburg_cpe", "two_time_constants_rc", "two_time_constants_cpe"),
     ),
     GuiParamSpec(
         "eis_fit_min_r2",
@@ -962,6 +964,11 @@ GUI_PARAM_SPECS: tuple[GuiParamSpec, ...] = (
         group="calculation",
         label="Minimum accepted fit R2",
     ),
+    GuiParamSpec("eis_fit_frequency_min_hz", None, "float", ("EIS",), empty_as_default=True, group="calculation", label="Minimum frequency (Hz)", help_text="Strictly positive inclusive bound; empty uses all available lower frequencies."),
+    GuiParamSpec("eis_fit_frequency_max_hz", None, "float", ("EIS",), empty_as_default=True, group="calculation", label="Maximum frequency (Hz)", help_text="Strictly positive inclusive bound; empty uses all available higher frequencies."),
+    GuiParamSpec("eis_fit_weighting", "uniform", "str", ("EIS",), group="calculation", label="Fit weighting", ui_control="select", options=("uniform", "modulus")),
+    GuiParamSpec("eis_kk_check", False, "bool", ("EIS",), group="quality", label="Enable KK consistency check", ui_control="checkbox"),
+    GuiParamSpec("plot_eis_residuals", True, "bool", ("EIS",), group="plot_export", label="Export EIS residuals when fitting or KK is enabled", ui_control="checkbox"),
     GuiParamSpec(
         "ecsa_match",
         "prefix",

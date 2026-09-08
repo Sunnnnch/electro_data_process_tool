@@ -1,11 +1,14 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
-    [switch]$RequireSigning
+    [switch]$RequireSigning,
+    [string]$SignToolPath = "",
+    [string]$ReceiptDirectory = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'windows_signing.ps1')
 
 $ResolvedPath = (Resolve-Path -LiteralPath $Path).Path
 $Thumbprint = [string]$env:ELECTROCHEM_SIGN_CERT_SHA1
@@ -16,6 +19,8 @@ if (-not $Thumbprint) {
     Write-Warning "Skipping Authenticode signing for local-test artifact: $ResolvedPath"
     return
 }
+if ($Thumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'ELECTROCHEM_SIGN_CERT_SHA1 must be a 40-character certificate thumbprint' }
+$SignTool = Get-VerifiedSignTool $SignToolPath
 
 $ExistingSignature = Get-AuthenticodeSignature -FilePath $ResolvedPath
 if (
@@ -23,25 +28,10 @@ if (
     $ExistingSignature.SignerCertificate -and
     $ExistingSignature.SignerCertificate.Thumbprint -eq $Thumbprint
 ) {
+    Assert-PublisherSignature $ExistingSignature $Thumbprint
+    Write-PublisherSigningReceipt $ResolvedPath $ReceiptDirectory $ExistingSignature
     Write-Host "Existing Authenticode signature is valid: $ResolvedPath" -ForegroundColor Green
     return
-}
-
-$Candidates = @(
-    "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\signtool.exe",
-    "${env:ProgramFiles}\Windows Kits\10\App Certification Kit\signtool.exe"
-)
-$SignTool = $Candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if (-not $SignTool) {
-    $KitBin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-    if (Test-Path $KitBin) {
-        $SignTool = Get-ChildItem $KitBin -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1 -ExpandProperty FullName
-    }
-}
-if (-not $SignTool) {
-    throw "signtool.exe was not found"
 }
 
 $TimestampUrl = [string]$env:ELECTROCHEM_TIMESTAMP_URL
@@ -56,4 +46,7 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "Authenticode signature verification failed with exit code $LASTEXITCODE"
 }
+$VerifiedSignature = Get-AuthenticodeSignature -LiteralPath $ResolvedPath
+Assert-PublisherSignature $VerifiedSignature $Thumbprint
+Write-PublisherSigningReceipt $ResolvedPath $ReceiptDirectory $VerifiedSignature
 Write-Host "Authenticode signature verified: $ResolvedPath" -ForegroundColor Green

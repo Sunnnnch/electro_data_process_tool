@@ -22,7 +22,7 @@ from electrochem_v6.store.runtime import get_database
 
 MAX_MEMBERS = 100
 _HASH = re.compile(r"^[a-fA-F0-9]{64}$")
-_DIMENSIONLESS = {"CPE_n", "randles_r2", "RF", "R2", "r2", "fit_r2"}
+_DIMENSIONLESS = {"CPE_n", "n1", "n2", "randles_r2", "RF", "R2", "r2", "fit_r2"}
 
 
 def _path(value: Any) -> str:
@@ -156,7 +156,7 @@ def _analysis_conditions(members: list[dict[str, Any]], confirmation: str) -> di
             if any(key.startswith("potential_") for key in metrics):
                 fields.update(("potential_mode", "potential_offset"))
         elif dtype == "EIS":
-            fields.add("eis_circuit_model")
+            fields.update(("eis_circuit_model", "eis_fit_weighting", "eis_fit_frequency_min_hz", "eis_fit_frequency_max_hz"))
         else:
             # Unknown modules require explicit review until their comparable
             # processing conventions are described here.
@@ -258,6 +258,17 @@ def summarize_group(group: dict[str, Any]) -> dict[str, Any]:
                         "archived": bool(record.get("archived")), "included": not excluded,
                         "status": status, "reason": reasons.get(key, ""), "independence_confirmed": confirmed,
                         "source": source, "metrics": history_metrics_for_display(record)})
+        analysis_warnings = []
+        if members[-1]["data_type"] == "EIS":
+            analysis = record.get("eis_analysis") or {}
+            fit, kk = analysis.get("fit") or {}, analysis.get("kk") or {}
+            if fit.get("review_required") or fit.get("status") in {"needs_review", "rejected", "fit_failed"}:
+                analysis_warnings.append("等效电路拟合需复核：" + ", ".join(fit.get("review_reasons") or [str(fit.get("status"))]))
+            if kk.get("status") in {"review", "unavailable"}:
+                analysis_warnings.append("KK 一致性需复核：" + str(kk.get("reason") or kk["status"]))
+        members[-1]["analysis_warnings"] = analysis_warnings
+        if not excluded:
+            warnings.extend(f"{members[-1]['name']}：{message}；重复实验统计不消除拟合或模型的不确定性" for message in analysis_warnings)
         if status == "unverified":
             issues.append(f"{members[-1]['name']} 缺少完整来源证据，请逐条确认确为独立实验或排除")
     active = [member for member in members if member["included"]]
@@ -287,10 +298,12 @@ def summarize_group(group: dict[str, Any]) -> dict[str, Any]:
         available = [member["metrics"][key] for member in members if key in member["metrics"]]
         selected = [member["metrics"][key] for member in active if key in member["metrics"]]
         units = {item["unit"] for item in selected}
-        unit_unknown = units == {""} and key not in _DIMENSIONLESS
+        dimensionless = key in _DIMENSIONLESS and not (data_type == "EIS" and key == "R2")
+        unit_unknown = units == {""} and not dimensionless
         dimension_mismatch = False
-        if data_type == "EIS" and key == "CPE_Q":
-            exponents = [member["metrics"].get("CPE_n", {}).get("value") for member in active
+        if data_type == "EIS" and key in {"CPE_Q", "Q1", "Q2"}:
+            exponent_key = {"CPE_Q": "CPE_n", "Q1": "n1", "Q2": "n2"}[key]
+            exponents = [member["metrics"].get(exponent_key, {}).get("value") for member in active
                          if member["metrics"].get(key, {}).get("value") is not None]
             dimension_mismatch = bool(exponents) and (None in exponents or len(set(exponents)) != 1)
         incompatible = len(units) > 1 or dimension_mismatch

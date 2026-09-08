@@ -190,7 +190,9 @@ Replace the template compounds, concentrations, volumes, and reaction informatio
 
 ## 5. Data analysis assistant and explicit confirmation
 
-Configure a working model provider in the application first. `GET /api/v1/llm/config` returns masked settings. A conversation can specify `provider` and `model`, or use the current configuration. The example reuses `api` and `wait_job` above; `processing_result` binds the exact completed result rather than relying on a “latest record” lookup:
+Configure a working model provider in the application first. `GET /api/v1/llm/config` returns masked settings. `POST /api/v1/llm/models` accepts `provider`, optional `base_url`, and optional `api_key`, returning a `models` array of IDs. It only queries that address's `/models` endpoint, without saving a new key or sending a chat. Without an entered key, saved credentials may only be used at the saved origin. HTTPS and loopback HTTP are supported; redirects are not followed. Services without a catalogue can still use a manually entered model. Errors return HTTP 400 and a stable `code`, such as `unauthorized`, `unsupported`, or `timeout`. Listing a model does not establish chat compatibility or inference access.
+
+A conversation can specify `provider` and `model`, or use the current configuration. The example reuses `api` and `wait_job` above; `processing_result` binds the exact completed result rather than relying on a “latest record” lookup:
 
 ```python
 submitted = api("/api/v1/agent/jobs", {

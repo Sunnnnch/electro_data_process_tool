@@ -907,6 +907,40 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/v1/llm/models:
+    post:
+      operationId: discoverLlmModels
+      tags: [LLM]
+      summary: 查询所填服务地址的模型列表，不保存密钥或调用对话
+      description: >-
+        向 Base URL 的 /models 发起 GET。仅支持 HTTPS 或本机回环 HTTP，
+        不跟随重定向。省略 api_key 时可使用该服务商已保存或环境变量中的密钥，
+        但 Base URL 必须与保存地址同源。列表不保证模型支持当前对话接口。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: { type: string, example: openai }
+                base_url: { type: string, description: 省略时使用已配置的地址 }
+                api_key: { type: string, writeOnly: true, description: 本次查询使用的密钥，不自动保存 }
+      responses:
+        "200":
+          description: 模型 ID 列表（可以为空），最多返回 2000 项
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [success] }
+                  models: { type: array, items: { type: string } }
+                  truncated: { type: boolean }
+        "400":
+          description: 配置、权限、网络或接口兼容性错误；返回 status、稳定 code 和脱敏 message，仍可手动配置模型
+
   /api/v1/agent/messages:
     post:
       operationId: agentChat

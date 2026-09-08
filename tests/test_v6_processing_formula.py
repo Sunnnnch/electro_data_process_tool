@@ -129,7 +129,7 @@ def test_new_lsv_pipeline_persists_formulas_without_rewriting_old_recipe(tmp_pat
         }})
         assert result["status"] == "success", result
         manifest = result["result"]["manifest"]
-        assert manifest["calculation"]["formula_schema_version"] == FORMULA_SCHEMA_VERSION == "1.3"
+        assert manifest["calculation"]["formula_schema_version"] == FORMULA_SCHEMA_VERSION == "1.4"
         assert {item["key"] for item in manifest["calculation"]["formulas"]} == {
             "lsv.current_density", "lsv.manual_potential_offset", "lsv.target_potential", "lsv.tafel_fit",
         }
@@ -139,5 +139,105 @@ def test_new_lsv_pipeline_persists_formulas_without_rewriting_old_recipe(tmp_pat
         assert recipe["manifest"]["calculation"] == manifest["calculation"]
         old = get_run_recipe("old-recipe")["manifest"]["calculation"]
         assert old == {"formula_schema_version": "1.2", "formulas": []}
+    finally:
+        reset_runtime()
+
+
+@pytest.mark.parametrize("model", [
+    "randles_rc", "randles_cpe", "randles_warburg_rc", "randles_warburg_cpe",
+    "two_time_constants_rc", "two_time_constants_cpe",
+])
+def test_eis_snapshot_contains_only_selected_model_with_exact_units_and_run_controls(model):
+    from electrochem_v6.core.processing_eis_calc import EIS_CIRCUIT_MODELS
+
+    formulas = formulas_for_run(["EIS"], {
+        "eis_randles_fit": True, "eis_circuit_model": model, "eis_kk_check": False,
+        "eis_fit_weighting": "modulus", "eis_fit_frequency_min_hz": "0.5",
+        "eis_fit_frequency_max_hz": 20000, "eis_fit_min_r2": .95,
+    })
+    assert len(formulas) == 1
+    formula = formulas[0]
+    assert formula["key"] == f"eis.{model}"
+    metadata = formula["metadata"]
+    assert metadata["equivalent_circuit"] == EIS_CIRCUIT_MODELS[model]["equivalent_circuit"]
+    assert metadata["weighting"] == "modulus"
+    assert "median(abs(Z_data))*1e-6" in metadata["objective"]
+    assert metadata["frequency_window"] == {
+        "requested_min_hz": .5, "requested_max_hz": 20000, "interval": "closed", "unit": "Hz",
+        "empty_bound": "all available frequencies on that side", "source_data_modified": False,
+    }
+    assert metadata["acceptance_criterion"]["minimum"] == .95
+    variables = {item["symbol"]: item for item in formula["variables"]}
+    assert variables["f"]["unit"] == "Hz"
+    for parameter, unit in metadata["parameter_units"].items():
+        assert variables[parameter]["unit"] == unit
+    if "warburg" in model:
+        assert "Z_W = sigma*(1-j)/sqrt(omega)" in formula["expression"]
+        assert "1/(Rct + Z_W)" in formula["expression"]
+        assert variables["sigma"]["unit"] == "Ohm*s^-0.5"
+    if model.startswith("two_"):
+        assert "Rct" not in variables
+        assert "tau1 <= tau2" in formula["expression"]
+        assert variables["R1"]["unit"] == variables["R2"]["unit"] == "Ohm"
+    assert "not simultaneous" in " ".join(formula["assumptions"])
+
+
+def test_eis_fitting_and_kk_switches_are_independent_and_snapshot_method_does_not_drift():
+    from electrochem_v6.core.processing_eis_validation import kk_validation_metadata, validate_eis_kk
+
+    assert formulas_for_run(["EIS"], {}) == []
+    assert formulas_for_run(["EIS"], {"eis_randles_fit": "false", "eis_kk_check": "false"}) == []
+    params = {"eis_randles_fit": False, "eis_circuit_model": "two_time_constants_cpe", "eis_kk_check": True}
+    kk_only = formulas_for_run(["EIS"], params)
+    assert [item["key"] for item in kk_only] == ["eis.lin_kk_validation"]
+    metadata = kk_only[0]["metadata"]
+    assert metadata["method_description"] == kk_validation_metadata()["method_description"]
+    assert metadata["thresholds"] == validate_eis_kk([], [], [])["thresholds"]
+    assert metadata["frequency_window"]["requested_min_hz"] is None
+    assert "Modulus-weighted" in metadata["method_description"]
+    assert "weighting" not in metadata  # The circuit's uniform/modulus control does not change the KK method.
+    both = formulas_for_run(["EIS"], {**params, "eis_randles_fit": True})
+    assert {item["key"] for item in both} == {"eis.two_time_constants_cpe", "eis.lin_kk_validation"}
+    assert both[0]["metadata"]["weighting"] == "uniform"
+    assert not any(item["key"].startswith("eis.") for item in formulas_for_run(["LSV"], params))
+
+    metadata["thresholds"]["normalized_rms_max"] = 99
+    both[0]["metadata"]["parameter_units"]["Rs"] = "corrupted"
+    fresh = formulas_for_run(["EIS"], {**params, "eis_randles_fit": True})
+    assert fresh[0]["metadata"]["parameter_units"]["Rs"] == "Ohm"
+    assert fresh[-1]["metadata"]["thresholds"]["normalized_rms_max"] == .02
+
+
+def test_new_eis_pipeline_saves_selected_formula_and_leaves_legacy_snapshot_unchanged(tmp_path, monkeypatch):
+    from electrochem_v6.core.process_service import process_folder
+    from electrochem_v6.store.run_recipes import get_run_recipe, save_run_recipe
+    from electrochem_v6.store.runtime import reset_runtime
+
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(tmp_path / "runtime"))
+    reset_runtime()
+    try:
+        old_calculation = {"formula_schema_version": "1.3", "formulas": []}
+        save_run_recipe({"run_id": "legacy-eis", "manifest": {"calculation": old_calculation}})
+        folder = tmp_path / "data"
+        folder.mkdir()
+        frequency = np.logspace(-1, 5, 60)
+        omega = 2 * np.pi * frequency
+        impedance = 7 + 1 / (1j * omega * 1e-5 + 1 / (85 + 20 * (1 - 1j) / np.sqrt(omega)))
+        (folder / "EIS_formula.txt").write_text("Frequency Zreal Zimag\n" + "\n".join(
+            f"{f:.17g} {z.real:.17g} {z.imag:.17g}" for f, z in zip(frequency, impedance)
+        ))
+        response = process_folder({"folder_path": str(folder), "data_types": ["EIS"], "params": {
+            "eis_randles_fit": True, "eis_circuit_model": "randles_warburg_rc", "eis_kk_check": True,
+            "eis_fit_weighting": "modulus", "eis_fit_frequency_min_hz": .1, "eis_fit_frequency_max_hz": 100000,
+            "plot_nyquist": False, "plot_bode": False,
+        }})
+        assert response["status"] == "success", response
+        manifest = response["result"]["manifest"]
+        calculation = manifest["calculation"]
+        assert calculation["formula_schema_version"] == FORMULA_SCHEMA_VERSION == "1.4"
+        assert {item["key"] for item in calculation["formulas"]} == {"eis.randles_warburg_rc", "eis.lin_kk_validation"}
+        snapshot = get_run_recipe(manifest["run"]["run_id"])
+        assert snapshot["manifest"]["calculation"] == calculation
+        assert get_run_recipe("legacy-eis")["manifest"]["calculation"] == old_calculation
     finally:
         reset_runtime()

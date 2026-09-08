@@ -37,7 +37,7 @@ Typical use cases:
 - Supports `LSV` target-current interpolation, potential conversion, `iR` compensation, `Tafel`, `Onset`, and `Halfwave`
 - Supports `LSV` Tafel fit R² validation (warns in quality report when R² < 0.99)
 - Supports `CV` peak detection, `ΔEp` calculation, and charge integration
-- Supports `EIS` `Nyquist` / `Bode` plots, `Rs + (Rct || Cdl)` / `Rs + (Rct || CPE)` fitting, and residual diagnostics
+- Supports `EIS` Nyquist/Bode plots, six equivalent circuits, frequency windows, residuals, parameter intervals, and independent KK consistency checks
 - Supports `ECSA`, `Cdl`, and `RF` calculation with built-in material Cs presets (Pt, Carbon, IrO₂, RuO₂, etc.)
 - Supports COUPLED/FE metrics from product quantification tables, including Faradaic efficiency and selectivity
 - Supports reference electrode presets (Ag/AgCl, SCE, Hg/HgO, Hg/Hg₂SO₄, MSE, RHE) and temperature-aware Nernst conversion
@@ -53,11 +53,15 @@ Typical use cases:
 - Assistant action cards preview parameter changes, exact comparisons, replay plans and scoped reports. LSV recommendations use the production calculation pipeline and expose candidate fit diagnostics; missing experimental conditions must be supplied.
 - Save independent replicate groups with effective n, mean, sample SD, individual points and error bars. Retain chosen versions and exclusion reasons, and export CSV/SVG.
 - A shared task panel lists processing and AI jobs with status filters, cancellation, failure details and links to their results or conversations.
-- Appearance settings offer four themes or system following, independent text size and comfortable/compact density, and an optional grid. Assistant reading surfaces and vector chart previews adapt to the theme while scientific exports stay on white paper. See the [appearance guide (Chinese)](docs/appearance.md).
+- Appearance offers four interface styles: Modern, Paper Editorial, Soft Modules and Pixel Retro. Each supports nine preset palettes, system following and custom colors, remembers its own palette and preserves older settings on upgrade. Text size, density and the background grid remain independent; assistant reading surfaces and chart previews follow the palette while scientific exports stay on white paper. See the [appearance guide (Chinese)](docs/appearance.md).
 
 ## Quick Start
 
 ### Windows
+
+The current desktop release targets **Windows 10 22H2 / Windows 11 x64**, with **WebView2 Runtime 120+**. Python and computation dependencies are bundled. ARM, 32-bit Windows, macOS and Linux desktops are not formally supported in this release. These are support requirements, not a claim that every OS or minimum runtime version has passed clean-machine testing; see the [acceptance matrix](docs/windows_acceptance_7.0.1.md).
+
+The standard installer requires a suitable WebView2 installation. The `-offline` installer includes Microsoft's signed standalone WebView2 installer; the portable ZIP still needs WebView2 on the target PC. Basic analysis works offline; cloud AI needs network access. **Desktop → Environment check** provides refreshable checks and a copyable diagnostic report without uploading it.
 
 - Installed application: open the “智能电化学数据处理软件” shortcut after installation.
 - Source checkout: run `setup.bat` to install dependencies, then `start.bat` to launch.
@@ -70,7 +74,7 @@ The desktop client adds a system tray, task-aware exit, window and appearance pe
 
 ### Process your first file
 
-1. In Professional Mode, click Select Data and choose TXT/CSV files or a folder. Review the listed types and enabled files.
+1. In Data Processing, click Select Data and choose TXT/CSV files or a folder. Review the listed types and enabled files.
 2. Optionally link a project and apply a parameter template. Confirm the data columns, units, electrode area, and potential reference against the experiment.
 3. Run Preflight and check recognition, parameters, and auxiliary file pairing. Then click Run Processing.
 4. Review metrics and quality in Processing Results. Use the project's Results, Compare, and Report views to archive, replay, and export.
@@ -142,8 +146,10 @@ vendor certification files. See
 
 - `Nyquist` plot
 - `Bode` plot (magnitude + phase)
-- **Equivalent-circuit fitting**: ideal `Rs + (Rct || Cdl)` or non-ideal `Rs + (Rct || CPE[Q,n])`, with R², RMSE, acceptance threshold, and model limitations
-- History persistence and result export
+- **Six equivalent circuits**: single-time-constant RC/CPE, semi-infinite Warburg RC/CPE, and two-time-constant RC/CPE; double branches are ordered from fast to slow
+- Closed frequency windows in Hz, uniform or modulus weighting, numerical convergence, R², RMSE, approximate local 95% parameter intervals, and identifiability diagnostics
+- Independent Lin-KK consistency checks; numerical thresholds and heuristic diagnostics do not establish a circuit's physical correctness, and unavailable intervals are explicitly marked
+- Nyquist/Bode fit overlays, residual plots, pointwise CSV and full diagnostic JSON exports; history replay and reports preserve the model, window, weighting, and diagnostics. See [EIS fitting notes](docs/eis_fitting.md)
 
 ### `ECSA`
 
@@ -385,7 +391,7 @@ This project is released under the `MIT` License. See `LICENSE`.
 
 Reasonable next improvements:
 
-- Add multi-time-constant, Warburg, and inductive `EIS` models
+- Add finite-length diffusion, inductive elements, and system-specific EIS model comparisons
 - Add screenshots or workflow diagrams to the README
 - Validate the `PyInstaller` packaging pipeline end-to-end
 - `CV` multi-cycle auto-segmentation and cyclic voltammetry parameter extraction

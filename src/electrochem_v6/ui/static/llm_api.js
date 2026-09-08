@@ -24,8 +24,13 @@
     return API.fetch("/api/v1/llm/test", jsonRequest(payload));
   }
 
+  function listModels(payload, options = {}) {
+    return API.fetch("/api/v1/llm/models", { ...jsonRequest(payload), signal: options.signal });
+  }
+
   window.ElectrochemLLMApi = {
     getConfig,
+    listModels,
     saveConfig,
     testConfig,
   };

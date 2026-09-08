@@ -34,13 +34,15 @@ def project(request):
 
 
 def seed(project, name, value=1.0, *, data_type="LSV", run=None, sha=None, recipe=True, parent_run=None,
-         parent_record=None, results=None, path=None, params=None):
+         parent_record=None, results=None, path=None, params=None, eis_analysis=None):
     from electrochem_v6.core.process_service import _build_gui_vars
     run = run or "run-" + name
     path = path or "D:/experiments/" + name + ".txt"
     record = {"project_id": project, "sample_name": name, "file_name": name + ".txt", "file_path": path,
               "timestamp": "2026-09-07 12:00:00", "type": data_type, "run_id": run,
               "results": results if results is not None else {"tafel_slope": value}}
+    if eis_analysis is not None:
+        record["eis_analysis"] = eis_analysis
     get_database().add_history_record(record)
     key = get_database()._history_record_key(record)
     assert get_database().get_history_record(key)
@@ -60,6 +62,42 @@ def draft(keys, **changes):
 
 def metric(group, key="tafel_slope"):
     return next(item for item in group["metrics"] if item["key"] == key)
+
+
+def test_eis_weight_and_frequency_window_changes_require_comparability_review(project):
+    one = seed(project, "uniform", data_type="EIS", results={"Rs": 10}, params={"eis_fit_weighting": "uniform"})
+    two = seed(project, "modulus", data_type="EIS", results={"Rs": 12},
+               params={"eis_fit_weighting": "modulus", "eis_fit_frequency_min_hz": 100})
+    result = preview_replicates(project, draft([one, two]))
+    assert not result["can_save"]
+    assert metric(result, "Rs")["n"] == 0
+    assert any("计算口径" in issue for issue in result["issues"])
+
+
+@pytest.mark.parametrize("second_n", [.9, None])
+def test_double_cpe_q_is_not_pooled_when_exponents_differ_or_are_unknown(project, second_n):
+    one = seed(project, "branch-one", data_type="EIS", results={"Q1": .001, "n1": .8, "R1": 10})
+    two = seed(project, "branch-two", data_type="EIS", results={"Q1": .002, "n1": second_n, "R1": 12})
+    result = preview_replicates(project, draft([one, two]))
+    assert metric(result, "Q1")["status"] == "unit_mismatch"
+    assert metric(result, "Q1")["mean"] is None and metric(result, "Q1")["n"] == 0
+    assert metric(result, "R1")["mean"] == 11
+
+
+def test_eis_fit_review_survives_replicate_statistics_and_exclusion(project):
+    one = seed(project, "ambiguous", data_type="EIS", results={"R1": 10}, eis_analysis={
+        "fit": {"accepted": True, "status": "needs_review", "review_required": True,
+                "review_reasons": ["branches_indistinguishable"]},
+        "kk": {"status": "review", "reason": "large KK residual"}})
+    two = seed(project, "resolved", data_type="EIS", results={"R1": 12})
+    result = preview_replicates(project, draft([one, two]))
+    assert metric(result, "R1")["mean"] == 11
+    assert any("branches_indistinguishable" in warning for warning in result["warnings"])
+    assert any("large KK residual" in warning for warning in result["warnings"])
+    excluded = preview_replicates(project, draft([one, two], exclusions=[{"record_key": one, "reason": "支路无法可靠区分"}]))
+    assert metric(excluded, "R1")["mean"] == 12
+    assert not any("branches_indistinguishable" in warning for warning in excluded["warnings"])
+    assert excluded["members"][0]["analysis_warnings"]
 
 
 def test_zero_missing_exclusions_sample_sd_and_durable_reload(project):

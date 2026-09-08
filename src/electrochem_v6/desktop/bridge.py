@@ -75,6 +75,13 @@ class DesktopBridge:
         self._check_origin()
         return self._app.get_state()
 
+    def get_environment_report(self) -> dict[str, Any]:
+        self._check_origin()
+        from .environment import collect_environment_report, format_environment_report
+
+        report = collect_environment_report(self._app.runtime_root, self._app.location)
+        return {"status": "success", "report": report, "report_text": format_environment_report(report)}
+
     def save_preferences(self, preferences: Any) -> dict[str, Any]:
         self._check_origin()
         return {"status": "success", "preferences": self._app.state.save_preferences(preferences)}

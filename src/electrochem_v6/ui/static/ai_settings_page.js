@@ -1,6 +1,167 @@
 (function () {
   "use strict";
 
+  const discoveries = new WeakMap();
+  const discoveryErrors = new Set([
+    "invalid_config", "invalid_url", "missing_key", "endpoint_changed", "unauthorized", "unsupported",
+    "rate_limited", "unavailable", "redirect", "timeout", "network", "invalid_response",
+  ]);
+
+  function discoveryState(ctx) {
+    const select = ctx.byId("llm-model-options");
+    return select ? discoveries.get(select) : null;
+  }
+
+  function modelStatus(ctx, key, count) {
+    const state = discoveryState(ctx);
+    if (state) state.status = { key, count };
+    const hint = ctx.byId("llm-model-status");
+    if (hint) hint.textContent = translate(ctx, key).replace("{count}", String(count || 0));
+  }
+
+  function clearModelDiscovery(ctx) {
+    const state = discoveryState(ctx);
+    if (!state) return;
+    state.generation += 1;
+    clearTimeout(state.timer);
+    if (state.controller) state.controller.abort();
+    state.controller = null;
+    state.signature = null;
+    state.models = [];
+    state.select.replaceChildren();
+    state.select.hidden = true;
+    state.select.disabled = true;
+    const refresh = ctx.byId("llm-model-refresh");
+    if (refresh) refresh.disabled = false;
+  }
+
+  function modelDiscoverySignature(ctx) {
+    const provider = ctx.textValue("llm-provider");
+    // In-memory only: never persist or log this draft credential fingerprint.
+    return JSON.stringify([provider, ctx.textValue("llm-base-url"), ctx.textValue("llm-api-key"),
+      Boolean((getModels(ctx)[provider] || {}).has_api_key)]);
+  }
+
+  function renderModelDiscovery(ctx) {
+    const state = discoveryState(ctx);
+    if (!state) return;
+    state.select.setAttribute("aria-label", translate(ctx, "llm_models_choose"));
+    if (state.models.length) {
+      const selected = state.models.includes(ctx.textValue("llm-model"));
+      modelStatus(ctx, selected ? "llm_models_loaded" : "llm_models_unlisted", state.models.length);
+      state.select.value = selected ? ctx.textValue("llm-model") : "";
+    } else if (state.status) {
+      modelStatus(ctx, state.status.key, state.status.count);
+    }
+    const placeholder = state.select.options && state.select.options[0];
+    if (placeholder) placeholder.textContent = translate(ctx, "llm_models_choose");
+  }
+
+  async function fetchModelDiscovery(ctx) {
+    const state = discoveryState(ctx);
+    if (!state || typeof ctx.llmApi.listModels !== "function") return;
+    clearModelDiscovery(ctx);
+    state.signature = modelDiscoverySignature(ctx);
+    const provider = ctx.textValue("llm-provider");
+    const apiKey = ctx.textValue("llm-api-key");
+    if (!provider || (!apiKey && !(getModels(ctx)[provider] || {}).has_api_key)) {
+      modelStatus(ctx, "llm_models_missing_key");
+      return;
+    }
+    const generation = state.generation;
+    state.controller = new AbortController();
+    const refresh = ctx.byId("llm-model-refresh");
+    if (refresh) refresh.disabled = true;
+    modelStatus(ctx, "llm_models_loading");
+    const payload = { provider, base_url: ctx.textValue("llm-base-url") };
+    if (apiKey) payload.api_key = apiKey;
+    try {
+      const response = await ctx.llmApi.listModels(payload, { signal: state.controller.signal });
+      const data = await response.json();
+      if (generation !== state.generation) return;
+      if (!response.ok || data.status !== "success") {
+        const code = discoveryErrors.has(data.code) ? data.code : "unavailable";
+        modelStatus(ctx, `llm_models_${code}`);
+        return;
+      }
+      state.models = [...new Set((Array.isArray(data.models) ? data.models : [])
+        .filter((item) => typeof item === "string" && item.length > 0 && item.length <= 256))];
+      if (!state.models.length) {
+        modelStatus(ctx, "llm_models_empty");
+        return;
+      }
+      const doc = state.select.ownerDocument;
+      const placeholder = doc.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = translate(ctx, "llm_models_choose");
+      state.select.appendChild(placeholder);
+      state.models.forEach((model) => {
+        const option = doc.createElement("option");
+        option.value = model;
+        option.textContent = model;
+        state.select.appendChild(option);
+      });
+      state.select.hidden = false;
+      state.select.disabled = false;
+      renderModelDiscovery(ctx);
+    } catch (err) {
+      if (generation === state.generation && err.name !== "AbortError") modelStatus(ctx, "llm_models_network");
+    } finally {
+      if (generation === state.generation) {
+        state.controller = null;
+        if (refresh) refresh.disabled = false;
+      }
+    }
+  }
+
+  function scheduleModelDiscovery(ctx, options = {}) {
+    const state = discoveryState(ctx);
+    if (!state) return;
+    const signature = modelDiscoverySignature(ctx);
+    if (state.signature === signature) return;
+    clearModelDiscovery(ctx);
+    const panel = ctx.byId("ai-settings-panel");
+    if (options.onlyWhenOpen && (!panel || panel.classList.contains("hidden"))) {
+      modelStatus(ctx, "llm_models_idle");
+      return;
+    }
+    state.signature = signature;
+    const provider = ctx.textValue("llm-provider");
+    if (!ctx.textValue("llm-api-key") && !(getModels(ctx)[provider] || {}).has_api_key) {
+      modelStatus(ctx, "llm_models_missing_key");
+      return;
+    }
+    modelStatus(ctx, "llm_models_pending");
+    state.timer = setTimeout(() => fetchModelDiscovery(ctx), 700);
+  }
+
+  function initModelDiscovery(ctx) {
+    const select = ctx.byId("llm-model-options");
+    if (!select || discoveries.has(select)) return;
+    discoveries.set(select, { select, generation: 0, timer: null, controller: null, models: [] });
+    ["llm-api-key", "llm-base-url"].forEach((id) => {
+      const input = ctx.byId(id);
+      input.addEventListener("input", (event) => {
+        if (event.isComposing) { clearModelDiscovery(ctx); return; }
+        scheduleModelDiscovery(ctx);
+      });
+      input.addEventListener("change", () => scheduleModelDiscovery(ctx));
+      input.addEventListener("compositionend", () => scheduleModelDiscovery(ctx));
+    });
+    ctx.byId("llm-provider").addEventListener("change", () => {
+      // A draft key belongs to the previous provider; never submit it to another provider.
+      ctx.byId("llm-api-key").value = "";
+      scheduleModelDiscovery(ctx);
+    });
+    ctx.byId("llm-model-refresh").addEventListener("click", () => fetchModelDiscovery(ctx));
+    ctx.byId("llm-model").addEventListener("input", () => renderModelDiscovery(ctx));
+    select.addEventListener("change", () => {
+      if (select.value) ctx.byId("llm-model").value = select.value;
+      renderModelDiscovery(ctx);
+    });
+    modelStatus(ctx, "llm_models_idle");
+  }
+
   function getModels(ctx) {
     return typeof ctx.getModelsByProvider === "function" ? ctx.getModelsByProvider() : {};
   }
@@ -66,6 +227,7 @@
   }
 
   async function loadLLMConfig(ctx) {
+    clearModelDiscovery(ctx);
     setStatus(ctx, translate(ctx, "status_llm_loading"));
     try {
       const resp = await ctx.llmApi.getConfig();
@@ -75,6 +237,7 @@
       }
       setModels(ctx, data.models || {});
       renderLLMProviders(ctx, data.default_provider || "");
+      scheduleModelDiscovery(ctx, { onlyWhenOpen: true });
       setStatus(ctx, translate(ctx, "status_llm_loaded"));
       return data;
     } catch (err) {
@@ -134,6 +297,7 @@
     }
     const { payload, apiKey } = built;
     const provider = payload.provider;
+    clearModelDiscovery(ctx);
 
     setStatus(ctx, translate(ctx, "status_llm_save_running"));
     try {
@@ -151,6 +315,7 @@
         if (keyEl) keyEl.value = "";
       }
       renderLLMProviders(ctx, provider);
+      scheduleModelDiscovery(ctx, { onlyWhenOpen: true });
       setStatus(ctx, translate(ctx, "status_llm_save_success"));
       return data;
     } catch (err) {
@@ -220,6 +385,11 @@
   }
 
   window.ElectrochemAISettingsPage = {
+    clearModelDiscovery,
+    fetchModelDiscovery,
+    initModelDiscovery,
+    renderModelDiscovery,
+    scheduleModelDiscovery,
     applyLLMProviderPreset,
     applyPromptTemplate,
     buildLLMConfigPayload,

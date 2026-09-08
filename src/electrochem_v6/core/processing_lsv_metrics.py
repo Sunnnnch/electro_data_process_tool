@@ -123,14 +123,14 @@ def compute_halfwave_potential(potential, current, halfwave_current: Any = None)
     return _finite_or_none(halfwave)
 
 
-def compute_tafel_slope_mVdec(
+def fit_tafel_data(
     potential,
     current,
     tafel_range: Any = "1-10",
     *,
     logger: Any | None = None,
-) -> float | None:
-    """Calculate Tafel slope in mV/dec for the configured current range."""
+) -> dict[str, Any] | None:
+    """Fit identifiable Tafel data once for both reported metrics and plots."""
     try:
         parsed_range = _parse_tafel_range(tafel_range)
         if not parsed_range:
@@ -140,15 +140,52 @@ def compute_tafel_slope_mVdec(
         lo, hi = parsed_range
         I = np.asarray(current, dtype=float)
         E = np.asarray(potential, dtype=float)
+        if I.ndim != 1 or E.ndim != 1 or I.shape != E.shape:
+            return None
         mask = np.isfinite(I) & np.isfinite(E) & (I > 0) & (I >= min(lo, hi)) & (I <= max(lo, hi))
         if mask.sum() < 3:
             return None
         x = np.log10(np.clip(I[mask], 1e-12, None))
         y = E[mask]
-        b, _a = np.polyfit(x, y, 1)
-        return float(b * 1000.0)
+        # A plateau supplies many points but cannot identify dE/d(log j).
+        # Reject differences at floating-point resolution before solving; full
+        # rank is still required when the scaled least-squares solver runs.
+        resolution = np.finfo(float).eps * max(1.0, float(np.max(np.abs(x)))) * 32.0
+        if float(np.ptp(x)) <= resolution:
+            return None
+        potential_resolution = np.finfo(float).eps * float(np.max(np.abs(y))) * 32.0
+        if float(np.ptp(y)) <= potential_resolution:
+            return None
+        coefficients, _residuals, rank, _singular_values, _rcond = np.polyfit(x, y, 1, full=True)
+        if rank != 2 or not np.all(np.isfinite(coefficients)):
+            return None
+        b, a = coefficients
+        ss_res = float(np.sum((y - (a + b * x)) ** 2))
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        if ss_tot <= 0 or not np.isfinite(ss_tot):
+            return None
+        r2 = 1.0 - ss_res / ss_tot
+        order = np.argsort(I[mask])
+        I_fit = I[mask][order]
+        E_fit = a + b * np.log10(np.clip(I_fit, 1e-12, None))
+        if not np.isfinite(r2) or not np.all(np.isfinite(E_fit)) or not np.isfinite(b * 1000.0):
+            return None
+        return {"I_data": I[mask], "E_data": E[mask], "I_fit": I_fit, "E_fit": E_fit,
+                "slope_mVdec": float(b * 1000.0), "r2": float(r2), "range": (lo, hi)}
     except Exception:
         return None
+
+
+def compute_tafel_slope_mVdec(
+    potential,
+    current,
+    tafel_range: Any = "1-10",
+    *,
+    logger: Any | None = None,
+) -> float | None:
+    """Calculate Tafel slope only when the selected data identify a fit."""
+    fit = fit_tafel_data(potential, current, tafel_range, logger=logger)
+    return fit["slope_mVdec"] if fit is not None else None
 
 
 def compute_optional_metrics(
@@ -289,5 +326,6 @@ __all__ = [
     "compute_overpotentials",
     "compute_tafel_slope_mVdec",
     "compute_target_potentials",
+    "fit_tafel_data",
     "parse_float_param",
 ]

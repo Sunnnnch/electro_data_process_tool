@@ -287,6 +287,10 @@ const assistantApi = window.ElectrochemAssistantApi || {
 };
 const llmApi = window.ElectrochemLLMApi || {
   getConfig: () => apiFetch("/api/v1/llm/config"),
+  listModels: (payload, options = {}) => apiFetch("/api/v1/llm/models", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}), signal: options.signal,
+  }),
   saveConfig: (payload) =>
     apiFetch("/api/v1/llm/config", {
       method: "POST",
@@ -1606,9 +1610,11 @@ function closeHelpPanel() {
 
 function openAISettingsPanel() {
   assistantPage.setPanelOpen({ byId, maskId: "ai-settings-mask", open: true, panelId: "ai-settings-panel" });
+  aiSettingsPage.scheduleModelDiscovery(aiSettingsContext());
 }
 
 function closeAISettingsPanel() {
+  aiSettingsPage.clearModelDiscovery(aiSettingsContext());
   assistantPage.setPanelOpen({ byId, maskId: "ai-settings-mask", open: false, panelId: "ai-settings-panel" });
 }
 
@@ -3325,6 +3331,7 @@ function toggleDataTypePanels() {
 }
 
 function syncFeatureBlocks() {
+  if (processSchemaClient.syncEisControls) processSchemaClient.syncEisControls();
   document.querySelectorAll(".dtype-panel").forEach((panel) => {
     const dtype = String(panel.dataset.dtype || "").toLowerCase();
     const advancedToggle = byId(`pro-${dtype}-advanced-mode`);
@@ -3666,6 +3673,7 @@ function bindEvents() {
     loadProjects(selectedProjectId);
     renderTemplateOptions();
     updateLLMKeyHint(textValue("llm-provider"));
+    aiSettingsPage.renderModelDiscovery(aiSettingsContext());
     if (!hasProcessResult) {
       renderResultPlaceholder();
     }
@@ -3792,6 +3800,7 @@ function bindEvents() {
   byId("llm-provider").addEventListener("change", () => {
     applyLLMProviderPreset(textValue("llm-provider"));
   });
+  aiSettingsPage.initModelDiscovery(aiSettingsContext());
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".inline-help")) closeInlineHelpPopovers();

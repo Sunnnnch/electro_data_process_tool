@@ -224,7 +224,8 @@ def test_large_text_density_keep_processing_selection_and_mobile_controls(recove
         for density in ("comfortable", "compact"):
             context = f"{theme} extra-large {density}"
             page.click("#appearance-open")
-            page.locator(f'[name="appearance-theme"][value="{theme}"]').check()
+            page.locator(f'[name="appearance-style"][value="{"pixel" if theme == "pixel" else "modern"}"]').check()
+            page.locator(f'[name="appearance-palette"][value="{"cream" if theme == "pixel" else theme}"]').check()
             page.select_option("#appearance-font-size", "extra-large")
             page.select_option("#appearance-density", density)
             for selector in ("#appearance-dialog", "#appearance-font-size", "#appearance-density", "#appearance-chart-background", "#appearance-close", "#appearance-reset"):

@@ -1,4 +1,5 @@
 .venv/
+.venv-*/
 __pycache__/
 *.pyc
 *.pyo
@@ -6,6 +7,8 @@ __pycache__/
 .pytest_cache/
 .test_runtime/
 .ruff_cache/
+.mypy_cache/
+node_modules/
 *.db
 build/
 dist/
@@ -64,6 +67,12 @@ temp/
 *.log
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
 *.db-journal
 *.db-shm
 *.db-wal
@@ -73,6 +82,52 @@ temp/
 .env.*
 llm_config.json
 **/llm_config.json
+.electrochem/
+/.codex/
+desktop-instance.json
+desktop-service.json
+desktop-state.json
+desktop-preferences.json
+desktop_preferences.json
+desktop_state.json
+desktop-migration.json
+runtime_info.json
+
+# Signing private keys and local credentials (public examples stay in source)
+*.pfx
+*.p12
+*.pem
+*.key
+*.jks
+*.keystore
+*.local.json
+/packaging/acceptance/manifest.json
+/packaging/acceptance/results/
+/packaging/acceptance/reports/
+/packaging/acceptance/host-readiness*.json
+
+# Local UI experiments; application icons and manual screenshots remain tracked
+/docs/current_ui_*.png
+/docs/pixel_ui_preview.*
+/docs/theme_ui_preview.html
+/design/assistant-icon-concepts/
+/design/icon-concepts/**/*.zip
+/design/icon-concepts/**/round-3/
+/design/icon-concepts/**/round-4/
+/design/icon-concepts/**/recolor-1/
+/design/icon-concepts/**/recolor-2-pastel/
+
+# Publish only the selected marketing images and copy, not local capture records
+/marketing/*
+!/marketing/README.md
+!/marketing/xiaohongshu/
+/marketing/xiaohongshu/*
+!/marketing/xiaohongshu/7.0.1-update-20260908/
+/marketing/xiaohongshu/7.0.1-update-20260908/*
+!/marketing/xiaohongshu/7.0.1-update-20260908/发布正文.txt
+!/marketing/xiaohongshu/7.0.1-update-20260908/发布图片/
+/marketing/xiaohongshu/7.0.1-update-20260908/发布图片/*
+!/marketing/xiaohongshu/7.0.1-update-20260908/发布图片/*.png
 
 # Internal dev docs (kept locally, not published)
 TODO.md
@@ -80,7 +135,6 @@ WORKLOG.md
 MIGRATION_GUIDE_V5_TO_V6.md
 MIGRATION_MAP.md
 MIGRATION_PENDING.md
-PUBLISH_CHECKLIST.md
 V5_V6_BASELINE_ACCEPTANCE.md
 reports/CHANGELOG_V6_0_1.md
 reports/PACKAGING_PLAN_V6_0_1.md

@@ -144,6 +144,17 @@
       }).forEach((item) => addError(item && item.message));
     }
 
+    if (dataTypes.includes("EIS")) {
+      const lower = ctx.textValue("pro-eis-fit-frequency-min-hz");
+      const upper = ctx.textValue("pro-eis-fit-frequency-max-hz");
+      if ([lower, upper].some((value) => value && (!Number.isFinite(Number(value)) || Number(value) <= 0))) {
+        addError(langOf(ctx) === "zh" ? "EIS 频率须为大于 0 的有限数字（Hz）；留空表示不限制" : "EIS frequency must be finite and > 0 Hz; leave blank for no limit");
+      }
+      if (lower && upper && Number(lower) > Number(upper)) {
+        addError(langOf(ctx) === "zh" ? "EIS 最低频率不能高于最高频率" : "EIS minimum frequency must not exceed maximum frequency");
+      }
+    }
+
     if (ctx.getPotentialMode() === "formula_rhe") {
       if (!ctx.textValue("pro-rhe-ph")) {
         addError(langOf(ctx) === "zh" ? "pH 不能为空" : "pH is required");
@@ -399,6 +410,11 @@
       params.eis_randles_fit = ctx.boolValue("pro-eis-randles-fit");
       addIfSet(params, "eis_circuit_model", textOrSchemaDefault(ctx, "pro-eis-circuit-model", "eis_circuit_model"));
       addIfSet(params, "eis_fit_min_r2", ctx.numberValue("pro-eis-fit-min-r2"));
+      params.eis_fit_frequency_min_hz = ctx.numberValue("pro-eis-fit-frequency-min-hz") ?? null;
+      params.eis_fit_frequency_max_hz = ctx.numberValue("pro-eis-fit-frequency-max-hz") ?? null;
+      addIfSet(params, "eis_fit_weighting", textOrSchemaDefault(ctx, "pro-eis-fit-weighting", "eis_fit_weighting"));
+      params.eis_kk_check = ctx.boolValue("pro-eis-kk-check");
+      params.plot_eis_residuals = ctx.boolValue("pro-eis-plot-residuals");
     }
 
     if (dataTypes.includes("ECSA")) {

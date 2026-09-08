@@ -2315,20 +2315,20 @@ body {
   align-items: center;
   gap: 9px;
   min-height: 48px;
-  padding: 9px 16px 9px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 10px 16px;
+  border: 1px solid var(--assistant-fab-border);
   border-radius: 999px;
-  background: linear-gradient(135deg, #156b50, #166891);
-  color: #fff;
+  background: var(--assistant-fab-bg);
+  color: var(--assistant-fab-text);
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 14px 34px rgba(6, 35, 51, 0.32);
+  box-shadow: var(--shadow);
 }
 
 .assistant-fab:hover {
+  background: var(--assistant-fab-hover);
   transform: translateY(-1px);
-  box-shadow: 0 17px 38px rgba(6, 35, 51, 0.38);
 }
 
 .assistant-fab[aria-expanded="true"] {
@@ -2339,12 +2339,15 @@ body {
 .assistant-fab-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-  font-size: 12px;
-  letter-spacing: 0.04em;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+}
+
+.assistant-fab-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .assistant-drawer {
@@ -3528,7 +3531,7 @@ body {
 }
 
 /* Client-style layout and theme layer. Keep existing ids/classes intact for JS bindings. */
-body[data-theme="pixel"] {
+body[data-style="pixel"] {
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -3759,7 +3762,7 @@ body[data-theme="lab"] .tab-btn {
 }
 
 body[data-theme="dark"] .side-mode-btn.active,
-body[data-theme="pixel"] .side-mode-btn.active {
+body[data-style="pixel"] .side-mode-btn.active {
   background: var(--primary);
   color: #fff;
 }
@@ -3946,150 +3949,150 @@ body[data-theme="pixel"] .side-mode-btn.active {
   color: #fff;
 }
 
-body[data-theme="pixel"] .hero {
-  color: #f4fbff;
-  border-color: #4f7b8a;
-  background: linear-gradient(135deg, #071923 0%, #0a2d38 100%);
+body[data-style="pixel"] .hero {
+  color: var(--chrome-text);
+  border-color: var(--chrome-border);
+  background: linear-gradient(135deg, var(--app-chrome), var(--app-chrome-strong));
 }
 
-body[data-theme="pixel"] .badge,
-body[data-theme="pixel"] .tabs-shell,
-body[data-theme="pixel"] .hero-ghost-btn,
-body[data-theme="pixel"] .sys-status,
-body[data-theme="pixel"] .theme-select,
-body[data-theme="pixel"] .lang-select {
-  background: #0b1f2a;
-  border-color: #9bc6d1;
-  color: #f4fbff;
+body[data-style="pixel"] .badge,
+body[data-style="pixel"] .tabs-shell,
+body[data-style="pixel"] .hero-ghost-btn,
+body[data-style="pixel"] .sys-status,
+body[data-style="pixel"] .theme-select,
+body[data-style="pixel"] .lang-select {
+  background: var(--chrome-control);
+  border-color: var(--chrome-border);
+  color: var(--chrome-text);
   text-shadow: none;
 }
 
-body[data-theme="pixel"] .hero-ghost-btn:hover,
-body[data-theme="pixel"] .sys-status:hover,
-body[data-theme="pixel"] .tab-btn:hover {
-  background: #123746;
-  color: #ffffff;
+body[data-style="pixel"] .hero-ghost-btn:hover,
+body[data-style="pixel"] .sys-status:hover,
+body[data-style="pixel"] .tab-btn:hover {
+  background: var(--app-chrome-strong);
+  color: var(--chrome-text);
 }
 
-body[data-theme="pixel"] .theme-wrap,
-body[data-theme="pixel"] .lang-wrap,
-body[data-theme="pixel"] .tab-btn {
-  color: #dceef3;
+body[data-style="pixel"] .theme-wrap,
+body[data-style="pixel"] .lang-wrap,
+body[data-style="pixel"] .tab-btn {
+  color: var(--chrome-muted);
 }
 
-body[data-theme="pixel"] .theme-select option,
-body[data-theme="pixel"] .lang-select option {
-  background: #f7fbfb;
-  color: #071821;
+body[data-style="pixel"] .theme-select option,
+body[data-style="pixel"] .lang-select option {
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
-body[data-theme="pixel"] .sub {
-  color: #d5e8ee;
+body[data-style="pixel"] .sub {
+  color: var(--chrome-muted);
 }
 
-body[data-theme="pixel"] .github-link {
-  color: #9fe4ff;
+body[data-style="pixel"] .github-link {
+  color: var(--chrome-text);
 }
 
-body[data-theme="pixel"] .panel-sub,
-body[data-theme="pixel"] .param-note,
-body[data-theme="pixel"] .mode-panel-copy p,
-body[data-theme="pixel"] .module-group-note,
-body[data-theme="pixel"] .mode-card-desc,
-body[data-theme="pixel"] .process-step-copy small {
-  color: #385465;
+body[data-style="pixel"] .panel-sub,
+body[data-style="pixel"] .param-note,
+body[data-style="pixel"] .mode-panel-copy p,
+body[data-style="pixel"] .module-group-note,
+body[data-style="pixel"] .mode-card-desc,
+body[data-style="pixel"] .process-step-copy small {
+  color: var(--muted);
 }
 
-body[data-theme="pixel"] .hero,
-body[data-theme="pixel"] .card,
-body[data-theme="pixel"] .process-stepper,
-body[data-theme="pixel"] .side-mode-btn,
-body[data-theme="pixel"] .process-step,
-body[data-theme="pixel"] .process-step-index,
-body[data-theme="pixel"] .process-section,
-body[data-theme="pixel"] .process-aux-panel,
-body[data-theme="pixel"] .proc-subpanel,
-body[data-theme="pixel"] .dtype-panel,
-body[data-theme="pixel"] .dtype-selector,
-body[data-theme="pixel"] .module-param-group,
-body[data-theme="pixel"] .results-card,
-body[data-theme="pixel"] .project-sidebar,
-body[data-theme="pixel"] .project-main,
-body[data-theme="pixel"] .project-block,
-body[data-theme="pixel"] .project-edit-card,
-body[data-theme="pixel"] .chat-sidebar,
-body[data-theme="pixel"] .chat-main,
-body[data-theme="pixel"] .chat-log,
-body[data-theme="pixel"] .msg,
-body[data-theme="pixel"] .msg .content pre,
-body[data-theme="pixel"] .msg .content code,
-body[data-theme="pixel"] .mode-help,
-body[data-theme="pixel"] .mode-card,
-body[data-theme="pixel"] .mode-panel-head,
-body[data-theme="pixel"] .mode-panel-tags span,
-body[data-theme="pixel"] .feature-block,
-body[data-theme="pixel"] .feature-tag,
-body[data-theme="pixel"] .preflight-item,
-body[data-theme="pixel"] .preflight-detail,
-body[data-theme="pixel"] .preflight-detail-stat,
-body[data-theme="pixel"] .preflight-type-card,
-body[data-theme="pixel"] .preflight-warnings,
-body[data-theme="pixel"] .proc-kv,
-body[data-theme="pixel"] .stat-box,
-body[data-theme="pixel"] .history-item,
-body[data-theme="pixel"] .project-item,
-body[data-theme="pixel"] .project-tags span,
-body[data-theme="pixel"] .conv-item,
-body[data-theme="pixel"] .conv-rename,
-body[data-theme="pixel"] .conv-del,
-body[data-theme="pixel"] .conv-save,
-body[data-theme="pixel"] .conv-cancel,
-body[data-theme="pixel"] .result-tabs,
-body[data-theme="pixel"] .result-tab,
-body[data-theme="pixel"] .potential-panel,
-body[data-theme="pixel"] .potential-offset-preview,
-body[data-theme="pixel"] .param-tip,
-body[data-theme="pixel"] .inline-help-popover,
-body[data-theme="pixel"] .compare-chip,
-body[data-theme="pixel"] .project-compare-plot,
-body[data-theme="pixel"] .project-compare-plot-preview,
-body[data-theme="pixel"] .project-compare-plot-preview img,
-body[data-theme="pixel"] .project-history-detail,
-body[data-theme="pixel"] .project-history-subblock,
-body[data-theme="pixel"] .project-output-files,
-body[data-theme="pixel"] .ai-open-btn,
-body[data-theme="pixel"] .sys-panel,
-body[data-theme="pixel"] .help-panel,
-body[data-theme="pixel"] .ai-panel,
-body[data-theme="pixel"] .badge,
-body[data-theme="pixel"] .tabs-shell,
-body[data-theme="pixel"] .tab-btn,
-body[data-theme="pixel"] .hero-ghost-btn,
-body[data-theme="pixel"] .sys-status,
-body[data-theme="pixel"] .theme-select,
-body[data-theme="pixel"] .lang-select,
-body[data-theme="pixel"] button,
-body[data-theme="pixel"] input,
-body[data-theme="pixel"] select,
-body[data-theme="pixel"] textarea,
-body[data-theme="pixel"] input[type="file"]::file-selector-button {
+body[data-style="pixel"] .hero,
+body[data-style="pixel"] .card,
+body[data-style="pixel"] .process-stepper,
+body[data-style="pixel"] .side-mode-btn,
+body[data-style="pixel"] .process-step,
+body[data-style="pixel"] .process-step-index,
+body[data-style="pixel"] .process-section,
+body[data-style="pixel"] .process-aux-panel,
+body[data-style="pixel"] .proc-subpanel,
+body[data-style="pixel"] .dtype-panel,
+body[data-style="pixel"] .dtype-selector,
+body[data-style="pixel"] .module-param-group,
+body[data-style="pixel"] .results-card,
+body[data-style="pixel"] .project-sidebar,
+body[data-style="pixel"] .project-main,
+body[data-style="pixel"] .project-block,
+body[data-style="pixel"] .project-edit-card,
+body[data-style="pixel"] .chat-sidebar,
+body[data-style="pixel"] .chat-main,
+body[data-style="pixel"] .chat-log,
+body[data-style="pixel"] .msg,
+body[data-style="pixel"] .msg .content pre,
+body[data-style="pixel"] .msg .content code,
+body[data-style="pixel"] .mode-help,
+body[data-style="pixel"] .mode-card,
+body[data-style="pixel"] .mode-panel-head,
+body[data-style="pixel"] .mode-panel-tags span,
+body[data-style="pixel"] .feature-block,
+body[data-style="pixel"] .feature-tag,
+body[data-style="pixel"] .preflight-item,
+body[data-style="pixel"] .preflight-detail,
+body[data-style="pixel"] .preflight-detail-stat,
+body[data-style="pixel"] .preflight-type-card,
+body[data-style="pixel"] .preflight-warnings,
+body[data-style="pixel"] .proc-kv,
+body[data-style="pixel"] .stat-box,
+body[data-style="pixel"] .history-item,
+body[data-style="pixel"] .project-item,
+body[data-style="pixel"] .project-tags span,
+body[data-style="pixel"] .conv-item,
+body[data-style="pixel"] .conv-rename,
+body[data-style="pixel"] .conv-del,
+body[data-style="pixel"] .conv-save,
+body[data-style="pixel"] .conv-cancel,
+body[data-style="pixel"] .result-tabs,
+body[data-style="pixel"] .result-tab,
+body[data-style="pixel"] .potential-panel,
+body[data-style="pixel"] .potential-offset-preview,
+body[data-style="pixel"] .param-tip,
+body[data-style="pixel"] .inline-help-popover,
+body[data-style="pixel"] .compare-chip,
+body[data-style="pixel"] .project-compare-plot,
+body[data-style="pixel"] .project-compare-plot-preview,
+body[data-style="pixel"] .project-compare-plot-preview img,
+body[data-style="pixel"] .project-history-detail,
+body[data-style="pixel"] .project-history-subblock,
+body[data-style="pixel"] .project-output-files,
+body[data-style="pixel"] .ai-open-btn,
+body[data-style="pixel"] .sys-panel,
+body[data-style="pixel"] .help-panel,
+body[data-style="pixel"] .ai-panel,
+body[data-style="pixel"] .badge,
+body[data-style="pixel"] .tabs-shell,
+body[data-style="pixel"] .tab-btn,
+body[data-style="pixel"] .hero-ghost-btn,
+body[data-style="pixel"] .sys-status,
+body[data-style="pixel"] .theme-select,
+body[data-style="pixel"] .lang-select,
+body[data-style="pixel"] button,
+body[data-style="pixel"] input,
+body[data-style="pixel"] select,
+body[data-style="pixel"] textarea,
+body[data-style="pixel"] input[type="file"]::file-selector-button {
   border-radius: 0 !important;
 }
 
-body[data-theme="pixel"] .sys-status .dot,
-body[data-theme="pixel"] .project-dot,
-body[data-theme="pixel"] .typing-dots span {
+body[data-style="pixel"] .sys-status .dot,
+body[data-style="pixel"] .project-dot,
+body[data-style="pixel"] .typing-dots span {
   border-radius: 0;
 }
 
-body[data-theme="pixel"] .card,
-body[data-theme="pixel"] .process-stepper,
-body[data-theme="pixel"] .process-section,
-body[data-theme="pixel"] .process-aux-panel,
-body[data-theme="pixel"] .proc-subpanel,
-body[data-theme="pixel"] .dtype-panel,
-body[data-theme="pixel"] .module-param-group,
-body[data-theme="pixel"] .results-card {
+body[data-style="pixel"] .card,
+body[data-style="pixel"] .process-stepper,
+body[data-style="pixel"] .process-section,
+body[data-style="pixel"] .process-aux-panel,
+body[data-style="pixel"] .proc-subpanel,
+body[data-style="pixel"] .dtype-panel,
+body[data-style="pixel"] .module-param-group,
+body[data-style="pixel"] .results-card {
   box-shadow: var(--shadow);
 }
 
@@ -4496,7 +4499,7 @@ body[data-theme="dark"] textarea::placeholder {
 .project-notices { color: var(--warn); padding-left: 20px; }
 #project-replay-plan { margin: 16px 0; }
 #sys-panel .project-storage-card { margin: 20px 0; }
-body[data-theme="pixel"] .project-dialog, body[data-theme="pixel"] .project-menu-items { border-width: var(--client-border-width); border-radius: 2px; }
+body[data-style="pixel"] .project-dialog, body[data-style="pixel"] .project-menu-items { border-width: var(--client-border-width); border-radius: 2px; }
 @media (max-width: 1000px) { .project-workbench { grid-template-columns: 210px minmax(0, 1fr); } .project-workbench .project-main { padding: 18px; } .project-title-row { flex-direction: column; } }
 @media (max-width: 700px) { .project-workbench { grid-template-columns: 1fr; } .project-workbench .project-list { max-height: 180px; } .project-workbench .project-result-row { grid-template-columns: 22px minmax(0,1fr); } .project-record-metric { grid-column: 2; } .project-comparison-pair, .project-replay-fields { grid-template-columns: 1fr; } .project-report-options { grid-template-columns: 1fr; } .project-workbench .project-main { padding: 14px; } }
 

@@ -22,6 +22,11 @@
       offline: "无法连接更新服务，请稍后重试。", timeout: "检查更新超时，请稍后重试。", rate_limited: "更新检查频率受限，请稍后重试。",
       invalid_response: "更新服务返回无效信息。", invalid_version: "无法比较版本信息。", currentVersion: "当前版本", latestVersion: "最新版本",
       dropped: "文件已加入输入列表，请核对类型、参数并预检。", dropBusy: "任务运行或退出等待期间不能添加输入文件。", exportTooLarge: "导出内容超过 32 MB，请从结果文件使用另存为。",
+      diagnostics: "环境自检", diagnosticsHint: "仅检查本机环境，不会上传数据或安装组件。诊断文本可先查看再复制。",
+      diagnosticsRefresh: "重新检查", diagnosticsCopy: "复制诊断信息", diagnosticsText: "查看诊断文本", diagnosticsTextLabel: "诊断信息（只读）",
+      diagnosticsCopied: "诊断信息已复制。", diagnosticsCopyFailed: "未能自动复制。请选中下方诊断文本，按 Ctrl+C 复制。",
+      diagnosticsLoadFailed: "未能完成环境检查，请重新检查。", diagnosticsInvalid: "客户端返回的诊断信息不完整。",
+      diagnosticsPass: "通过", diagnosticsWarn: "需留意", diagnosticsFail: "需处理", diagnosticsRemedy: "处理方法",
     },
     en: {
       menu: "Desktop", local: "Desktop app", settings: "Settings", appearance: "Appearance", ai: "AI settings", system: "System and storage", mcp: "AI connection (MCP)",
@@ -41,6 +46,11 @@
       offline: "Cannot reach the update service. Try again later.", timeout: "Update check timed out. Try again later.", rate_limited: "Update checks are rate limited. Try again later.",
       invalid_response: "The update service returned invalid information.", invalid_version: "Version information could not be compared.", currentVersion: "Current version", latestVersion: "Latest version",
       dropped: "Files added to the input list. Check types and parameters, then run preflight.", dropBusy: "Cannot add input files while a task is running or exit is pending.", exportTooLarge: "Export exceeds 32 MB. Use Save as on the result file instead.",
+      diagnostics: "Environment check", diagnosticsHint: "Checks this computer only. No data is uploaded and no components are installed. Review the diagnostic text before copying it.",
+      diagnosticsRefresh: "Check again", diagnosticsCopy: "Copy diagnostics", diagnosticsText: "View diagnostic text", diagnosticsTextLabel: "Diagnostic information (read only)",
+      diagnosticsCopied: "Diagnostic information copied.", diagnosticsCopyFailed: "Automatic copying failed. Select the diagnostic text below and press Ctrl+C to copy it.",
+      diagnosticsLoadFailed: "The environment check could not finish. Please check again.", diagnosticsInvalid: "The desktop app returned an incomplete diagnostic report.",
+      diagnosticsPass: "Passed", diagnosticsWarn: "Note", diagnosticsFail: "Action needed", diagnosticsRemedy: "What to do",
     },
   };
   let enabled = false;
@@ -60,6 +70,7 @@
   let pendingWindowAppearance = null;
   let windowAppearanceRequest = null;
   let lastWindowAppearance = "";
+  let diagnosticsRequest = 0;
 
   const byId = (id) => document.getElementById(id);
   const api = () => window.pywebview && window.pywebview.api;
@@ -341,6 +352,96 @@
     } catch (error) { body.replaceChildren(element("p", `${text("failed")}: ${error.message}`)); }
   }
 
+  async function showDiagnostics() {
+    const node = dialog("desktop-diagnostics-dialog", "diagnostics");
+    const body = node.querySelector(".desktop-dialog-content");
+    const request = ++diagnosticsRequest;
+    const active = () => request === diagnosticsRequest && node.open;
+    const hint = element("p", text("diagnosticsHint"), "panel-sub");
+    const resultBody = element("div", null, "desktop-diagnostics-result");
+    resultBody.setAttribute("aria-live", "polite");
+    resultBody.setAttribute("aria-busy", "true");
+    resultBody.append(element("p", text("checking")));
+    const feedback = element("p", "", "desktop-diagnostics-feedback");
+    feedback.id = "desktop-diagnostics-feedback";
+    feedback.setAttribute("role", "status");
+    feedback.hidden = true;
+    const actions = element("div", null, "desktop-actions");
+    const reload = button("diagnosticsRefresh", showDiagnostics, "desktop-diagnostics-refresh");
+    const copy = button("diagnosticsCopy", async () => {
+      if (!reportText || !active()) return;
+      copy.disabled = true;
+      feedback.hidden = true;
+      try {
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(reportText);
+        if (active()) { feedback.textContent = text("diagnosticsCopied"); feedback.hidden = false; }
+      } catch (_error) {
+        if (active()) {
+          feedback.textContent = text("diagnosticsCopyFailed");
+          feedback.hidden = false;
+          disclosure.open = true;
+          raw.focus();
+          raw.select();
+        }
+      } finally { if (active()) copy.disabled = false; }
+    }, "desktop-diagnostics-copy");
+    reload.disabled = true;
+    copy.disabled = true;
+    actions.append(reload, copy);
+    let reportText = "";
+    const disclosure = element("details", null, "desktop-diagnostics-text");
+    disclosure.hidden = true;
+    disclosure.append(element("summary", text("diagnosticsText")));
+    const raw = element("textarea");
+    raw.id = "desktop-diagnostics-raw";
+    raw.readOnly = true;
+    raw.rows = 8;
+    raw.setAttribute("aria-label", text("diagnosticsTextLabel"));
+    raw.spellcheck = false;
+    disclosure.append(raw);
+    body.replaceChildren(hint, resultBody, actions, feedback, disclosure);
+    show(node);
+    try {
+      const result = await call("get_environment_report");
+      if (!active()) return;
+      const report = result.report;
+      if (!report || !Array.isArray(report.checks) || !report.checks.length || !report.checks.every((item) => item && ["pass", "warn", "fail"].includes(item.status)) || typeof result.report_text !== "string" || !result.report_text.trim()) {
+        throw new Error(text("diagnosticsInvalid"));
+      }
+      const localized = (item, key) => String((lang() === "en" && item[`${key}_en`]) || item[key] || "");
+      resultBody.replaceChildren(element("p", localized(report, "summary"), "desktop-diagnostics-summary"));
+      const list = element("ul", null, "desktop-diagnostics-checks");
+      for (const check of report.checks) {
+        const row = element("li", null, "desktop-diagnostics-check");
+        row.dataset.checkStatus = check.status;
+        const head = element("div", null, "desktop-diagnostics-check-head");
+        const badge = element("span", text({ pass: "diagnosticsPass", warn: "diagnosticsWarn", fail: "diagnosticsFail" }[check.status]), "desktop-diagnostics-badge");
+        head.append(element("h3", localized(check, "label")), badge);
+        row.append(head, element("p", localized(check, "detail")));
+        const remedy = localized(check, "remedy");
+        if (remedy) {
+          const guidance = element("p", null, "desktop-diagnostics-remedy");
+          guidance.append(element("strong", `${text("diagnosticsRemedy")}: `), document.createTextNode(remedy));
+          row.append(guidance);
+        }
+        list.append(row);
+      }
+      resultBody.append(list);
+      reportText = result.report_text;
+      raw.value = reportText;
+      disclosure.hidden = false;
+      copy.disabled = false;
+    } catch (error) {
+      if (!active()) return;
+      const message = element("p", `${text("diagnosticsLoadFailed")} ${error.message || ""}`, "desktop-diagnostics-error");
+      message.setAttribute("role", "alert");
+      resultBody.replaceChildren(message);
+    } finally {
+      if (active()) { reload.disabled = false; resultBody.setAttribute("aria-busy", "false"); }
+    }
+  }
+
   async function resolveClose(choice) {
     await persist();
     const result = await call("resolve_close", choice);
@@ -492,7 +593,7 @@
     menu.append(localLabel);
     const entries = [
       ["settings", showSettings], ["mcp", () => window.ElectrochemMCP.show()], ["import", chooseFiles], ["data", () => action(() => call("open_data_dir"))],
-      ["migrate", showMigration], ["updates", showUpdates], ["tray", () => action(async () => { await persist(); return call("hide_to_tray"); })],
+      ["migrate", showMigration], ["diagnostics", showDiagnostics], ["updates", showUpdates], ["tray", () => action(async () => { await persist(); return call("hide_to_tray"); })],
       ["exit", () => action(async () => { await persist(); const result = await call("request_exit"); if (result.closing) showClose(result.closing); return result; })],
     ];
     for (const [key, callback] of entries) {

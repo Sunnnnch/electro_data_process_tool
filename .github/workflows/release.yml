@@ -12,6 +12,11 @@ on:
         description: "Full 40-character commit SHA reviewed for this release"
         required: true
         type: string
+      include_offline:
+        description: "Also build the offline installer (enable only after independent installation acceptance)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -84,6 +89,7 @@ jobs:
             try {
               const release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag: process.env.RELEASE_TAG });
               if (!release.data.draft) throw new Error("This version is already public. Existing release assets will not be overwritten; prepare a new version.");
+              if (release.data.assets.length) throw new Error("Draft release already contains assets that this run has not verified. Existing assets are retained; use an empty draft or a new reviewed version.");
             } catch (error) {
               if (error.status !== 404) throw error;
             }
@@ -161,6 +167,30 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Required signed installer was not produced" }
           "EXE_PATH=$exe" >> $env:GITHUB_OUTPUT
           "EXE_CHECKSUM_PATH=$exe.sha256" >> $env:GITHUB_OUTPUT
+          # Older reviewed standard-only tags may predate dependency manifests.
+          if (Test-Path -LiteralPath "$exe.dependencies.json" -PathType Leaf) {
+            "MANIFEST_PATH=$exe.dependencies.json" >> $env:GITHUB_OUTPUT
+            "MANIFEST_CHECKSUM_PATH=$exe.dependencies.json.sha256" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build optional offline installer from official Microsoft runtime
+        if: ${{ inputs.include_offline }}
+        id: offline
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VER }}
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2124701" -OutFile $runtime -TimeoutSec 600
+          # The builder checks Microsoft's Authenticode signature and the signed x64 payload version.
+          & packaging/build_installer.ps1 -AppVersion $env:RELEASE_VERSION -WebView2OfflineInstaller $runtime -RequireSigning
+          $exe = "dist_installer/ElectroChem-Setup-$($env:RELEASE_VERSION)-offline.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Required signed offline installer was not produced" }
+          "EXE_PATH=$exe" >> $env:GITHUB_OUTPUT
+          "EXE_CHECKSUM_PATH=$exe.sha256" >> $env:GITHUB_OUTPUT
+          "MANIFEST_PATH=$exe.dependencies.json" >> $env:GITHUB_OUTPUT
+          "MANIFEST_CHECKSUM_PATH=$exe.dependencies.json.sha256" >> $env:GITHUB_OUTPUT
+          "RUNTIME_PATH=$runtime" >> $env:GITHUB_OUTPUT
 
       - name: Extract release notes
         shell: pwsh
@@ -178,8 +208,15 @@ jobs:
           EXPECTED_COMMIT: ${{ steps.version.outputs.COMMIT }}
           RELEASE_ZIP: ${{ steps.zip.outputs.ZIP_PATH }}
           RELEASE_INSTALLER: ${{ steps.installer.outputs.EXE_PATH }}
+          RELEASE_OFFLINE_INSTALLER: ${{ steps.offline.outputs.EXE_PATH }}
+          RELEASE_WEBVIEW2: ${{ steps.offline.outputs.RUNTIME_PATH }}
         run: |
-          & packaging/publish_release_refs.ps1 -Tag $env:RELEASE_TAG -ExpectedCommit $env:EXPECTED_COMMIT -PortableZip $env:RELEASE_ZIP -Installer $env:RELEASE_INSTALLER -VerifyOnly -VerifyRemoteTag
+          $optional = @{}
+          if ($env:RELEASE_OFFLINE_INSTALLER) {
+            $optional.OfflineInstaller = $env:RELEASE_OFFLINE_INSTALLER
+            $optional.WebView2Installer = $env:RELEASE_WEBVIEW2
+          }
+          & packaging/publish_release_refs.ps1 -Tag $env:RELEASE_TAG -ExpectedCommit $env:EXPECTED_COMMIT -PortableZip $env:RELEASE_ZIP -Installer $env:RELEASE_INSTALLER -VerifyOnly -VerifyRemoteTag @optional
 
       - name: Recheck publication state before uploading
         uses: actions/github-script@v7
@@ -190,6 +227,7 @@ jobs:
             try {
               const release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag: process.env.RELEASE_TAG });
               if (!release.data.draft) throw new Error("This version became public during the build. Refusing to replace published assets.");
+              if (release.data.assets.length) throw new Error("Draft release already contains assets that this run has not verified. Existing assets are retained; use an empty draft or a new reviewed version.");
             } catch (error) {
               if (error.status !== 404) throw error;
             }
@@ -209,3 +247,9 @@ jobs:
             ${{ steps.zip.outputs.ZIP_CHECKSUM_PATH }}
             ${{ steps.installer.outputs.EXE_PATH }}
             ${{ steps.installer.outputs.EXE_CHECKSUM_PATH }}
+            ${{ steps.installer.outputs.MANIFEST_PATH }}
+            ${{ steps.installer.outputs.MANIFEST_CHECKSUM_PATH }}
+            ${{ steps.offline.outputs.EXE_PATH }}
+            ${{ steps.offline.outputs.EXE_CHECKSUM_PATH }}
+            ${{ steps.offline.outputs.MANIFEST_PATH }}
+            ${{ steps.offline.outputs.MANIFEST_CHECKSUM_PATH }}

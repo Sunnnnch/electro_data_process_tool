@@ -34,6 +34,7 @@ from .tools_projects import (
     tool_get_current_project_history,
     tool_get_current_project_summary,
     tool_get_processing_history,
+    tool_get_processing_schema,
 )
 
 _logger = logging.getLogger(__name__)
@@ -213,6 +214,7 @@ def execute_tool(
         "prepare_result_report": prepare_result_report,
         # Request-scoped UI context
         "get_professional_mode_context": tool_get_professional_mode_context,
+        "get_processing_schema": tool_get_processing_schema,
         # LSV query
         "query_lsv_summary": tool_query_lsv_summary,
         "find_best_catalysts": tool_find_best_catalysts,

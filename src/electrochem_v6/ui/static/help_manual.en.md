@@ -1,6 +1,6 @@
 # ElectroChem | Intelligent Electrochemical Data Processing Software — User Guide
 
-This application processes LSV, CV, EIS, ECSA and COUPLED/FE data, with project storage, result comparison, historical replay, reproducible reports and a data analysis assistant. Use Professional Mode for calculations and Project Management to organize results. Linking a project is optional and does not affect calculations.
+This application processes LSV, CV, EIS, ECSA and COUPLED/FE data, with project storage, result comparison, historical replay, reproducible reports and a data analysis assistant. Use Data Processing for calculations and Project Management to organize results. Linking a project is optional and does not affect calculations.
 
 This guide applies to **7.0.1**. Upgrades retain existing data locations, projects, history, templates and conversations. Back up application data, original inputs and outputs, finish tasks, exit the tray application and disconnect MCP clients before upgrading. Preserve old file locations referenced by history after migration. Missing historical parameters or fingerprints cannot be reconstructed automatically; replay uses the current engine and creates new results without replacing the originals.
 
@@ -10,7 +10,7 @@ Open the installed application from its shortcut. For a source checkout, run `se
 
 The executable is named `ElectroChem.exe`; the application display name has no V6 suffix. The window, tray and installer share the blue application icon. On supported Windows versions, native title-bar colors and caption controls follow the application theme. System high-contrast settings take priority, and Windows controls the overall system taskbar appearance.
 
-1. Open **Professional Mode**, click **Select Data**, then **Select Files** or **Select Folder**. Multiple files are supported; the list below shows the actual inputs.
+1. Open **Data Processing**, click **Select Data**, then **Select Files** or **Select Folder**. Multiple files are supported; the list below shows the actual inputs.
 2. Check each file's type and whether it is enabled. Select only the processing methods needed for this run.
 3. Enter the area, potential reference and other settings required by the selected method, using your experiment records. Enable **Show advanced settings** in the module, then expand **Instrument columns and units** to verify the columns and units. Load a suitable parameter template if needed and review its contents.
 4. Choose a **Linked project (optional)** for storage, or leave **Do not archive to a project** selected.
@@ -19,7 +19,7 @@ The executable is named `ElectroChem.exe`; the application display name has no V
 
 Default values are starting settings, not experimental evidence. Incorrect area, column mapping, units or potential reference can produce unsuitable results even when the program finishes successfully.
 
-![Professional Mode: verify inputs and settings before preflight and processing](guide-professional.en.png)
+![Data Processing: verify inputs and settings before preflight and processing](guide-professional.en.png)
 
 ### Practice with the synthetic CV example
 
@@ -94,11 +94,28 @@ Use the actual scan rate in V/s, cycle selection and segmentation settings; expo
 
 Peak detection offers smoothing window, minimum peak height, minimum peak distance and maximum peak count. Compare detected peaks with the original curve; excessive smoothing can alter peak shapes. Closure tolerance, reversal-confirmation threshold and minimum segment points help identify sweeps but do not replace checking incomplete or missing cycles.
 
-### EIS: models and fitting limits
+### EIS: six models, residuals and KK screening
 
-Plot Nyquist and Bode data and choose `Rs + (Rct || Cdl)` or `Rs + (Rct || CPE[Q,n])`. Results retain complex R², real/imaginary/complex RMSE, normalized RMSE and acceptance thresholds.
+Enable equivalent-circuit fitting and choose a model supported by the experiment. `∥` denotes parallel elements. Two-branch models label branches 1 and 2 by increasing time constant; neither resistance is automatically identified as Rct.
 
-Both circuits have one time constant. They do not include Warburg diffusion, inductance or additional time constants. Check that the circuit suits the data. CPE Q cannot be treated directly as capacitance when n differs substantially from 1; changing n also changes Q's dimensions.
+1. **Ideal RC**: `Rs + (Rct ∥ Cdl)`.
+2. **Non-ideal CPE**: `Rs + (Rct ∥ CPE[Q,n])`.
+3. **RC with diffusion**: `Rs + (Cdl ∥ (Rct + W[sigma]))`.
+4. **CPE with diffusion**: `Rs + (CPE[Q,n] ∥ (Rct + W[sigma]))`.
+5. **Two time constants, RC**: `Rs + (R1 ∥ C1) + (R2 ∥ C2)`.
+6. **Two time constants, CPE**: `Rs + (R1 ∥ CPE[Q1,n1]) + (R2 ∥ CPE[Q2,n2])`.
+
+W uses the semi-infinite convention `Z_W = sigma(1−j)/√(2πf)` inside the series Rct branch, not in series with the whole circuit. These fitting models do not include finite-length diffusion or inductance. Q has units `S·sⁿ` and equals ideal capacitance only at n=1; Q values with different n are not directly subtracted.
+
+**Frequency limits always use Hz and include both endpoints.** Source kHz values are converted before applying the limits. Leave a bound empty to retain all available frequencies on that side. Circuit fitting and KK screening use the same selected interval without rewriting source data. Selected/excluded counts and indices are saved. Nyquist and Bode plots retain all measurements and overlay the fit only across the selected frequencies.
+
+Choose `uniform` for equally weighted real/imaginary residuals or `modulus` for modulus-normalized residuals with a small-magnitude guard. Weighting changes the objective; compare candidate fits with the same interval and weighting. Deterministic multiple starting points are used. Results retain complex R², RMSE diagnostics, parameters and the acceptance criterion. The default minimum R² of 0.5 is a configurable acceptance setting, not evidence that the physical model is valid.
+
+Parameter diagnostics include approximate local 95% intervals, correlations, boundary hits and identifiability. Intervals depend on the model, weighting and local linearization; they exclude model error. Intervals are withheld with a reason at bounds, rank/conditioning failures or unresolved double branches. High correlation and relaxation times outside the measured interval require review even when R² is high.
+
+**KK screening can run independently.** Its validation expansion and modulus weighting are separate from the chosen circuit and its weighting control. Results are `consistent`, `review` or `unavailable`. Default screening limits are relative RMS≤2% and maximum complex residual≤5%, together with RC-order stability; these are saved heuristics. At least 10 distinct frequencies spanning 2 decades are required. Non-finite values, non-positive frequencies and nearly constant impedance are unassessable. KK consistency does not prove a particular circuit or independently establish experimental linearity or stationarity.
+
+Enabling fitting or KK exports a diagnostics JSON and pointwise residual CSV, plus a residual plot when residuals are available. Circuit residuals use Ω; KK CSV values are relative fractions and the plot shows percentages. Diagnostics, interval, weighting and selected formula snapshots are saved with history/reports. Recalculation creates a new result and retains the old version. The full method and limitations are documented in the repository's `docs/eis_fitting.md`.
 
 ### ECSA: evaluation potential and scan-rate groups
 
@@ -153,7 +170,7 @@ In **Project Management**, click **Create**. Enter a name and optional descripti
 
 Use **More → Project settings** to edit an existing project. Saving project information does not change the project assigned to the processing form currently being edited.
 
-**Process new data here** opens Professional Mode. A linked template first shows differences: choose **Apply template and continue** or **Keep current parameters**. Selected primary data, folders and auxiliary file paths are preserved. Applying parameters requires another preflight. Projects store the template name and use its latest contents next time; historical run settings remain unchanged. If a template was deleted, relink it or continue with current parameters.
+**Process new data here** opens Data Processing. A linked template first shows differences: choose **Apply template and continue** or **Keep current parameters**. Selected primary data, folders and auxiliary file paths are preserved. Applying parameters requires another preflight. Projects store the template name and use its latest contents next time; historical run settings remain unchanged. If a template was deleted, relink it or continue with current parameters.
 
 ![Project workspace: results, comparisons and reports](guide-project.en.png)
 
@@ -175,7 +192,7 @@ Differences are B − A, and relative change is `(B − A) / |A| × 100%`. No pe
 
 Open a result and choose **Replay this result** or **Replay this run**. Select **Use original parameters** or **Modify parameters**, then **Check replay plan**. Verify inputs, parameter differences and calculation versions before **Start replay**.
 
-Relocate moved files; explicitly confirm changed contents. Replay creates a new run and outputs while preserving originals. A single ECSA result depends on multiple scan-rate files; LSV iR depends on EIS; COUPLED/FE depends on the complete table, method and signals. If changed parameters require a different dependency set, return to Professional Mode and select complete inputs.
+Relocate moved files; explicitly confirm changed contents. Replay creates a new run and outputs while preserving originals. A single ECSA result depends on multiple scan-rate files; LSV iR depends on EIS; COUPLED/FE depends on the complete table, method and signals. If changed parameters require a different dependency set, return to Data Processing and select complete inputs.
 
 Replay uses the currently installed calculation engine, not an automatically restored old environment. Missing historical parameters or sources are reported as unrecorded; bit-for-bit agreement across versions is not guaranteed. Older ZIP-imported runs can use the retained original archive or a verified recovery cache. A changed archive is not the same source.
 
@@ -207,9 +224,11 @@ Deleting a record or permanently deleting a project removes associated records a
 
 ### Configure the service and context
 
-Open **Data Analysis Assistant** at the lower right, then **AI Settings**. Enter Provider, Model, API Key and the required service URL. Use **Test**, then **Save**. Local Professional Mode calculations do not require AI configuration. Prompt templates can guide a task but cannot replace experimental parameters.
+Open **Data Analysis Assistant** at the lower right, then **AI Settings**. Select Provider, check the service URL, and enter the API Key. After typing stops, the app queries that address for available models. You can also refresh the list and choose a Model; the current model is never replaced automatically. Check the model, then use **Test** and **Save**. Local calculations in Data Processing do not require AI configuration. Prompt templates can guide a task but cannot replace experimental parameters.
 
-Enter a question and **Send**. **Check current setup** reviews Professional Mode parameters; **Summarize recent experiments** queries existing results. The assistant can read current parameters, types, input-source summaries or the project database as needed. Select exact project records before asking for comparisons or reports. Supply missing experimental conditions; filenames do not establish them.
+Model discovery queries only the configured model-list endpoint: it sends no chat and does not save a new key automatically. If the service does not support model listing, denies access, or cannot be reached, enter the provider's model ID manually. A listed model is not guaranteed to support the current chat interface. **Test** makes an actual model request and may incur provider charges. Enter the appropriate key after changing providers; saved credentials are not automatically sent to a different site when the service URL changes.
+
+Enter a question and **Send**. **Check current setup** reviews Data Processing parameters; **Summarize recent experiments** queries existing results. The assistant can read current parameters, types, input-source summaries or the project database as needed. Select exact project records before asking for comparisons or reports. Supply missing experimental conditions; filenames do not establish them.
 
 Use **Chats** to switch, rename or delete chats. While a request runs, Send can become **Cancel AI request**; Tasks can return you to its conversation. When an external model service is configured, messages and the context included with the request are processed by that service.
 
@@ -247,13 +266,21 @@ The desktop **Desktop** menu provides settings, the data folder, legacy-data rev
 
 Installed clients use `%USERPROFILE%\.electrochem\v6`; portable builds explicitly marked with `portable.marker` use `user_data` beside the executable. Upgrades retain old data. On first launch, old data can be copied after review if the destination is empty; existing destination data is never merged or overwritten. Historical files may still reference the old folder, which must be retained. Update checks run only on request and open the official download page. Exit safely before installing an update.
 
-Open **Appearance** for **Lab Light**, **Professional Ocean**, **High-Contrast Dark**, **Pixel Terminal** or **Follow system**. First use defaults to Lab Light, while existing choices are preserved. Text sizes 14/16/18px, comfortable/compact density and background grid are independent, saved immediately and do not change projects, inputs or calculation settings.
+The desktop targets Windows 10 22H2 / Windows 11 x64 with WebView2 Runtime 120+. Python and computation dependencies are bundled. The standard installer requires suitable WebView2 on the PC; the `-offline` installer includes Microsoft's standalone runtime. Basic analysis works offline; cloud AI needs network access. These requirements do not imply that every system version has passed clean-machine acceptance.
+
+Use **Desktop → Environment check** to inspect the OS, architecture, desktop runtime and data directory. Refresh after repairing the environment, or copy the report for troubleshooting; selectable text is available if clipboard access fails. Reports are not uploaded automatically and contain no model keys or experiment data, but directory paths may contain an account name. If the embedded window cannot start, follow the native diagnostic or browser-workspace guidance.
+
+Open **Appearance** and choose an interface style, then a palette. All four styles share the same features and workflow. **Modern** uses soft corners and subtle shadows; **Paper Editorial** uses a margin index, vertically arranged forms and results, fine dividers and serif headings; **Soft Modules** uses a horizontal workflow strip, generously rounded modules and soft shadows; **Pixel Retro** uses square controls and crisp offset shadows. Modern defaults to **Lab Light**; Paper Editorial and Pixel Retro default to **Retro Cream**; Soft Modules defaults to **Misty Blue**. The retired Classic Desktop style migrates to Pixel Retro, preserving an existing Pixel palette; the former Classic palette remains available in the recovered palettes section. Narrow windows rearrange the workflow and results. Text sizes 14/16/18px, comfortable/compact density and background grid are independent, saved immediately and do not change projects, inputs or calculation settings.
+
+All four styles can use nine presets: **Lab Light**, **Professional Ocean**, **High-Contrast Dark**, **Retro Cream**, **Slate Blue**, **Warm Amber**, **Misty Blue**, **Handheld Olive** and **Muted Violet**. Paper Editorial also supports dark palettes. **Custom colors** provides color swatches and hexadecimal fields for the page background, panel background, accent, body text and title bar. Changing colors preserves the style's corners and shadows, and updates scrollbars, the assistant and supported native title bars. A warning identifies low contrast between body text and the panel background; **Match text color automatically** helps improve readability.
+
+Each style remembers its own palette when you switch away and back. **Follow system**, in the palette section, switches between Lab Light and High-Contrast Dark with the system's light/dark preference while retaining the selected style. **Reset this style's colors** restores only that style's default palette, preserving other styles and reading settings. Existing preferences migrate automatically; new styles do not replace existing custom colors or backups. Unused custom colors from older themes remain available under **Previously saved palettes**, where they can be applied again.
 
 Assistant text scales to 15/17/19px, with more generous spacing in comfortable mode. Long code and wide tables scroll locally; use Tab to focus them and arrow keys to scroll.
 
-**Chart preview background** offers **Follow theme** and **Paper white**. Themes do not invert or rewrite scientific data colors; existing comparison PNGs remain unchanged. CSV/SVG exports are independent of the interface theme, with white-background SVGs. Exported plot fonts, axes and grids remain controlled by Professional Mode plotting parameters.
+**Chart preview background** offers **Follow theme** and **Paper white**. Themes do not invert or rewrite scientific data colors; existing comparison PNGs remain unchanged. CSV/SVG exports are independent of the interface theme, with white-background SVGs. Exported plot fonts, axes and grids remain controlled by Data Processing plotting parameters.
 
-**Restore defaults** resets appearance only. Esc closes the dialog and returns focus to the opener. Preferences are stored in this browser; unavailable storage is reported as applying changes to the current page only.
+**Restore defaults** at the bottom of the dialog clears all four styles' palette choices and previously saved palettes. It restores Modern, Lab Light, standard text, comfortable density, no grid and charts following the theme. It resets appearance only. Esc closes the dialog and returns focus to the opener. Preferences are stored in this browser; unavailable storage is reported as applying changes to the current page only.
 
 ## Frequently asked questions
 

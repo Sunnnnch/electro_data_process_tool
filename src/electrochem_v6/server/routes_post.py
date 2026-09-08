@@ -31,6 +31,7 @@ from electrochem_v6.core.logging_policy import get_v6_logger, log_event
 from electrochem_v6.core.storage_service import cleanup_orphaned_runs
 from electrochem_v6.core.upload_recovery import build_upload_source
 from electrochem_v6.llm import check_provider_connection, update_provider
+from electrochem_v6.llm.model_discovery import discover_provider_models
 from electrochem_v6.server.request_utils import (
     extract_zip_safely,
     parse_multipart_form,
@@ -591,6 +592,16 @@ def dispatch_post(handler: Any, manager: Any) -> bool:
             {"path": path, "status": result.get("status"), "provider": result.get("provider")},
             level=logging.INFO if result.get("status") == "success" else logging.WARNING,
         )
+        handler._send_json(200 if result.get("status") == "success" else 400, result)
+        return True
+
+    if path == "/api/v1/llm/models":
+        try:
+            payload = read_json(handler, handler.MAX_JSON_BODY_BYTES)
+        except ValueError:
+            handler._send_json(400, {"status": "error", "code": "invalid_config", "message": "模型列表请求格式无效"})
+            return True
+        result = discover_provider_models(payload)
         handler._send_json(200 if result.get("status") == "success" else 400, result)
         return True
 

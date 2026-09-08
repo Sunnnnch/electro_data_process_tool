@@ -17,6 +17,7 @@ import logging
 import mimetypes
 import os
 import secrets
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +35,20 @@ from electrochem_v6.store._json_utils import to_json_safe as _to_json_safe
 def _encode_json_payload(payload: Dict[str, Any]) -> bytes:
     safe = _to_json_safe(payload)
     return json.dumps(safe, ensure_ascii=False, allow_nan=False).encode("utf-8")
+
+
+class _ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    """Keep one local service per address, including beside older Windows builds."""
+
+    # On Windows SO_REUSEADDR can bind an already listening address and send
+    # requests to either process. POSIX address reuse only aids closed sockets.
+    allow_reuse_address = os.name != "nt"
+    allow_reuse_port = False
+
+    def server_bind(self) -> None:
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class V6ServerManager:
@@ -139,7 +154,8 @@ class V6ServerManager:
                 self._job_manager = ProcessingJobManager(agent_runner=self._run_agent_job)
             self.session_token = secrets.token_urlsafe(32)
             handler_cls = self._make_handler()
-            self._server = ThreadingHTTPServer(("127.0.0.1", self.port), handler_cls)
+            self._server = _ExclusiveThreadingHTTPServer(("127.0.0.1", self.port), handler_cls)
+            self.port = int(self._server.server_address[1])
         except OSError as exc:
             if self._job_manager is not None:
                 self._job_manager.shutdown()
@@ -221,8 +237,8 @@ class V6ServerManager:
 
             def _browser_write_is_allowed(self) -> bool:
                 token = str(self.headers.get("X-Electrochem-Session") or "")
-                if token and secrets.compare_digest(token, manager.session_token):
-                    return True
+                if token:
+                    return secrets.compare_digest(token, manager.session_token)
                 origin = str(self.headers.get("Origin") or "").strip()
                 fetch_site = str(self.headers.get("Sec-Fetch-Site") or "").strip().lower()
                 return not origin and fetch_site in {"", "none"}
