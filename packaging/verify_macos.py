@@ -62,6 +62,23 @@ def tool_output(result) -> dict:
     return result.structuredContent
 
 
+def validate_native_smoke_report(path: Path, executable: Path, version: str, arch: str) -> dict:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    require(report.get("schema_version") == 1 and report.get("status") == "passed" and report.get("normal_exit") is True,
+            "Frozen native lifecycle smoke has not passed")
+    require(report.get("execution_mode") == "frozen" and report.get("version") == version and report.get("architecture") == arch,
+            "Native smoke did not exercise this frozen version/architecture")
+    require(Path(report.get("entrypoint", "")).resolve() == executable.resolve(), "Native smoke tested another executable")
+    require(Path(report.get("data_dir", "")).resolve() == (path.parent / "data").resolve(), "Native smoke data directory differs from its isolated workspace")
+    require(not (path.parent / "data").resolve().is_relative_to(executable.parents[2].resolve()), "Native smoke data is inside the app bundle")
+    checks = report.get("checks", [])
+    expected = {"owned_service", "real_wkwebview", "js_native_bridge", "dock_background_and_reopen",
+                "privileged_navigation_blocked", "command_q_safe_cancel", "native_terminate_waits", "real_cv_and_normal_exit"}
+    require(isinstance(checks, list) and all(isinstance(check, dict) and check.get("status") == "passed" for check in checks)
+            and expected <= {check.get("id") for check in checks}, "Required native lifecycle checks are incomplete")
+    return {"status": "passed", "report_sha256": sha256(path), "normal_exit": True, "execution_mode": "frozen"}
+
+
 async def exercise_mcp(executable: Path, data: Path, scratch: Path, environment: dict[str, str], *, prefix_args: tuple[str, ...] = ()) -> dict:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -194,12 +211,15 @@ def verify(app: Path, arch: str, evidence_dir: Path) -> dict:
     require(bundle_snapshot(unpacked / "ElectroChem.app") == before, "ZIP did not preserve the validated app or its symlinks")
     subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(unpacked / "ElectroChem.app")], check=True)
     subprocess.run(["/usr/bin/hdiutil", "verify", str(app.parent / f"{prefix}.dmg")], check=True)
+    # Collect independent packaged MCP and integrity evidence even if the native
+    # smoke failed. A candidate still cannot pass without its native report.
+    native_smoke = validate_native_smoke_report(app.parent / "frozen-native-smoke/report.json", main, version, arch)
     return {"status": "passed", "app_version": version, "architecture": arch, "runner_macos": platform.mac_ver()[0],
             "minimum_macos": "13.0", "minimum_os_device_tested": False, "native_binary_count": count,
             "executable_version": "passed", "environment_check": "passed", "data_outside_bundle": True,
             "bundle_unchanged": True, "zip_roundtrip": "passed", "dmg_integrity": "passed",
             "mcp": mcp_report, "signature": "ad-hoc", "notarized": False,
-            "native_window_lifecycle": "separate smoke required; SIGTERM used only for test cleanup",
+            "native_window_lifecycle": "passed", "native_smoke": native_smoke,
             "public_release_eligible": False}
 
 

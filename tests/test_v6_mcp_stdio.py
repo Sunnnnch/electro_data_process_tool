@@ -15,6 +15,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from electrochem_v6.core import system_service
 from electrochem_v6.desktop.mcp_integration import DesktopServiceDiscovery
 from electrochem_v6.server.http_server import V6ServerManager
 from electrochem_v6.store.runtime import reset_runtime
@@ -28,6 +29,11 @@ WRITE_TOOLS = {"start_process", "export_report"}
 @pytest.fixture
 def mcp_api(tmp_path, monkeypatch):
     data_dir = tmp_path / "runtime"
+    # macOS pytest temp directories are outside the home/workspace roots.
+    # Model explicit file selection for this synthetic root only, and restore
+    # the previous allow-list when the fixture finishes.
+    monkeypatch.setattr(system_service, "_runtime_allowed_dirs", set())
+    system_service.register_allowed_dir(str(tmp_path))
     monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(data_dir))
     for key in ("PROJECTS", "HISTORY", "CONVERSATION", "TEMPLATE", "QUALITY_REPORT", "LOG", "LLM_CONFIG"):
         monkeypatch.delenv(f"ELECTROCHEM_V6_{key}_FILE", raising=False)

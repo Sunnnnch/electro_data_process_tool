@@ -152,11 +152,14 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
     assert get_database().get_all_history_records() == []
 
     class SmokeShell(DesktopShellApp):
+        smoke_runner: Any = None
+
         def _start_server(self):
             # Kernel-assigned private port: no existing desktop listener is used.
             self.manager = V6ServerManager(port=0)
             success, message = self.manager.start()
             if success:
+                self.smoke_runner = self.manager._job_manager
                 self.port = self.manager.port
                 self.ui_url = f"http://127.0.0.1:{self.port}/ui?desktop=1"
                 assert self.manager._server.server_address == ("127.0.0.1", self.port)
@@ -304,6 +307,10 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
         released.set()
         if app.manager and app.manager.is_running:
             app.manager.stop()
+        if app.smoke_runner is not None:
+            # A failed GUI check may stop Cocoa while the synthetic runner is
+            # still finishing. Join its callbacks before releasing SQLite.
+            app.smoke_runner._executor.shutdown(wait=True)
         reset_runtime()
         save()
 

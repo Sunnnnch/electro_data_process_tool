@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import struct
 import sys
 from pathlib import Path
@@ -99,12 +100,15 @@ def test_build_refuses_non_native_platform_without_touching_output(tmp_path, mon
 def test_candidate_mcp_exercise_matches_real_source_api(tmp_path, monkeypatch):
     from verify_macos import exercise_mcp, isolated_environment
 
+    from electrochem_v6.core import system_service
     from electrochem_v6.desktop.mcp_integration import DesktopServiceDiscovery
     from electrochem_v6.server.http_server import V6ServerManager
     from electrochem_v6.store.runtime import reset_runtime
 
     environment = isolated_environment(tmp_path)
     data = tmp_path / "data"
+    monkeypatch.setattr(system_service, "_runtime_allowed_dirs", set())
+    system_service.register_allowed_dir(str(tmp_path))
     monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(data))
     for key in ("PROJECTS", "HISTORY", "CONVERSATION", "TEMPLATE", "QUALITY_REPORT", "LOG", "LLM_CONFIG"):
         monkeypatch.delenv(f"ELECTROCHEM_V6_{key}_FILE", raising=False)
@@ -126,3 +130,24 @@ def test_candidate_mcp_exercise_matches_real_source_api(tmp_path, monkeypatch):
         if runner:
             runner._executor.shutdown(wait=True)
         reset_runtime()
+
+
+@pytest.mark.parametrize("change", [{"execution_mode": "source"}, {"normal_exit": False}, {"version": "0.0.0"},
+                                     {"entrypoint": "/different/app"}, {"data_dir": "/different/data"}, {"checks": []}])
+def test_native_report_cannot_substitute_source_or_incomplete_run(tmp_path, change):
+    from verify_macos import validate_native_smoke_report
+    app = tmp_path / "ElectroChem.app"
+    main = app / "Contents/MacOS/ElectroChem"
+    output = tmp_path / "frozen-native-smoke"
+    output.mkdir()
+    path = output / "report.json"
+    expected = ["owned_service", "real_wkwebview", "js_native_bridge", "dock_background_and_reopen",
+                "privileged_navigation_blocked", "command_q_safe_cancel", "native_terminate_waits", "real_cv_and_normal_exit"]
+    report = {"schema_version": 1, "status": "passed", "normal_exit": True, "execution_mode": "frozen", "version": "7.0.1",
+              "architecture": "arm64", "entrypoint": str(main), "data_dir": str(output / "data"),
+              "checks": [{"id": name, "status": "passed"} for name in expected]}
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert validate_native_smoke_report(path, main, "7.0.1", "arm64")["status"] == "passed"
+    path.write_text(json.dumps({**report, **change}), encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        validate_native_smoke_report(path, main, "7.0.1", "arm64")

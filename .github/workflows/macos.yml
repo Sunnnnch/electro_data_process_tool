@@ -56,6 +56,8 @@ jobs:
           .venv-macos/bin/python -c "import platform; assert platform.machine() == '${{ matrix.arch }}'; import objc, AppKit, Foundation, WebKit, Quartz, webview; assert WebKit.WKWebView"
 
       - name: Packaging contracts and real source MCP processing
+        id: contracts
+        continue-on-error: true
         run: >-
           .venv-macos/bin/python -m pytest
           tests/test_v6_macos_packaging.py tests/test_v6_mcp_stdio.py
@@ -64,6 +66,8 @@ jobs:
           tests/test_v6_macos_desktop_bridge.py tests/test_v6_macos_native_smoke.py -q
 
       - name: Real source Cocoa, JS bridge, synthetic CV and safe Command-Q
+        id: source_native
+        continue-on-error: true
         timeout-minutes: 5
         run: .venv-macos/bin/python packaging/smoke_macos_desktop.py --output-dir 'dist_macos/${{ matrix.arch }}/source-native-smoke'
 
@@ -71,6 +75,8 @@ jobs:
         run: .venv-macos/bin/python packaging/build_macos.py --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}'
 
       - name: Real frozen Cocoa, JS bridge, synthetic CV and safe Command-Q
+        id: frozen_native
+        continue-on-error: true
         timeout-minutes: 5
         run: >-
           'dist_macos/${{ matrix.arch }}/ElectroChem.app/Contents/MacOS/ElectroChem'
@@ -78,6 +84,16 @@ jobs:
 
       - name: Verify frozen app, private data directory, MCP and synthetic CV
         run: .venv-macos/bin/python packaging/verify_macos.py --app 'dist_macos/${{ matrix.arch }}/ElectroChem.app' --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}/verification.json'
+
+      - name: Require every source and native check before distributing candidates
+        env:
+          CONTRACTS: ${{ steps.contracts.outcome }}
+          SOURCE_NATIVE: ${{ steps.source_native.outcome }}
+          FROZEN_NATIVE: ${{ steps.frozen_native.outcome }}
+        run: |
+          test "$CONTRACTS" = success
+          test "$SOURCE_NATIVE" = success
+          test "$FROZEN_NATIVE" = success
 
       - name: Upload successful candidate distributions
         uses: actions/upload-artifact@v4
