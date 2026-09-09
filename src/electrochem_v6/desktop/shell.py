@@ -225,6 +225,9 @@ class DesktopShellApp:
                 maximized=rectangle["maximized"], confirm_close=False, text_select=True,
                 background_color=self._window_appearance["caption_color"],
             )
+            if mac:
+                from .mac_bridge import install_window_evaluator
+                install_window_evaluator(self.window)
             self.window.events.closing += self._on_closing
             self.window.events.closed += self._closed.set
             self.window.events.resized += self._on_resized

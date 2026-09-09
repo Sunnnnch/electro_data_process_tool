@@ -65,6 +65,30 @@ def close_choice(title: str) -> str:
     return {1: "wait", 2: "cancel"}.get(selected, "stay")
 
 
+def _post_loop_wakeup(application: Any) -> None:
+    import AppKit  # type: ignore[import-not-found]
+
+    # stop: checks its flag after an NSEvent, not a callAfter/timer callback.
+    # https://developer.apple.com/documentation/appkit/nsapplication/stop(_:)
+    event = AppKit.NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+        AppKit.NSApplicationDefined, AppKit.NSMakePoint(0, 0), 0, 0, 0, None, 0, 0, 0)
+    if event is None:
+        raise RuntimeError("Unable to wake the macOS application event loop")
+    application.postEvent_atStart_(event, True)
+
+
+def stop_event_loop() -> None:
+    """Stop this process's Cocoa loop and wake it (failed isolated smoke only)."""
+    import AppKit  # type: ignore[import-not-found]
+
+    def stop():
+        application = AppKit.NSApplication.sharedApplication()
+        application.stop_(None)
+        _post_loop_wakeup(application)
+
+    _on_main(stop)
+
+
 class MacController:
     def __init__(self, origin: str, request_exit: Callable[[], Any], activate: Callable[[], Any]) -> None:
         self.origin = origin
@@ -126,6 +150,9 @@ def prepare_cocoa(origin: str, request_exit: Callable[[], Any], activate: Callab
     import WebKit  # type: ignore[import-not-found]
     from webview.platforms.cocoa import BrowserView  # type: ignore[import-not-found]
 
+    from .mac_bridge import patch_cocoa_api_generator
+
+    patch_cocoa_api_generator()
     global _controller
     _controller = MacController(origin, request_exit, activate)
     if not getattr(BrowserView, "_electrochem_adapted", False):
@@ -173,6 +200,13 @@ def prepare_cocoa(origin: str, request_exit: Callable[[], Any], activate: Callab
                 handler(AppKit.NSURLSessionAuthChallengePerformDefaultHandling, None)
 
         class ElectroChemWindowDelegate(BrowserView.WindowDelegate):
+            def windowWillClose_(self, notification):
+                # Preserve WKWebView release, window registry and closed events.
+                # The pinned parent calls stop_ only after the last window closes.
+                objc.super(ElectroChemWindowDelegate, self).windowWillClose_(notification)
+                if not BrowserView.instances:
+                    _post_loop_wakeup(BrowserView.app)
+
             def windowDidMove_(self, notification):
                 instance = BrowserView.get_instance("window", notification.object())
                 if instance:

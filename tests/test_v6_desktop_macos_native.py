@@ -38,22 +38,28 @@ def rect(x, y, width, height):
 
 @pytest.fixture
 def cocoa(monkeypatch):
+    from electrochem_v6.desktop import mac_bridge
+
     calls, monitors, pending = [], [], []
     application = SimpleNamespace(
         setActivationPolicy_=lambda value: calls.append(("policy", value)),
         unhide_=lambda value: calls.append(("unhide", value)),
         activateIgnoringOtherApps_=lambda value: calls.append(("activate", value)),
         setApplicationIconImage_=lambda value: calls.append(("icon", value)),
+        stop_=lambda sender: calls.append(("stop", sender)),
+        postEvent_atStart_=lambda event, first: calls.append(("post", event, first)),
     )
     screens = [SimpleNamespace(frame=lambda: rect(0, 0, 1440, 900), visibleFrame=lambda: rect(0, 60, 1440, 815)),
                SimpleNamespace(frame=lambda: rect(-1280, 0, 1280, 800), visibleFrame=lambda: rect(-1280, 0, 1280, 800))]
     appkit = SimpleNamespace(
         NSObject=ObjCObject, NSMenu=Menu, NSApplication=SimpleNamespace(sharedApplication=lambda: application),
         NSApplicationActivationPolicyRegular=0, NSTerminateCancel=0, NSCommandKeyMask=1 << 20, NSKeyDownMask=1 << 10,
+        NSApplicationDefined=15, NSMakePoint=lambda x, y: (x, y),
         NSURLSessionAuthChallengePerformDefaultHandling=1,
         NSEvent=SimpleNamespace(
             addLocalMonitorForEventsMatchingMask_handler_=lambda mask, handler: monitors.append((mask, handler)) or handler,
             removeMonitor_=lambda handler: calls.append(("remove-monitor", handler)),
+            otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_=lambda *args: calls.append(("wake-event", args)) or SimpleNamespace(kind="wake"),
         ),
         NSScreen=SimpleNamespace(screens=lambda: screens),
         NSAppearanceNameDarkAqua="DarkAqua", NSAppearanceNameAqua="Aqua",
@@ -61,20 +67,28 @@ def cocoa(monkeypatch):
         NSColor=SimpleNamespace(colorWithSRGBRed_green_blue_alpha_=lambda *channels: channels, windowBackgroundColor=lambda: "system"),
         NSWorkspace=SimpleNamespace(sharedWorkspace=lambda: SimpleNamespace(accessibilityDisplayShouldIncreaseContrast=lambda: False)),
     )
+    def base_window_close(self, notification):
+        instance = notification.object()
+        calls.append(("base-close", instance.uid))
+        del view.instances[instance.uid]
+        if not view.instances:
+            application.stop_(None)
+
     view = SimpleNamespace(
         AppDelegate=type("OriginalAppDelegate", (ObjCObject,), {}),
         BrowserDelegate=type("OriginalBrowserDelegate", (ObjCObject,), {}),
-        WindowDelegate=type("OriginalWindowDelegate", (ObjCObject,), {}),
+        WindowDelegate=type("OriginalWindowDelegate", (ObjCObject,), {"windowWillClose_": base_window_close}),
         WebKitHost=type("OriginalWebKitHost", (ObjCObject,), {}),
         instances={}, app=application, pyobjc_method_signature=lambda value: value,
     )
     monkeypatch.setitem(sys.modules, "AppKit", appkit)
     monkeypatch.setitem(sys.modules, "WebKit", SimpleNamespace(WKNavigationActionPolicyAllow=1, WKNavigationActionPolicyCancel=0))
-    monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(signature=lambda value: lambda function: function))
+    monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(signature=lambda value: lambda function: function, super=super))
     monkeypatch.setitem(sys.modules, "PyObjCTools", SimpleNamespace(AppHelper=SimpleNamespace(callAfter=lambda callback, *args: pending.append((callback, args)))))
     monkeypatch.setitem(sys.modules, "webview.platforms.cocoa", SimpleNamespace(BrowserView=view))
     monkeypatch.setattr(mac_native, "_controller", None)
     monkeypatch.setattr(mac_native, "_key_monitor", None)
+    monkeypatch.setattr(mac_bridge, "patch_cocoa_api_generator", lambda: calls.append(("bridge-generator",)))
     return SimpleNamespace(appkit=appkit, view=view, calls=calls, monitors=monitors, pending=pending, application=application)
 
 
@@ -122,6 +136,48 @@ def test_cocoa_preparation_requires_main_thread_and_installs_only_once(cocoa):
     mac_native.prepare_cocoa("http://127.0.0.1:8011/ui", lambda: None, lambda: None)
     assert cocoa.view.AppDelegate is delegate
     assert len(cocoa.monitors) == 1
+
+
+@pytest.mark.parametrize("has_other_window", [False, True])
+def test_cocoa_closed_delegate_preserves_cleanup_then_wakes_only_last_window(cocoa, has_other_window):
+    mac_native.prepare_cocoa("http://127.0.0.1:8010/ui", lambda: None, lambda: None)
+    instance = SimpleNamespace(uid="master")
+    cocoa.view.instances["master"] = instance
+    if has_other_window:
+        cocoa.view.instances["other"] = object()
+    cocoa.calls.clear()
+    cocoa.view.WindowDelegate().windowWillClose_(SimpleNamespace(object=lambda: instance))
+    assert "master" not in cocoa.view.instances
+    if has_other_window:
+        assert cocoa.calls == [("base-close", "master")]
+    else:
+        assert [call[0] for call in cocoa.calls] == ["base-close", "stop", "wake-event", "post"]
+        assert cocoa.calls[2][1] == (15, (0, 0), 0, 0, 0, None, 0, 0, 0)
+        assert cocoa.calls[3][1].kind == "wake" and cocoa.calls[3][2] is True
+
+
+def test_failed_smoke_stop_runs_on_cocoa_loop_and_posts_a_wake_event(cocoa):
+    errors = []
+
+    def worker():
+        try:
+            mac_native.stop_event_loop()
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    ready = threading.Event()
+    for _ in range(100):
+        if cocoa.pending:
+            break
+        ready.wait(.01)
+    assert cocoa.calls == [], "worker must not call AppKit directly"
+    callback, args = cocoa.pending.pop()
+    callback(*args)
+    thread.join(1)
+    assert not thread.is_alive() and errors == []
+    assert [call[0] for call in cocoa.calls] == ["stop", "wake-event", "post"]
 
 
 @pytest.mark.parametrize("url,main,new,expected", [
@@ -224,6 +280,8 @@ class WindowEvent(threading.Event):
 
 
 def test_macos_shell_selects_cocoa_before_window_without_tk_or_tray_loop(cocoa, monkeypatch, tmp_path):
+    from electrochem_v6.desktop import mac_bridge
+
     monkeypatch.setattr(shell.platform, "system", lambda: "Darwin")
     monkeypatch.setenv("PYWEBVIEW_GUI", "qt")
     monkeypatch.setenv("KDE_FULL_SESSION", "1")
@@ -236,6 +294,7 @@ def test_macos_shell_selects_cocoa_before_window_without_tk_or_tray_loop(cocoa, 
 
     def create_window(*args, **kwargs):
         assert app._mac_controller is not None
+        assert ("bridge-generator",) in cocoa.calls
         calls.append("create")
         return window
 
@@ -247,12 +306,13 @@ def test_macos_shell_selects_cocoa_before_window_without_tk_or_tray_loop(cocoa, 
         calls.append("start")
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=create_window, start=start))
+    monkeypatch.setattr(mac_bridge, "install_window_evaluator", lambda current: calls.append("evaluator") if current is window else pytest.fail("wrong window"))
     monkeypatch.setitem(sys.modules, "tkinter", None)
     monkeypatch.setitem(sys.modules, "pystray", None)
     monkeypatch.setattr(app, "_start_server", lambda: (True, "ready"))
     assert app._start_with_splash()
     assert app._run_webview()
-    assert calls == ["create", "start"]
+    assert calls == ["create", "evaluator", "start"]
     import os
     assert os.environ["PYWEBVIEW_GUI"] == "qt" and os.environ["KDE_FULL_SESSION"] == "1"
     app._start_tray()

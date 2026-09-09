@@ -7,6 +7,7 @@ frozen launcher may call run_smoke explicitly; ordinary launch has no test hooks
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import hashlib
 import json
 import math
@@ -19,6 +20,120 @@ import traceback
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
+
+PAGE_DIAGNOSTICS_SCRIPT = r"""(function () {
+    function probe(read) {
+        try { return read(); }
+        catch (error) { return {name: String(error && error.name || 'Error'), error: String(error && error.message || error)}; }
+    }
+    function text(selector) {
+        var node = document.querySelector(selector);
+        return node ? String(node.innerText || node.textContent || '').slice(0, 1000) : null;
+    }
+    function pageCspProbe() {
+        // Native/CDP evaluation may also bypass CSP in an injected script.
+        // This probe is diagnostic only; HTTP policy is checked separately.
+        var key = '__electrochemSmokeCsp_' + Math.random().toString(36).slice(2);
+        var script = document.createElement('script');
+        script.textContent = 'window[' + JSON.stringify(key) + '] = (function () {' +
+            'function attempt(read) { try { return {value:read()}; } catch (error) {' +
+            'return {name:String(error.name), error:String(error.message)}; } }' +
+            'return {eval:attempt(function () { return (0,eval)("1 + 1"); }),' +
+            'construct:attempt(function () { return new Function("return 2")(); })}; })();';
+        try {
+            document.head.appendChild(script);
+            return window[key] || {error:'The temporary page CSP probe did not execute'};
+        } finally {
+            script.remove();
+            delete window[key];
+        }
+    }
+    var csp = pageCspProbe();
+    var desktop = window.ElectrochemDesktop;
+    var modules = ['ElectrochemApi', 'ElectrochemDesktop', 'ElectrochemTheme', 'ElectrochemPalette',
+        'ElectrochemAppearance', 'ElectrochemProjectPage', 'ElectrochemProcessResultPage'];
+    return {
+        url: String(location.href), title: document.title,
+        doctype: document.doctype && document.doctype.name, compat_mode: document.compatMode,
+        ready_state: document.readyState, user_agent: navigator.userAgent,
+        application_started: probe(function () { return typeof applicationStarted === 'undefined' ? null : applicationStarted; }),
+        startup_state: probe(function () { return typeof startupState === 'undefined' ? null : startupState; }),
+        desktop_bootstrap_pending: probe(function () { return typeof desktopBootstrapPending === 'undefined' ? null : desktopBootstrapPending; }),
+        desktop_attribute: document.documentElement.dataset.desktop || null,
+        desktop_requested: probe(function () { return desktop ? desktop.requested() : null; }),
+        desktop_enabled: probe(function () { return desktop ? desktop.isEnabled() : null; }),
+        desktop_ready: probe(function () { return desktop ? desktop.isReady() : null; }),
+        bridge_present: Boolean(window.pywebview),
+        eval_probe: csp.eval || csp, function_probe: csp.construct || csp,
+        csp_probe_context: 'native-injected script; diagnostic only, may inherit native permissions',
+        bridge_methods: window.pywebview && window.pywebview.api ? Object.keys(window.pywebview.api).sort() : [],
+        startup_error: text('#app-startup-error'), desktop_overlay: text('#desktop-startup'),
+        body_text: document.body ? String(document.body.innerText || '').slice(0, 1000) : null,
+        modules: modules.map(function (name) { return {name: name, present: Boolean(window[name])}; }),
+        required_modules: probe(function () {
+            return typeof startupModules === 'undefined' ? null : startupModules.map(function (entry) {
+                return {file: entry.file, name: entry.name || null, ready: startupModuleReady(entry)};
+            });
+        }),
+        scripts: Array.from(document.scripts).map(function (script) {
+            return {src: script.src, type: script.type, async: script.async, defer: script.defer};
+        }),
+        resources: performance.getEntriesByType('resource').filter(function (entry) {
+            return entry.initiatorType === 'script' || entry.initiatorType === 'fetch';
+        }).slice(-100).map(function (entry) {
+            return {url: entry.name, type: entry.initiatorType, duration_ms: Math.round(entry.duration),
+                response_status: typeof entry.responseStatus === 'number' ? entry.responseStatus : null};
+        })
+    };
+})()"""
+
+
+def native_page_diagnostics(window: Any) -> dict[str, Any]:
+    # Bypass pinned Window.evaluate_js's eval wrapper: CSP may forbid that
+    # wrapper, while Cocoa silently converts the resulting NSError to None.
+    from PyObjCTools import AppHelper  # type: ignore[import-not-found]
+    from webview.platforms.cocoa import BrowserView  # type: ignore[import-not-found]
+
+    done, values, failures = threading.Event(), [], []
+
+    def completed(result, error):
+        try:
+            if error is not None:
+                raise RuntimeError(f"WKWebView diagnostic NSError {error.domain()}:{error.code()}: {error.localizedDescription()}")
+            values.append(json.loads(str(result)))
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            done.set()
+
+    def evaluate():
+        try:
+            native = BrowserView.instances[window.uid].webkit
+            native.evaluateJavaScript_completionHandler_("JSON.stringify(" + PAGE_DIAGNOSTICS_SCRIPT + ")", completed)
+        except BaseException as error:
+            failures.append(error)
+            done.set()
+
+    AppHelper.callAfter(evaluate)
+    if not done.wait(15):
+        raise TimeoutError("WKWebView direct page diagnostics did not respond")
+    if failures:
+        raise failures[0]
+    return values[0]
+
+
+def verify_page_policy(url: str) -> dict[str, Any]:
+    origin = urlsplit(url)
+    request = Request(url, headers={"Origin": f"{origin.scheme}://{origin.netloc}"})
+    with urlopen(request, timeout=10) as response:
+        assert response.geturl() == url, "The owned workbench unexpectedly redirected"
+        policy = response.headers.get("Content-Security-Policy", "")
+    directives = [value.strip().split() for value in policy.split(";") if value.strip()]
+    scripts = next((parts[1:] for parts in directives if parts[0] == "script-src"), [])
+    assert "'self'" in scripts and "'unsafe-eval'" not in scripts, policy
+    return {"script_src": scripts, "unsafe_eval_allowed": False}
 
 
 def isolated_environment(output: Path) -> Path:
@@ -99,6 +214,23 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
     data = isolated_environment(output)
     (output / "report.json").write_text(json.dumps({"schema_version": 1, "status": "initializing", "normal_exit": False,
         "data_dir": str(data), "pid": os.getpid()}), encoding="utf-8")
+    # Explicit synthetic smoke only: native imports and Cocoa callbacks can
+    # deadlock before Python's ordinary timeouts or finally blocks can run.
+    with (output / "threads.log").open("w", encoding="utf-8") as thread_log:
+        faulthandler.dump_traceback_later(150, file=thread_log, exit=True)
+        try:
+            return _run_isolated_smoke(output, data, runtime_root)
+        except Exception as error:
+            report_path = output / "report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report.update(status="failed", normal_exit=False, error=str(error), traceback=traceback.format_exc())
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            return 1
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+
+
+def _run_isolated_smoke(output: Path, data: Path, runtime_root: Path | None = None) -> int:
     runtime = runtime_root or Path(__file__).resolve().parents[1]
     if not getattr(sys, "frozen", False):
         sys.path.insert(0, str(runtime / "src"))
@@ -138,8 +270,11 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
         with report_lock:
             errors.append(str(error))
             report["status"] = "failed"
-            report["error"] = str(error)
-            report["traceback"] = traceback.format_exc()
+            if "error" not in report:
+                report["error"] = str(error)
+                report["traceback"] = traceback.format_exc()
+            else:
+                report["secondary_errors"] = errors[1:]
             save()
 
     save()
@@ -164,6 +299,7 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
                 self.ui_url = f"http://127.0.0.1:{self.port}/ui?desktop=1"
                 assert self.manager._server.server_address == ("127.0.0.1", self.port)
                 check("owned_service", {"pid": os.getpid(), "port": self.port})
+                check("owned_page_csp", verify_page_policy(self.ui_url))
             return success, message
 
         def _run_browser_fallback(self):
@@ -189,11 +325,26 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
                 raise failures[0]
             return values[0] if values else None
 
+        def _page_diagnostics(self, stage):
+            # This page belongs to the fresh synthetic runtime. Record no
+            # storage values, bridge token, request headers or script bodies.
+            try:
+                detail = native_page_diagnostics(self.window)
+            except BaseException as error:
+                detail = {"evaluation_error": str(error)}
+            with report_lock:
+                report.setdefault("page_diagnostics", []).append({"stage": stage, "detail": detail})
+                save()
+            return detail
+
         def _on_started(self):
             try:
                 super()._on_started()
+                self._page_diagnostics("after_native_started")
                 wait_for(lambda: self._js("Boolean(typeof applicationStarted !== 'undefined' && applicationStarted && window.ElectrochemDesktop && ElectrochemDesktop.isReady())"),
                          "WKWebView workbench initialization")
+                page_state = self._page_diagnostics("workbench_ready")
+                assert page_state["application_started"] and page_state["desktop_ready"], page_state
                 metadata = self._js("({title:document.title, heading:document.querySelector('.brand-title').textContent, error:Boolean(document.querySelector('#app-startup-error'))})")
                 assert "ElectroChem" in metadata["title"] and "ElectroChem" in metadata["heading"] and not metadata["error"], metadata
                 assert self.window.gui.renderer == "wkwebview"
@@ -279,11 +430,12 @@ def run_smoke(output_dir: Path, runtime_root: Path | None = None) -> int:
                 released.set()
             except BaseException as error:
                 fail(error)
+                self._page_diagnostics("failed")
                 released.set()
                 # This is a failed isolated test, never a claimed normal exit.
                 # Stop its own Cocoa loop to preserve the failure report; the
                 # shell finally block still closes the owned local service.
-                AppHelper.callAfter(BrowserView.app.stop_, None)
+                AppHelper.callAfter(mac_native.stop_event_loop)
             finally:
                 orchestration_done.set()
 

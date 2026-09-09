@@ -52,10 +52,11 @@ jobs:
           python -m venv .venv-macos
           .venv-macos/bin/python -m pip install pip==25.3 wheel
           .venv-macos/bin/python packaging/install_macos_dependencies.py
-          .venv-macos/bin/python -m pip install pytest
+          .venv-macos/bin/python -m pip install pytest playwright==1.58.0
+          .venv-macos/bin/python -m playwright install chromium
           .venv-macos/bin/python -c "import platform; assert platform.machine() == '${{ matrix.arch }}'; import objc, AppKit, Foundation, WebKit, Quartz, webview; assert WebKit.WKWebView"
 
-      - name: Packaging contracts and real source MCP processing
+      - name: Platform contracts, scientific calculations and source MCP processing
         id: contracts
         continue-on-error: true
         run: >-
@@ -63,13 +64,30 @@ jobs:
           tests/test_v6_macos_packaging.py tests/test_v6_mcp_stdio.py
           tests/test_v6_desktop_macos_data.py tests/test_v6_desktop_macos_environment.py
           tests/test_v6_desktop_macos_updates.py tests/test_v6_desktop_macos_native.py
-          tests/test_v6_macos_desktop_bridge.py tests/test_v6_macos_native_smoke.py -q
+          tests/test_v6_macos_desktop_bridge.py tests/test_v6_macos_native_smoke.py
+          tests/test_v6_macos_bridge_csp.py
+          tests/test_v6_processing_cv.py tests/test_v6_lsv_calc.py tests/test_v6_lsv_export.py
+          tests/test_v6_processing_ecsa.py tests/test_v6_processing_eis.py
+          tests/test_v6_eis_advanced_calc.py tests/test_v6_eis_advanced_pipeline.py
+          tests/test_v6_processing_coupled_calc.py -q
 
       - name: Real source Cocoa, JS bridge, synthetic CV and safe Command-Q
         id: source_native
         continue-on-error: true
         timeout-minutes: 5
         run: .venv-macos/bin/python packaging/smoke_macos_desktop.py --output-dir 'dist_macos/${{ matrix.arch }}/source-native-smoke'
+
+      - name: Preserve source native diagnostics before building
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElectroChem-macos-${{ matrix.arch }}-source-diagnostics-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            dist_macos/${{ matrix.arch }}/source-native-smoke/report.json
+            dist_macos/${{ matrix.arch }}/source-native-smoke/threads.log
+            dist_macos/${{ matrix.arch }}/source-native-smoke/data/server.log
 
       - name: Build native app and distributions
         run: .venv-macos/bin/python packaging/build_macos.py --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}'
@@ -128,5 +146,7 @@ jobs:
             dist_macos/${{ matrix.arch }}/verification.evidence/mcp-write-stderr.log
             dist_macos/${{ matrix.arch }}/source-native-smoke/report.json
             dist_macos/${{ matrix.arch }}/source-native-smoke/data/server.log
+            dist_macos/${{ matrix.arch }}/source-native-smoke/threads.log
             dist_macos/${{ matrix.arch }}/frozen-native-smoke/report.json
             dist_macos/${{ matrix.arch }}/frozen-native-smoke/data/server.log
+            dist_macos/${{ matrix.arch }}/frozen-native-smoke/threads.log
