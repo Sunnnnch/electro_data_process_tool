@@ -74,7 +74,7 @@ The desktop client adds a system tray, task-aware exit, window and appearance pe
 
 ### macOS
 
-The macOS client targets **macOS 13+**, with separate native candidates for Apple Silicon (`arm64`) and Intel (`x64`). These candidates await macOS CI validation; this does not mean a Mac download is available in the public Release. Current builds use ad-hoc signing and are not notarized by Apple.
+The macOS client targets **macOS 13+**, with separate native candidates for Apple Silicon (`arm64`) and Intel (`x64`). Download the matching artifacts from a successful [macOS Client workflow](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) run. Candidates use ad-hoc signing and are not notarized by Apple. The deployment target is macOS 13.0; automated acceptance runs on macOS 15, with physical-device acceptance on 13/14 still pending.
 
 Source users need **Python 3.12** matching their chip architecture. Run `bash Start_Mac.command` from the repository; the first launch creates `.venv-macos` and downloads dependencies. The desktop uses the system **WKWebView**, without WebView2. Data defaults to `~/Library/Application Support/ElectroChem`. Reopen background windows from the Dock; ⌘Q goes through the task-aware exit flow. See the [macOS guide (Chinese)](docs/macos_client.md) for candidate installation, diagnostics and MCP paths.
 

@@ -1,6 +1,6 @@
 # macOS 客户端
 
-ElectroChem 的 macOS 桌面客户端面向 **macOS 13 或更新版本**，分别为 **Apple Silicon（arm64）** 和 **Intel（x64）** 构建原生候选包。候选包尚待 macOS CI 验证，最低系统版本是支持策略，不是已完成实机验收的声明；公开 Release 是否提供 Mac 下载，以实际附件为准。当前 Mac 构建采用 **ad-hoc 签名，未经 Apple 公证**。
+ElectroChem 的 macOS 桌面客户端面向 **macOS 13 或更新版本**，分别为 **Apple Silicon（arm64）** 和 **Intel（x64）** 构建原生候选包。构建最低部署版本为 13.0，自动验收运行于 macOS 15，尚未完成 macOS 13/14 实机验收。候选包采用 **ad-hoc 签名，未经 Apple 公证**；公开 Release 是否提供 Mac 下载，以实际附件为准。
 
 ## 候选包与启动
 
@@ -13,7 +13,9 @@ ElectroChem 的 macOS 桌面客户端面向 **macOS 13 或更新版本**，分�
 
 包内包含 Python、计算依赖和原生桥接组件，界面使用系统 **WKWebView**，不需要 Windows 的 WebView2。保留完整 `ElectroChem.app`；DMG 中将它拖入“应用程序”，或解压 ZIP 后移动到该目录，再打开应用。首次打开可能受 macOS 安全检查限制；先核对来源和配套 `.sha256`，不要关闭系统安全检查。
 
-Mac 候选包不会替换现有 Windows 7.0.1 发布资产。构建和验证入口为仓库的 `macOS Client` 工作流；成功构建的工作流产物仍是候选包，不会自动发布到 Releases。
+在 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 中打开成功的运行，下载名称带有对应架构的产物（不要选择 `diagnostics`）。GitHub 产物下载可能需要登录，候选安装包保存 14 天；过期后可重新运行工作流。产物包括 DMG、ZIP、配套 `.sha256`、构建清单和验证报告。
+
+Mac 候选包不会替换现有 Windows 7.0.1 发布资产，也不会自动发布到 Releases。工作流检查原生窗口、Dock 恢复、任务退出保护、科学计算及打包后的 MCP；`verification.json` 记录实际运行系统、架构和检查结果。系统文件选择窗口的人工操作及 Gatekeeper 首次安装仍需人工验收。
 
 核对来源后，如首次打开提示无法验证开发者，可参照 [Apple 的打开应用说明](https://support.apple.com/zh-cn/102445)，在“系统设置 → 隐私与安全性”中查看该应用的“仍要打开”选项；是否允许由本机安全策略决定。
 

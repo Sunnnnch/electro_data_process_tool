@@ -8,7 +8,7 @@
 
 Windows 安装版从“智能电化学数据处理软件”快捷方式打开；源码版完成 `setup.bat` 后双击 `start.bat`，或运行 `python run_v6.py desktop`。需要浏览器模式时使用 `start_browser.bat`。
 
-macOS 桌面面向 macOS 13+，Apple Silicon / Intel 分别使用 arm64 / x64 原生候选包，尚待 macOS CI 验证，不代表公开 Release 已提供 Mac 下载；当前采用 ad-hoc 签名，未经 Apple 公证。保留完整 `ElectroChem.app` 并从“应用程序”打开。源码需本机架构的 Python 3.12，在仓库目录执行 `bash Start_Mac.command`，首次联网准备 `.venv-macos` 与依赖。
+macOS 桌面面向 macOS 13+，Apple Silicon / Intel 分别使用 arm64 / x64 原生候选包。候选包由 GitHub 的 `macOS Client` 工作流提供，自动验收运行于 macOS 15，尚未完成 13/14 实机验收；当前采用 ad-hoc 签名，未经 Apple 公证。保留完整 `ElectroChem.app` 并从“应用程序”打开。源码需本机架构的 Python 3.12，在仓库目录执行 `bash Start_Mac.command`，首次联网准备 `.venv-macos` 与依赖。
 
 桌面窗口自动启动本地计算服务，重复启动会唤起同一数据目录的已有窗口。Windows 程序名为 `ElectroChem.exe`，macOS 为 `ElectroChem.app`，软件名称不附加 V6。标题栏跟随软件外观；Windows 原生窗口按钮随主题切换，macOS 左上角窗口按钮由系统绘制。系统高对比度设置优先，系统任务栏和 Dock 外观由各自系统控制。
 

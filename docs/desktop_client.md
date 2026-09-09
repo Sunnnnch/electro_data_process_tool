@@ -2,7 +2,7 @@
 
 ElectroChem｜智能电化学数据处理软件提供 Windows 桌面窗口，内部使用 WebView2 显示界面，并通过本机回环地址访问计算服务。处理结果仍可保存到用户选定的目录；客户端数据目录保存项目、设置、会话及恢复信息。
 
-本文说明 Windows 客户端。macOS 13+ 的 Apple Silicon / Intel 原生候选包、源码启动与数据位置见 [macOS 客户端说明](macos_client.md)；候选包尚待 macOS CI 验证，不代表已在公开 Release 提供。
+本文说明 Windows 客户端。macOS 13+ 的 Apple Silicon / Intel 原生候选包、验证范围、源码启动与数据位置见 [macOS 客户端说明](macos_client.md)；候选包通过独立的 macOS 工作流提供。
 
 ## 安装与启动
 

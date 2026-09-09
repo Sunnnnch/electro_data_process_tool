@@ -74,7 +74,7 @@ Windows 7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份
 
 ### macOS
 
-macOS 客户端面向 **macOS 13+**，分别构建 Apple Silicon（`arm64`）与 Intel（`x64`）原生候选包。候选包尚待 macOS CI 验证，不代表公开 Release 已提供 Mac 下载；当前构建使用 ad-hoc 签名，未经 Apple 公证。
+macOS 客户端面向 **macOS 13+**，分别构建 Apple Silicon（`arm64`）与 Intel（`x64`）原生候选包。从 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 的成功运行中下载对应产物；候选包使用 ad-hoc 签名，未经 Apple 公证。构建目标为 macOS 13.0，自动验收运行于 macOS 15，尚未完成 13/14 实机验收。
 
 源码运行需要对应芯片架构的 **Python 3.12**。在仓库目录执行 `bash Start_Mac.command`；首次启动会联网创建 `.venv-macos` 并安装依赖。桌面使用系统 **WKWebView**，不需要 WebView2。默认数据目录为 `~/Library/Application Support/ElectroChem`；后台窗口通过 Dock 恢复，⌘Q 经过任务退出保护。安装候选包、环境自检和 MCP 路径见 [macOS 客户端说明](docs/macos_client.md)。
 
