@@ -15,6 +15,8 @@ ElectroChem processes local electrochemical data for batch `LSV`, `CV`, `EIS`, `
 
 Current source version: **7.0.1** · [Release notes and upgrade guidance](docs/release_7.0.1.md) · [Changelog](CHANGELOG.md)
 
+**Downloads:** [Windows 7.0.1](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1) · [macOS 7.0.1 preview (Apple Silicon / Intel)](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1-macos-preview.1)
+
 Windows version 7.0.1 retains existing data locations and internal compatibility identifiers. Back up application data and original/output files, finish tasks, exit the client, and disconnect MCP clients before upgrading. Do not rename data folders merely because their names still contain `v6`. See below for macOS data locations.
 
 [User guide](src/electrochem_v6/ui/static/help_manual.en.md) · [Synthetic CV example](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [Developer API guide](docs/api_guide.en.md)
@@ -74,9 +76,14 @@ The desktop client adds a system tray, task-aware exit, window and appearance pe
 
 ### macOS
 
-The macOS client targets **macOS 13+**, with separate native candidates for Apple Silicon (`arm64`) and Intel (`x64`). Download the matching artifacts from a successful [macOS Client workflow](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) run. Candidates use ad-hoc signing and are not notarized by Apple. The deployment target is macOS 13.0; automated acceptance runs on macOS 15, with physical-device acceptance on 13/14 still pending.
+The macOS client targets **macOS 13+**. Download the native package matching your chip from the [7.0.1 macOS prerelease](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1-macos-preview.1):
 
-Source users need **Python 3.12** matching their chip architecture. Run `bash Start_Mac.command` from the repository; the first launch creates `.venv-macos` and downloads dependencies. The desktop uses the system **WKWebView**, without WebView2. Data defaults to `~/Library/Application Support/ElectroChem`. Reopen background windows from the Dock; ⌘Q goes through the task-aware exit flow. See the [macOS guide (Chinese)](docs/macos_client.md) for candidate installation, diagnostics and MCP paths.
+- [Apple Silicon (arm64) DMG](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-arm64.dmg)
+- [Intel (x64) DMG](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-x64.dmg)
+
+ZIP archives and SHA-256 files are on the same prerelease page. These previews are **ad-hoc signed, without a Developer ID signature or Apple notarization**. The deployment target is macOS 13.0; automated acceptance runs on macOS 15, with manual device acceptance on 13/14 still pending. Future development candidates remain available from successful [macOS Client workflow](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) runs.
+
+Source users need **Python 3.12** matching their chip architecture. Run `bash Start_Mac.command` from the repository; the first launch creates `.venv-macos` and downloads dependencies. The desktop uses the system **WKWebView**, without WebView2. Data defaults to `~/Library/Application Support/ElectroChem`. Reopen background windows from the Dock; ⌘Q goes through the task-aware exit flow. See the [macOS guide (Chinese)](docs/macos_client.md) for preview installation, diagnostics and MCP paths.
 
 ### Process your first file
 

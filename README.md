@@ -15,6 +15,8 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 当前源码版本：**7.0.1** · [本版发布说明与升级注意](docs/release_7.0.1.md) · [更新记录](CHANGELOG.md)
 
+**下载安装：** [Windows 7.0.1](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1) · [macOS 7.0.1 预览版（Apple Silicon / Intel）](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1-macos-preview.1)
+
 Windows 7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份应用数据及原始/输出文件，结束任务、退出客户端并断开 MCP 连接；不要因目录名中保留 `v6` 而手动改名。macOS 的数据位置见下方说明。
 
 [完整使用说明](src/electrochem_v6/ui/static/help_manual.zh.md) · [合成 CV 示例](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [开发者接口指南](docs/api_guide.zh.md)
@@ -74,9 +76,14 @@ Windows 7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份
 
 ### macOS
 
-macOS 客户端面向 **macOS 13+**，分别构建 Apple Silicon（`arm64`）与 Intel（`x64`）原生候选包。从 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 的成功运行中下载对应产物；候选包使用 ad-hoc 签名，未经 Apple 公证。构建目标为 macOS 13.0，自动验收运行于 macOS 15，尚未完成 13/14 实机验收。
+macOS 客户端面向 **macOS 13+**。在 [7.0.1 macOS 预发行版](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1-macos-preview.1) 下载对应芯片的原生安装包：
 
-源码运行需要对应芯片架构的 **Python 3.12**。在仓库目录执行 `bash Start_Mac.command`；首次启动会联网创建 `.venv-macos` 并安装依赖。桌面使用系统 **WKWebView**，不需要 WebView2。默认数据目录为 `~/Library/Application Support/ElectroChem`；后台窗口通过 Dock 恢复，⌘Q 经过任务退出保护。安装候选包、环境自检和 MCP 路径见 [macOS 客户端说明](docs/macos_client.md)。
+- [Apple Silicon（arm64）DMG](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-arm64.dmg)
+- [Intel（x64）DMG](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-x64.dmg)
+
+ZIP 和 SHA-256 校验文件见同一预发行版页面。此预览包仅采用 **ad-hoc 签名，没有 Developer ID 签名，未经 Apple 公证**。构建目标为 macOS 13.0，自动验收运行于 macOS 15，尚未完成 13/14 人工实机验收。后续开发候选包仍可从 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 的成功运行中获取。
+
+源码运行需要对应芯片架构的 **Python 3.12**。在仓库目录执行 `bash Start_Mac.command`；首次启动会联网创建 `.venv-macos` 并安装依赖。桌面使用系统 **WKWebView**，不需要 WebView2。默认数据目录为 `~/Library/Application Support/ElectroChem`；后台窗口通过 Dock 恢复，⌘Q 经过任务退出保护。安装预览包、环境自检和 MCP 路径见 [macOS 客户端说明](docs/macos_client.md)。
 
 ### 第一次处理
 

@@ -1,21 +1,23 @@
 # macOS 客户端
 
-ElectroChem 的 macOS 桌面客户端面向 **macOS 13 或更新版本**，分别为 **Apple Silicon（arm64）** 和 **Intel（x64）** 构建原生候选包。构建最低部署版本为 13.0，自动验收运行于 macOS 15，尚未完成 macOS 13/14 实机验收。候选包采用 **ad-hoc 签名，未经 Apple 公证**；公开 Release 是否提供 Mac 下载，以实际附件为准。
+ElectroChem 的 macOS 桌面客户端面向 **macOS 13 或更新版本**，分别提供 **Apple Silicon（arm64）** 和 **Intel（x64）** 原生预览包。构建最低部署版本为 13.0，自动验收运行于 macOS 15，尚未完成 macOS 13/14 人工实机验收。预览包仅采用 **ad-hoc 签名，没有 Developer ID 签名，未经 Apple 公证**。
 
-## 候选包与启动
+## 预发行版下载与启动
 
-按“关于本机”显示的芯片选择包：
+打开 [7.0.1 macOS 预发行版](https://github.com/Sunnnnch/electro_data_process_tool/releases/tag/v7.0.1-macos-preview.1)，按“关于本机”显示的芯片选择包：
 
-| 电脑 | 候选包文件名 |
+| 电脑 | DMG 下载 |
 | --- | --- |
-| Apple Silicon | `ElectroChem-<版本>-macos-arm64.dmg` 或同名前缀 `.zip` |
-| Intel | `ElectroChem-<版本>-macos-x64.dmg` 或同名前缀 `.zip` |
+| Apple Silicon | [ElectroChem-7.0.1-macos-arm64.dmg](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-arm64.dmg) |
+| Intel | [ElectroChem-7.0.1-macos-x64.dmg](https://github.com/Sunnnnch/electro_data_process_tool/releases/download/v7.0.1-macos-preview.1/ElectroChem-7.0.1-macos-x64.dmg) |
+
+同一预发行版页面还提供 ZIP 和配套 `.sha256` 校验文件。此 Mac 预发行版与 Windows 稳定版 `v7.0.1` 分开，现有 Windows 发布资产保持不变。
 
 包内包含 Python、计算依赖和原生桥接组件，界面使用系统 **WKWebView**，不需要 Windows 的 WebView2。保留完整 `ElectroChem.app`；DMG 中将它拖入“应用程序”，或解压 ZIP 后移动到该目录，再打开应用。首次打开可能受 macOS 安全检查限制；先核对来源和配套 `.sha256`，不要关闭系统安全检查。
 
-在 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 中打开成功的运行，下载名称带有对应架构的产物（不要选择 `diagnostics`）。GitHub 产物下载可能需要登录，候选安装包保存 14 天；过期后可重新运行工作流。产物包括 DMG、ZIP、配套 `.sha256`、构建清单和验证报告。
+需要后续开发候选包时，可在 [macOS Client 工作流](https://github.com/Sunnnnch/electro_data_process_tool/actions/workflows/macos.yml) 中打开成功的运行，下载名称带有对应架构的产物（不要选择 `diagnostics`）。Actions 产物下载可能需要登录，并保存 14 天；这个保留期限不适用于上方 Releases 预发行版附件。工作流产物包括 DMG、ZIP、配套 `.sha256`、构建清单和验证报告。
 
-Mac 候选包不会替换现有 Windows 7.0.1 发布资产，也不会自动发布到 Releases。工作流检查原生窗口、Dock 恢复、任务退出保护、科学计算及打包后的 MCP；`verification.json` 记录实际运行系统、架构和检查结果。系统文件选择窗口的人工操作及 Gatekeeper 首次安装仍需人工验收。
+工作流不会自动发布到 Releases。其检查涵盖原生窗口、Dock 恢复、任务退出保护、科学计算及打包后的 MCP；`verification.json` 记录实际运行系统、架构和检查结果。系统文件选择窗口的人工操作及 Gatekeeper 首次安装仍需人工验收。
 
 核对来源后，如首次打开提示无法验证开发者，可参照 [Apple 的打开应用说明](https://support.apple.com/zh-cn/102445)，在“系统设置 → 隐私与安全性”中查看该应用的“仍要打开”选项；是否允许由本机安全策略决定。
 
@@ -58,4 +60,4 @@ bash Start_Mac.command --environment-check --json
 
 “客户端 → AI 连接（MCP）”生成当前应用与数据目录的完整配置。打包的 stdio 入口为 `/Applications/ElectroChem.app/Contents/MacOS/ElectroChem-MCP`；默认只读，需运行计算或导出时再启用写入权限。使用期间保持桌面运行。详见 [MCP 连接说明](mcp.md)。
 
-“检查更新”仅在点击后查询官方 GitHub Releases，并按本机芯片选择带配套校验文件的 Mac DMG 或 ZIP；没有匹配包时给出明确状态。下载入口打开官方页面，不自动下载、执行或替换应用，也不能据此判断 Apple 公证状态。
+“检查更新”仅在点击后查询官方 GitHub Releases，并按本机芯片选择带配套校验文件的 Mac DMG 或 ZIP；没有匹配包时给出明确状态。当前内置的稳定版更新检查不会推荐预发行版，请通过上方链接下载此 Mac 预览包。下载入口打开官方页面，不自动下载、执行或替换应用，也不能据此判断 Apple 公证状态。
