@@ -4,7 +4,7 @@ name: macOS Client
 on:
   workflow_dispatch:
   push:
-    branches: [main, "codex/**"]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -56,10 +56,25 @@ jobs:
           .venv-macos/bin/python -c "import platform; assert platform.machine() == '${{ matrix.arch }}'; import objc, AppKit, Foundation, WebKit, Quartz, webview; assert WebKit.WKWebView"
 
       - name: Packaging contracts and real source MCP processing
-        run: .venv-macos/bin/python -m pytest tests/test_v6_macos_packaging.py tests/test_v6_mcp_stdio.py -q
+        run: >-
+          .venv-macos/bin/python -m pytest
+          tests/test_v6_macos_packaging.py tests/test_v6_mcp_stdio.py
+          tests/test_v6_desktop_macos_data.py tests/test_v6_desktop_macos_environment.py
+          tests/test_v6_desktop_macos_updates.py tests/test_v6_desktop_macos_native.py
+          tests/test_v6_macos_desktop_bridge.py tests/test_v6_macos_native_smoke.py -q
+
+      - name: Real source Cocoa, JS bridge, synthetic CV and safe Command-Q
+        timeout-minutes: 5
+        run: .venv-macos/bin/python packaging/smoke_macos_desktop.py --output-dir 'dist_macos/${{ matrix.arch }}/source-native-smoke'
 
       - name: Build native app and distributions
         run: .venv-macos/bin/python packaging/build_macos.py --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}'
+
+      - name: Real frozen Cocoa, JS bridge, synthetic CV and safe Command-Q
+        timeout-minutes: 5
+        run: >-
+          'dist_macos/${{ matrix.arch }}/ElectroChem.app/Contents/MacOS/ElectroChem'
+          --desktop-smoke --output 'dist_macos/${{ matrix.arch }}/frozen-native-smoke'
 
       - name: Verify frozen app, private data directory, MCP and synthetic CV
         run: .venv-macos/bin/python packaging/verify_macos.py --app 'dist_macos/${{ matrix.arch }}/ElectroChem.app' --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}/verification.json'
@@ -77,6 +92,8 @@ jobs:
             dist_macos/${{ matrix.arch }}/*.sha256
             dist_macos/${{ matrix.arch }}/*.build.json
             dist_macos/${{ matrix.arch }}/verification.json
+            dist_macos/${{ matrix.arch }}/source-native-smoke/report.json
+            dist_macos/${{ matrix.arch }}/frozen-native-smoke/report.json
 
       - name: Preserve verification reports and isolated runtime logs
         if: always()
@@ -93,3 +110,7 @@ jobs:
             dist_macos/${{ matrix.arch }}/verification.evidence/desktop-stderr.log
             dist_macos/${{ matrix.arch }}/verification.evidence/mcp-read-stderr.log
             dist_macos/${{ matrix.arch }}/verification.evidence/mcp-write-stderr.log
+            dist_macos/${{ matrix.arch }}/source-native-smoke/report.json
+            dist_macos/${{ matrix.arch }}/source-native-smoke/data/server.log
+            dist_macos/${{ matrix.arch }}/frozen-native-smoke/report.json
+            dist_macos/${{ matrix.arch }}/frozen-native-smoke/data/server.log

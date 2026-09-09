@@ -2,9 +2,11 @@
 
 ElectroChem｜智能电化学数据处理软件提供 Windows 桌面窗口，内部使用 WebView2 显示界面，并通过本机回环地址访问计算服务。处理结果仍可保存到用户选定的目录；客户端数据目录保存项目、设置、会话及恢复信息。
 
+本文说明 Windows 客户端。macOS 13+ 的 Apple Silicon / Intel 原生候选包、源码启动与数据位置见 [macOS 客户端说明](macos_client.md)；候选包尚待 macOS CI 验证，不代表已在公开 Release 提供。
+
 ## 安装与启动
 
-本轮 Windows 发布目标为 **Windows 10 22H2（内部版本 19045）及以上的 x64 系统，以及 Windows 11 x64**。客户端需要 **WebView2 Runtime 120 或更新版本**，建议使用最新 Evergreen Runtime；系统的 .NET Framework 4.6.2 或以上组件应正常可用。安装版已包含 Python 和计算依赖，用户无需另装 Python。以上是支持策略与启动检查门槛，不代表每个系统及最低运行库版本都已完成实机验收。ARM、32 位 Windows、macOS 和 Linux 不属于本轮正式客户端支持范围。
+本轮 Windows 发布目标为 **Windows 10 22H2（内部版本 19045）及以上的 x64 系统，以及 Windows 11 x64**。客户端需要 **WebView2 Runtime 120 或更新版本**，建议使用最新 Evergreen Runtime；系统的 .NET Framework 4.6.2 或以上组件应正常可用。安装版已包含 Python 和计算依赖，用户无需另装 Python。以上是支持策略与启动检查门槛，不代表每个系统及最低运行库版本都已完成实机验收。Windows ARM、32 位 Windows 和 Linux 客户端尚未正式支持。
 
 | 下载类型 | 内容与使用条件 |
 | --- | --- |

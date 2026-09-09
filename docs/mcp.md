@@ -4,16 +4,16 @@ ElectroChem 提供本地 stdio MCP 服务，复用正在运行的客户端服务
 
 ## 从桌面客户端连接
 
-1. 打开 `ElectroChem.exe`，进入“客户端 → AI 连接（MCP）”。
+1. Windows 打开 `ElectroChem.exe`，macOS 打开 `ElectroChem.app`，进入“客户端 → AI 连接（MCP）”。macOS 候选包状态见 [macOS 客户端说明](macos_client.md)。
 2. 默认提供查询、结果比较和预检。如需运行计算与生成报告，勾选“允许新建处理任务和导出报告”。
 3. 点击“复制配置”，在 AI 客户端的本地 MCP 设置中添加。已有 `mcpServers` 时，仅合并 `electrochem` 项，不覆盖其他服务。
 4. 重新连接 MCP，确认能看到 ElectroChem 工具。使用期间保持本软件运行，最小化或“后台继续”均可。
 
 配置使用当前程序和数据目录的完整路径，无需猜测桌面端口；每次工具调用会重新发现并验证当前桌面服务。软件退出后无法继续查询或提交任务，重新打开后可再次调用。
 
-打包目录包含窗口客户端 `ElectroChem.exe` 和供 AI 启动的 stdio 程序 `ElectroChem-MCP.exe`。请保留完整目录，不要用 GUI EXE 代替 MCP 程序，也无需手动双击 MCP 程序。
+Windows 打包目录包含窗口客户端 `ElectroChem.exe` 和供 AI 启动的 stdio 程序 `ElectroChem-MCP.exe`。macOS 的对应程序位于 `ElectroChem.app/Contents/MacOS/`，分别名为 `ElectroChem` 和 `ElectroChem-MCP`。请保留完整程序目录或 `.app`，不要用 GUI 程序代替 MCP 程序，也无需手动双击 MCP 程序。
 
-通用配置示例，实际路径以软件内复制的配置为准：
+Windows 配置示例，实际路径以软件内复制的配置为准：
 
 ```json
 {
@@ -27,6 +27,21 @@ ElectroChem 提供本地 stdio MCP 服务，复用正在运行的客户端服务
 ```
 
 移除 `--allow-write` 即为只读模式。修改后需重新启动该 MCP 连接，工具列表才会更新。各 AI 客户端对工具调用的批准方式由它们自己的设置决定。
+
+macOS 只读配置示例（替换 `your-name`，不要在 JSON 中使用 `~` 代替完整路径）：
+
+```json
+{
+  "mcpServers": {
+    "electrochem": {
+      "command": "/Applications/ElectroChem.app/Contents/MacOS/ElectroChem-MCP",
+      "args": ["--data-dir", "/Users/your-name/Library/Application Support/ElectroChem"]
+    }
+  }
+}
+```
+
+需要写入时，在 `args` 中添加 `"--allow-write"`。移动应用或改变数据目录后重新复制配置；MCP 与桌面客户端必须指向同一数据目录。
 
 ## 工具
 
@@ -68,11 +83,17 @@ ElectroChem 提供本地 stdio MCP 服务，复用正在运行的客户端服务
 
 ## 源码与浏览器模式
 
-源码环境安装 `requirements.txt` 后，MCP 配置的 `command` 使用该环境的 Python，`args` 使用 `run_v6.py` 的完整路径和 `mcp` 子命令：
+Windows 源码环境安装 `requirements.txt` 后，MCP 配置的 `command` 使用该环境的 Python，`args` 使用 `run_v6.py` 的完整路径和 `mcp` 子命令：
 
 ```text
 python run_v6.py mcp --data-dir "D:\ElectroChemData"
 python run_v6.py mcp --data-dir "D:\ElectroChemData" --allow-write
+```
+
+macOS 源码先通过 `bash Start_Mac.command` 准备 Python 3.12 环境并启动桌面；配置的 `command` 使用仓库内 `.venv-macos/bin/python` 的完整路径。例如在仓库目录中测试入口：
+
+```bash
+.venv-macos/bin/python run_v6.py mcp --data-dir "$HOME/Library/Application Support/ElectroChem"
 ```
 
 `--data-dir` 指向已打开的桌面客户端的数据目录。浏览器模式已启动 HTTP 服务时，可指定其地址：
@@ -88,7 +109,7 @@ stdio 启动后等待 AI 客户端发送协议消息，没有普通终端提示�
 ## 排查连接
 
 - 没有桌面服务：先打开本软件，核对数据目录，或重新复制软件内配置。
-- 缺少 MCP 程序：使用完整的新版本目录，不能仅复制 GUI EXE。
+- 缺少 MCP 程序：使用完整的新版本目录或 `.app`，不能仅复制 GUI 程序；macOS 的伴随程序还需保留可执行权限。
 - 找不到处理或导出工具：启用对应权限后重新连接 MCP。
 - 预检阻断：核对本机路径、文件类型、仪器列、单位和必填参数。
 - 提交超时或连接中断：先查询任务确认是否已提交，避免盲目重试产生重复计算。

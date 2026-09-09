@@ -25,10 +25,10 @@ EXCLUDES = ["pytest", "playwright", "IPython", "jupyter", "notebook", "tkinter.t
 DATAS = [(str(SRC / "electrochem_v6/ui/static"), "electrochem_v6/ui/static"),
          (str(SRC / "electrochem_v6/desktop/assets"), "electrochem_v6/desktop/assets")]
 HIDDEN = collect_submodules("electrochem_v6") + collect_submodules("xlrd")
-HIDDEN += ["webview.platforms.cocoa", "pystray._darwin", "objc", "AppKit", "Foundation", "WebKit", "Security", "Quartz", "PyObjCTools.AppHelper"]
-a = Analysis([str(ROOT / "packaging/electrochem_macos_launcher.py")], pathex=[str(ROOT), str(SRC)],
+HIDDEN += ["webview.platforms.cocoa", "pystray._darwin", "objc", "AppKit", "Foundation", "WebKit", "Security", "Quartz", "PyObjCTools.AppHelper", "smoke_macos_desktop"]
+a = Analysis([str(ROOT / "packaging/electrochem_macos_launcher.py")], pathex=[str(ROOT), str(SRC), str(ROOT / "packaging")],
              datas=DATAS, binaries=[], hiddenimports=HIDDEN, hookspath=[], hooksconfig={},
-             runtime_hooks=[str(ROOT / "packaging/runtime_data_dir_hook.py")], excludes=EXCLUDES, noarchive=False)
+             runtime_hooks=[str(ROOT / "packaging/runtime_macos_hook.py")], excludes=EXCLUDES, noarchive=False)
 exe = EXE(PYZ(a.pure), a.scripts, [], exclude_binaries=True, name="ElectroChem", console=False,
           debug=False, strip=False, upx=False, argv_emulation=False, target_arch=ARCH, codesign_identity=None)
 m = Analysis([str(ROOT / "packaging/electrochem_mcp_launcher.py")], pathex=[str(ROOT), str(SRC)], binaries=[],

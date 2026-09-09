@@ -15,7 +15,7 @@ ElectroChem processes local electrochemical data for batch `LSV`, `CV`, `EIS`, `
 
 Current source version: **7.0.1** · [Release notes and upgrade guidance](docs/release_7.0.1.md) · [Changelog](CHANGELOG.md)
 
-Version 7.0.1 retains existing data locations and internal compatibility identifiers. Back up application data and original/output files, finish tasks, exit the tray application, and disconnect MCP clients before upgrading. Do not rename data folders merely because their names still contain `v6`.
+Windows version 7.0.1 retains existing data locations and internal compatibility identifiers. Back up application data and original/output files, finish tasks, exit the client, and disconnect MCP clients before upgrading. Do not rename data folders merely because their names still contain `v6`. See below for macOS data locations.
 
 [User guide](src/electrochem_v6/ui/static/help_manual.en.md) · [Synthetic CV example](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [Developer API guide](docs/api_guide.en.md)
 
@@ -59,7 +59,7 @@ Typical use cases:
 
 ### Windows
 
-The current desktop release targets **Windows 10 22H2 / Windows 11 x64**, with **WebView2 Runtime 120+**. Python and computation dependencies are bundled. ARM, 32-bit Windows, macOS and Linux desktops are not formally supported in this release. See the [desktop guide](docs/desktop_client.md) for requirements, environment diagnostics and download options.
+The current Windows desktop release targets **Windows 10 22H2 / Windows 11 x64**, with **WebView2 Runtime 120+**. Python and computation dependencies are bundled. Windows ARM, 32-bit Windows and Linux desktops are not formally supported. See the [Windows desktop guide](docs/desktop_client.md) for requirements, environment diagnostics and download options.
 
 The standard installer requires a suitable WebView2 installation. The `-offline` installer includes Microsoft's signed standalone WebView2 installer; the portable ZIP still needs WebView2 on the target PC. Basic analysis works offline; cloud AI needs network access. **Desktop → Environment check** provides refreshable checks and a copyable diagnostic report without uploading it.
 
@@ -72,6 +72,12 @@ The standard installer requires a suitable WebView2 installation. The `-offline`
 
 The desktop client adds a system tray, task-aware exit, window and appearance persistence, native file selection and saving, and update checks. The title bar and scrollbars follow the selected theme. **Desktop → AI connection (MCP)** provides local configuration for external AI clients to query projects, preflight inputs, run calculations and export reports; see the [MCP guide](docs/mcp.md). See the [desktop guide](docs/desktop_client.md) for installation, portable mode and legacy data.
 
+### macOS
+
+The macOS client targets **macOS 13+**, with separate native candidates for Apple Silicon (`arm64`) and Intel (`x64`). These candidates await macOS CI validation; this does not mean a Mac download is available in the public Release. Current builds use ad-hoc signing and are not notarized by Apple.
+
+Source users need **Python 3.12** matching their chip architecture. Run `bash Start_Mac.command` from the repository; the first launch creates `.venv-macos` and downloads dependencies. The desktop uses the system **WKWebView**, without WebView2. Data defaults to `~/Library/Application Support/ElectroChem`. Reopen background windows from the Dock; ⌘Q goes through the task-aware exit flow. See the [macOS guide (Chinese)](docs/macos_client.md) for candidate installation, diagnostics and MCP paths.
+
 ### Process your first file
 
 1. In Data Processing, click Select Data and choose TXT/CSV files or a folder. Review the listed types and enabled files.
@@ -81,7 +87,7 @@ The desktop client adds a system tray, task-aware exit, window and appearance pe
 
 For a first walkthrough, save the synthetic example above as `CV_demo.csv`. It is demonstration data, not an experiment. Its settings and expected outputs are in the [user guide](src/electrochem_v6/ui/static/help_manual.en.md); the [data generation notes](docs/demo_data.md) give the synthetic formulas and verified outputs.
 
-### Command Line
+### Windows Command Line
 
 ```powershell
 python -m venv .venv
@@ -228,7 +234,7 @@ python run_v6.py --port 8011
 
 ### No virtual environment yet
 
-Run:
+On Windows, run the command below. On macOS, use `bash Start_Mac.command` as described above:
 
 ```powershell
 setup.bat
@@ -236,13 +242,13 @@ setup.bat
 
 ### Where are logs and data stored
 
-Default: `~/.electrochem/v6/`. Override with environment variables (see below).
+Windows installed clients default to `~/.electrochem/v6/`; portable builds use `user_data` beside the executable. The macOS desktop uses `~/Library/Application Support/ElectroChem`. Running the browser/CLI service directly from source still defaults to `~/.electrochem/v6/`. Override the shared root with `ELECTROCHEM_V6_DATA_DIR`; writable data cannot be placed inside a macOS `.app` bundle.
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ELECTROCHEM_V6_DATA_DIR` | Shared data root (other paths follow automatically) | `~/.electrochem/v6` |
+| `ELECTROCHEM_V6_DATA_DIR` | Shared data root (other paths follow automatically) | Depends on launch mode; see above |
 | `ELECTROCHEM_V6_PORT` | HTTP server port | `8010` |
 | `ELECTROCHEM_V6_LOG_FILE` | Log file path | `<data_dir>/logs/v6_server.log` |
 | `ELECTROCHEM_V6_LOG_LEVEL` | Log verbosity: `DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |

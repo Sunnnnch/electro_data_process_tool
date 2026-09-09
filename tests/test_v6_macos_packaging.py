@@ -1,6 +1,7 @@
 """Read real format-conversion outputs and malformed/native deployment metadata."""
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import struct
 import sys
@@ -93,3 +94,35 @@ def test_build_refuses_non_native_platform_without_touching_output(tmp_path, mon
     with pytest.raises(ValueError, match="native macOS"):
         build_macos.build(ROOT, destination, "arm64")
     assert not destination.exists()
+
+
+def test_candidate_mcp_exercise_matches_real_source_api(tmp_path, monkeypatch):
+    from verify_macos import exercise_mcp, isolated_environment
+
+    from electrochem_v6.desktop.mcp_integration import DesktopServiceDiscovery
+    from electrochem_v6.server.http_server import V6ServerManager
+    from electrochem_v6.store.runtime import reset_runtime
+
+    environment = isolated_environment(tmp_path)
+    data = tmp_path / "data"
+    monkeypatch.setenv("ELECTROCHEM_V6_DATA_DIR", str(data))
+    for key in ("PROJECTS", "HISTORY", "CONVERSATION", "TEMPLATE", "QUALITY_REPORT", "LOG", "LLM_CONFIG"):
+        monkeypatch.delenv(f"ELECTROCHEM_V6_{key}_FILE", raising=False)
+    reset_runtime()
+    manager = V6ServerManager(port=0)
+    assert manager.start()[0]
+    discovery = DesktopServiceDiscovery(data, manager.port, manager.session_token)
+    discovery.publish()
+    try:
+        result = asyncio.run(exercise_mcp(Path(sys.executable), data, tmp_path, environment,
+                                         prefix_args=(str(ROOT / "packaging/electrochem_mcp_launcher.py"),)))
+        assert result["read_only_handshake"] == result["synthetic_cv"] == "passed"
+        assert result["record_count"] == 1 and result["data_points"] == 242
+        assert result["charge_mC"] == pytest.approx(40.0)
+    finally:
+        discovery.close()
+        runner = manager._job_manager
+        manager.stop()
+        if runner:
+            runner._executor.shutdown(wait=True)
+        reset_runtime()

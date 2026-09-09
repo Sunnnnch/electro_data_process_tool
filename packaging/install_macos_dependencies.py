@@ -38,7 +38,7 @@ def main() -> None:
         wheels = Path(temporary)
         # pywebview's tiny pure-Python proxy_tools dependency only ships an sdist.
         # Build just that wheel, then require binary wheels for the actual solve.
-        subprocess.run([*pip, "wheel", "--no-deps", "--wheel-dir", str(wheels), "proxy_tools==0.0.9"], check=True, env=environment)
+        subprocess.run([*pip, "wheel", "--no-deps", "--wheel-dir", str(wheels), "proxy_tools==0.1.0"], check=True, env=environment)
         subprocess.run([*pip, "download", "--only-binary=:all:", "--platform", f"macosx_13_0_{platform.machine()}",
                         "--python-version", "3.12", "--implementation", "cp", "--abi", "cp312",
                         "--dest", str(wheels), "--find-links", str(wheels), "-r", str(root / "packaging/requirements-macos.txt")],

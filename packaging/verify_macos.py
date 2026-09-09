@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 import platform
 import plistlib
@@ -114,10 +115,14 @@ async def exercise_mcp(executable: Path, data: Path, scratch: Path, environment:
                     require(output.is_relative_to(scratch.resolve()), "CV output escaped the isolated workspace")
                     files = [path for path in output.rglob("*") if path.is_file()]
                     require(any(path.suffix == ".png" and path.stat().st_size > 100 for path in files), "No real CV plot was generated")
-                    require(record.get("results") and record.get("data_count", 0) > 0, "CV numerical results are missing")
+                    results = record.get("results")
+                    require(isinstance(results, dict) and results.get("data_points") == len(rows), "CV numerical result/input row count mismatch")
+                    require(math.isfinite(float(results.get("charge_mC", float("nan")))) and results["charge_mC"] > 0,
+                            "CV integration did not produce finite positive charge")
                     require(sha256(source) == source_hash, "Processing modified the synthetic input")
                     evidence.update({"write_opt_in": "passed", "synthetic_cv": "passed", "output_files": len(files),
-                                     "record_count": 1, "input_sha256_unchanged": True})
+                                     "record_count": 1, "data_points": results["data_points"], "charge_mC": results["charge_mC"],
+                                     "input_sha256_unchanged": True})
     return evidence
 
 

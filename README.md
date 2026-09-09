@@ -15,7 +15,7 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 当前源码版本：**7.0.1** · [本版发布说明与升级注意](docs/release_7.0.1.md) · [更新记录](CHANGELOG.md)
 
-7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份应用数据及原始/输出文件，结束任务、退出托盘并断开 MCP 连接；不要因目录名中保留 `v6` 而手动改名。
+Windows 7.0.1 沿用既有数据位置和内部兼容标识。升级前请备份应用数据及原始/输出文件，结束任务、退出客户端并断开 MCP 连接；不要因目录名中保留 `v6` 而手动改名。macOS 的数据位置见下方说明。
 
 [完整使用说明](src/electrochem_v6/ui/static/help_manual.zh.md) · [合成 CV 示例](src/electrochem_v6/ui/static/guide-cv-demo.csv) · [开发者接口指南](docs/api_guide.zh.md)
 
@@ -59,7 +59,7 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 ### Windows 双击方式
 
-当前桌面发布目标为 Windows 10 22H2 / Windows 11 **x64**，要求 WebView2 Runtime **120+**。安装版内置 Python 和计算依赖；ARM、32 位 Windows、macOS/Linux 客户端尚未正式支持。完整条件、环境自检和三种下载方式见[客户端说明](docs/desktop_client.md)。
+当前 Windows 桌面发布目标为 Windows 10 22H2 / Windows 11 **x64**，要求 WebView2 Runtime **120+**。安装版内置 Python 和计算依赖；Windows ARM、32 位 Windows 和 Linux 客户端尚未正式支持。完整条件、环境自检和三种下载方式见 [Windows 客户端说明](docs/desktop_client.md)。
 
 标准安装包需要电脑已有合适的 WebView2；文件名带 `-offline` 的离线安装包包含微软运行库；便携 ZIP 需要保留整个解压目录。基础分析可离线使用，云端 AI 需要网络。通过“客户端 → 环境自检”可查看检查结果并复制诊断。
 
@@ -72,6 +72,12 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 客户端支持托盘、任务退出保护、窗口与外观记忆、原生文件选择和另存为、检查更新。标题栏与滚动条随主题切换；“客户端 → AI 连接（MCP）”提供其他 AI 调用项目、预检、处理和报告的配置，见 [MCP 说明](docs/mcp.md)。安装版与便携版的数据位置及旧数据迁移见[客户端说明](docs/desktop_client.md)。
 
+### macOS
+
+macOS 客户端面向 **macOS 13+**，分别构建 Apple Silicon（`arm64`）与 Intel（`x64`）原生候选包。候选包尚待 macOS CI 验证，不代表公开 Release 已提供 Mac 下载；当前构建使用 ad-hoc 签名，未经 Apple 公证。
+
+源码运行需要对应芯片架构的 **Python 3.12**。在仓库目录执行 `bash Start_Mac.command`；首次启动会联网创建 `.venv-macos` 并安装依赖。桌面使用系统 **WKWebView**，不需要 WebView2。默认数据目录为 `~/Library/Application Support/ElectroChem`；后台窗口通过 Dock 恢复，⌘Q 经过任务退出保护。安装候选包、环境自检和 MCP 路径见 [macOS 客户端说明](docs/macos_client.md)。
+
 ### 第一次处理
 
 1. 在“数据处理”点击“选择数据”，选 TXT/CSV 文件或文件夹，核对清单中的类型与勾选项。
@@ -81,7 +87,7 @@ ElectroChem 面向电化学实验数据的本地处理与分析，支持 `LSV`�
 
 首次可下载上面的合成 CV 示例并保存为 `CV_demo.csv`。它仅用于操作演示，参数和预期输出见[使用说明](src/electrochem_v6/ui/static/help_manual.zh.md)，[数据生成说明](docs/demo_data.md)列出合成公式和已验证输出；不能作为真实实验结果。
 
-### 命令行方式
+### Windows 命令行方式
 
 ```powershell
 python -m venv .venv
@@ -222,7 +228,7 @@ python run_v6.py --port 8011
 
 ### 没有虚拟环境
 
-先执行：
+Windows 先执行下方命令；macOS 使用前述 `bash Start_Mac.command`：
 
 ```powershell
 setup.bat
@@ -230,13 +236,13 @@ setup.bat
 
 ### 日志和数据保存在哪里
 
-默认路径为 `~/.electrochem/v6/`，可通过环境变量自定义。
+Windows 安装版默认使用 `~/.electrochem/v6/`，便携版使用程序旁的 `user_data`；macOS 桌面版使用 `~/Library/Application Support/ElectroChem`。直接从源码运行浏览器/命令行服务时仍默认使用 `~/.electrochem/v6/`。可通过 `ELECTROCHEM_V6_DATA_DIR` 统一指定路径；macOS 不允许把可写数据放进 `.app` 内。
 
 ## 环境变量参考
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
-| `ELECTROCHEM_V6_DATA_DIR` | 统一数据根目录（设置后其余路径跟随） | `~/.electrochem/v6` |
+| `ELECTROCHEM_V6_DATA_DIR` | 统一数据根目录（设置后其余路径跟随） | 依启动方式，见上方数据位置 |
 | `ELECTROCHEM_V6_PORT` | HTTP 服务端口 | `8010` |
 | `ELECTROCHEM_V6_LOG_FILE` | 日志文件路径 | `<data_dir>/logs/v6_server.log` |
 | `ELECTROCHEM_V6_LOG_LEVEL` | 日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |
