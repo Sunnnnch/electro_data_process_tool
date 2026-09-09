@@ -81,7 +81,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ElectroChem-macos-${{ matrix.arch }}-source-diagnostics-${{ github.sha }}
+          name: ElectroChem-macos-${{ matrix.arch }}-source-diagnostics-${{ github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 7
           path: |
@@ -116,7 +116,7 @@ jobs:
       - name: Upload successful candidate distributions
         uses: actions/upload-artifact@v4
         with:
-          name: ElectroChem-macos-${{ matrix.arch }}-${{ github.sha }}
+          name: ElectroChem-macos-${{ matrix.arch }}-${{ github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -133,7 +133,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ElectroChem-macos-${{ matrix.arch }}-diagnostics-${{ github.sha }}
+          name: ElectroChem-macos-${{ matrix.arch }}-diagnostics-${{ github.sha }}-attempt-${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 7
           path: |
