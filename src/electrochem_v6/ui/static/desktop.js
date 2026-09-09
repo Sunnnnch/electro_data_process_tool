@@ -7,6 +7,7 @@
     zh: {
       menu: "客户端", local: "本机版", settings: "设置", appearance: "外观设置", ai: "AI 设置", system: "系统与存储", mcp: "AI 连接（MCP）",
       data: "打开数据目录", migrate: "迁移旧数据", updates: "检查更新", tray: "后台继续", exit: "退出软件", close: "关闭",
+      dock: "在 Dock 后台运行",
       import: "选择数据文件", save: "另存为", saved: "已保存", cancelled: "已取消", failed: "操作失败", busy: "正在处理…",
       privacy: "自动记住外观、语言及上次浏览的项目和会话；不会恢复输入文件或实验参数。",
       bridge: "正在连接桌面客户端…", bridgeError: "桌面连接失败，尚未载入工作区。请重试。", retry: "重试连接",
@@ -25,12 +26,14 @@
       diagnostics: "环境自检", diagnosticsHint: "仅检查本机环境，不会上传数据或安装组件。诊断文本可先查看再复制。",
       diagnosticsRefresh: "重新检查", diagnosticsCopy: "复制诊断信息", diagnosticsText: "查看诊断文本", diagnosticsTextLabel: "诊断信息（只读）",
       diagnosticsCopied: "诊断信息已复制。", diagnosticsCopyFailed: "未能自动复制。请选中下方诊断文本，按 Ctrl+C 复制。",
+      diagnosticsCopyFailedMac: "未能自动复制。请选中下方诊断文本，按 ⌘C 复制。",
       diagnosticsLoadFailed: "未能完成环境检查，请重新检查。", diagnosticsInvalid: "客户端返回的诊断信息不完整。",
       diagnosticsPass: "通过", diagnosticsWarn: "需留意", diagnosticsFail: "需处理", diagnosticsRemedy: "处理方法",
     },
     en: {
       menu: "Desktop", local: "Desktop app", settings: "Settings", appearance: "Appearance", ai: "AI settings", system: "System and storage", mcp: "AI connection (MCP)",
       data: "Open data folder", migrate: "Migrate old data", updates: "Check for updates", tray: "Continue in background", exit: "Exit application", close: "Close",
+      dock: "Keep running in Dock",
       import: "Choose data files", save: "Save as", saved: "Saved", cancelled: "Cancelled", failed: "Operation failed", busy: "Working…",
       privacy: "Remembers appearance, language, project and conversation. Input files and experiment parameters are not restored.",
       bridge: "Connecting to the desktop app…", bridgeError: "Desktop connection failed. The workspace has not loaded. Please retry.", retry: "Retry connection",
@@ -49,6 +52,7 @@
       diagnostics: "Environment check", diagnosticsHint: "Checks this computer only. No data is uploaded and no components are installed. Review the diagnostic text before copying it.",
       diagnosticsRefresh: "Check again", diagnosticsCopy: "Copy diagnostics", diagnosticsText: "View diagnostic text", diagnosticsTextLabel: "Diagnostic information (read only)",
       diagnosticsCopied: "Diagnostic information copied.", diagnosticsCopyFailed: "Automatic copying failed. Select the diagnostic text below and press Ctrl+C to copy it.",
+      diagnosticsCopyFailedMac: "Automatic copying failed. Select the diagnostic text below and press ⌘C to copy it.",
       diagnosticsLoadFailed: "The environment check could not finish. Please check again.", diagnosticsInvalid: "The desktop app returned an incomplete diagnostic report.",
       diagnosticsPass: "Passed", diagnosticsWarn: "Note", diagnosticsFail: "Action needed", diagnosticsRemedy: "What to do",
     },
@@ -76,7 +80,13 @@
   const api = () => window.pywebview && window.pywebview.api;
   const requested = () => Boolean(api() || window.__ELECTROCHEM_DESKTOP__ || new URLSearchParams(location.search).get("desktop") === "1");
   const lang = () => document.documentElement.lang.startsWith("en") ? "en" : "zh";
-  const text = (key) => labels[lang()][key] || key;
+  const text = (key) => {
+    if (state.background_target === "dock") {
+      if (key === "tray") key = "dock";
+      if (key === "diagnosticsCopyFailed") key = "diagnosticsCopyFailedMac";
+    }
+    return labels[lang()][key] || key;
+  };
   const locked = () => Boolean(enabled && state.closing && (state.closing.waiting || ["wait", "cancel"].includes(state.closing.mode)));
   const basename = (value) => String(value || "").split(/[\\/]/).pop();
 

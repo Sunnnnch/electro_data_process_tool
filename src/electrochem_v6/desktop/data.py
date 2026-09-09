@@ -17,6 +17,7 @@ import tempfile
 from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from platform import system as _platform_system
 from typing import Any, Iterator, Mapping, MutableMapping
 
 DATA_ENV = "ELECTROCHEM_V6_DATA_DIR"
@@ -34,6 +35,18 @@ class DesktopDataError(ValueError):
     """An actionable storage-selection or migration error."""
 
 
+def macos_app_bundle(path: str | os.PathLike[str]) -> Path | None:
+    """Find an enclosing .app by its path, including when launched from MacOS/."""
+    resolved = Path(path).expanduser().resolve()
+    return next((candidate for candidate in (resolved, *resolved.parents)
+                 if candidate.suffix.lower() == ".app"), None)
+
+
+def _check_macos_data_path(path: Path) -> None:
+    if _platform_system() == "Darwin" and macos_app_bundle(path) is not None:
+        raise DesktopDataError("数据目录不能位于 .app 应用包内部，请选择应用包外的目录。 / Choose a data directory outside the .app bundle.")
+
+
 def resolve_desktop_data_dir(
     runtime_root: str | os.PathLike[str], *, portable: bool | None = None,
     environ: Mapping[str, str] | None = None, home_dir: str | os.PathLike[str] | None = None,
@@ -43,11 +56,20 @@ def resolve_desktop_data_dir(
     explicit = str(environment.get(DATA_ENV) or "").strip()
     if explicit:
         path = str(Path(explicit).expanduser().resolve())
+        _check_macos_data_path(Path(path))
         previous = str(environment.get(RESOLVED_ENV) or "")
         mode = str(environment.get(MODE_ENV) or "")
         retained = bool(previous and Path(previous).expanduser().resolve() == Path(path) and mode in {"user", "portable", "environment"})
         return {"path": path, "mode": mode if retained else "environment"}
     root = Path(runtime_root).expanduser().resolve()
+    if portable is not None and not isinstance(portable, bool):
+        raise DesktopDataError("portable 必须为布尔值或 None")
+    if _platform_system() == "Darwin" and macos_app_bundle(root) is not None:
+        if portable is True:
+            raise DesktopDataError(".app 应用包不支持内部便携数据目录，请设置包外的数据目录。 / Portable data must be outside the .app bundle.")
+        # A downloaded bundle can be read-only, translocated, or signed. Its
+        # markers never opt the application into writes inside the bundle.
+        portable = False
     if portable is None:
         if (root / "portable.marker").exists() and (root / "installed.marker").exists():
             raise DesktopDataError("portable.marker 与 installed.marker 同时存在，请修正客户端模式标记。")
@@ -57,7 +79,9 @@ def resolve_desktop_data_dir(
     if portable:
         return {"path": str(root / "user_data"), "mode": "portable"}
     home = Path(home_dir).expanduser().resolve() if home_dir is not None else Path.home()
-    return {"path": str(home / ".electrochem" / "v6"), "mode": "user"}
+    directory = home / "Library" / "Application Support" / "ElectroChem" if _platform_system() == "Darwin" else home / ".electrochem" / "v6"
+    _check_macos_data_path(directory)
+    return {"path": str(directory), "mode": "user"}
 
 
 def configure_desktop_environment(
@@ -70,12 +94,18 @@ def configure_desktop_environment(
     mode = str(location["mode"])
     if existing and Path(existing).expanduser().resolve() != path:
         path, mode = Path(existing).expanduser().resolve(), "environment"
+    _check_macos_data_path(path)
     if not existing:
         environment[DATA_ENV] = str(path)
     environment[MODE_ENV], environment[RESOLVED_ENV] = mode, str(path)
     # Existing CLI/v5 installations store provider settings one directory above
     # the v6 DB. Do not make them disappear when the desktop pins DATA_DIR.
     old_llm = path.parent / "llm_config.json"
+    if _platform_system() == "Darwin":
+        # The old CLI layout is adjacent to v6, never a generic file in
+        # Application Support shared by unrelated applications.
+        old_home = path.parents[2] if path.parts[-3:] == ("Library", "Application Support", "ElectroChem") else Path.home()
+        old_llm = old_home / ".electrochem" / "llm_config.json"
     previous_llm = environment.get(_LEGACY_LLM_ENV)
     if (previous_llm and (path / "llm_config.json").is_file()
             and environment.get("ELECTROCHEM_V6_LLM_CONFIG_FILE") == previous_llm):
@@ -199,15 +229,20 @@ def legacy_data_candidates(
     root = Path(runtime_root).expanduser().resolve()
     target = Path(target_dir).expanduser().resolve() if target_dir is not None else Path(
         resolve_desktop_data_dir(root, environ=environ, home_dir=home_dir)["path"])
-    legacy = root / "user_data"
-    if legacy == target:
-        return []
-    files, issues = _discover_data(legacy)
-    if not files and not issues:
-        return []
-    return [{"path": str(legacy), "target_dir": str(target), "file_count": len(files),
-             "size_bytes": sum(item["size_bytes"] for item in files), "issues": issues,
-             "requires_source_retention": True, "notice": _RETENTION_NOTICE}]
+    locations = [root / "user_data"]
+    if _platform_system() == "Darwin":
+        home = Path(home_dir).expanduser().resolve() if home_dir is not None else Path.home()
+        locations.append(home / ".electrochem" / "v6")
+    candidates = []
+    for legacy in dict.fromkeys(locations):
+        if legacy == target:
+            continue
+        files, issues = _discover_data(legacy)
+        if files or issues:
+            candidates.append({"path": str(legacy), "target_dir": str(target), "file_count": len(files),
+                               "size_bytes": sum(item["size_bytes"] for item in files), "issues": issues,
+                               "requires_source_retention": True, "notice": _RETENTION_NOTICE})
+    return candidates
 
 
 @contextmanager

@@ -1,8 +1,9 @@
-"""Windows-specific adaptation for the pinned pywebview EdgeChromium backend."""
+"""Platform dispatch and Windows adaptation for the pinned pywebview backends."""
 
 from __future__ import annotations
 
 import ctypes
+import platform
 import re
 import threading
 from typing import Any, Callable
@@ -13,6 +14,9 @@ from .branding import APP_USER_MODEL_ID, icon_path
 
 def configure_process_identity() -> bool:
     """Give source and frozen windows the same stable Windows taskbar identity."""
+    if platform.system() == "Darwin":
+        # The .app bundle owns macOS identity; no Windows runtime is imported.
+        return True
     try:
         set_identity = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
         set_identity.argtypes = [ctypes.c_wchar_p]
@@ -78,6 +82,9 @@ def apply_dwm_appearance(hwnd: int, value: Any, *, system_high_contrast: bool = 
 
 def set_window_appearance(window: Any, value: Any) -> dict[str, Any]:
     appearance = clean_window_appearance(value)
+    if platform.system() == "Darwin":
+        from .mac_native import set_window_appearance as apply_cocoa
+        return apply_cocoa(window, appearance)
     from System import Action  # type: ignore[import-not-found]
     from System.Windows.Forms import SystemInformation  # type: ignore[import-not-found]
     from webview.platforms.winforms import BrowserView  # type: ignore[import-not-found]
@@ -95,6 +102,10 @@ def set_window_appearance(window: Any, value: Any) -> dict[str, Any]:
 
 
 def install_window_branding(window: Any) -> None:
+    if platform.system() == "Darwin":
+        from .mac_native import install_window_branding as install_cocoa
+        install_cocoa(window)
+        return
     from System import Action  # type: ignore[import-not-found]
     from System.Drawing import Icon  # type: ignore[import-not-found]
     from webview.platforms.winforms import BrowserView  # type: ignore[import-not-found]
@@ -135,6 +146,12 @@ def is_workbench_url(url: str, origin: str) -> bool:
 
 
 def monitor_work_areas() -> list[tuple[int, int, int, int]]:
+    if platform.system() == "Darwin":
+        try:
+            from .mac_native import monitor_work_areas as cocoa_work_areas
+            return cocoa_work_areas()
+        except (ImportError, AttributeError, OSError):
+            return []
     try:
         from ctypes import wintypes
 
@@ -226,6 +243,10 @@ def install_windows_hooks(window: Any, origin: str, on_files: Callable, open_lin
 
 
 def activate_window(window: Any) -> None:
+    if platform.system() == "Darwin":
+        from .mac_native import activate_window as activate_cocoa
+        activate_cocoa(window)
+        return
     window.show()
     try:
         from System import Action  # type: ignore[import-not-found]

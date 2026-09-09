@@ -11,6 +11,7 @@ import re
 import time
 from dataclasses import dataclass
 from functools import total_ordering
+from platform import system as _platform_system
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -84,7 +85,24 @@ def _clean_text(value: Any, limit: int) -> str:
     return "".join(char for char in value[:limit] if char in "\n\t" or ord(char) >= 32).strip()
 
 
-def _release_candidate(raw: Any, include_prerelease: bool) -> tuple[_Version, dict[str, Any]] | None:
+def _update_target() -> tuple[str, str]:
+    system = _platform_system()
+    if system == "Darwin":
+        from .environment import _platform_facts
+        return system, _platform_facts()["native_arch"]
+    return system, "x64"
+
+
+def _installer_names(version: str, system: str, architecture: str) -> tuple[str, ...]:
+    if system == "Darwin" and architecture in {"arm64", "x64"}:
+        return tuple(f"ElectroChem-{version}-macos-{architecture}.{extension}" for extension in ("dmg", "zip"))
+    if system == "Windows":
+        return (f"ElectroChem-Setup-{version}.exe", f"ElectroChemV6-Setup-{version}.exe")
+    return ()
+
+
+def _release_candidate(raw: Any, include_prerelease: bool, *, system: str = "Windows",
+                       architecture: str = "x64") -> tuple[_Version, dict[str, Any]] | None:
     if not isinstance(raw, dict) or raw.get("draft") is not False:
         return None
     tag = raw.get("tag_name")
@@ -111,10 +129,8 @@ def _release_candidate(raw: Any, include_prerelease: bool) -> tuple[_Version, di
             names.add(name)
     displayed_version = tag.lstrip("vV")
     # Prefer the current public name while accepting previously published assets.
-    installer = next((name for name in (
-        f"ElectroChem-Setup-{displayed_version}.exe",
-        f"ElectroChemV6-Setup-{displayed_version}.exe",
-    ) if name in names and f"{name}.sha256" in names), None)
+    installer = next((name for name in _installer_names(displayed_version, system, architecture)
+                      if name in names and f"{name}.sha256" in names), None)
     if installer is None:
         return None
     return version, {
@@ -131,7 +147,7 @@ def check_for_updates(current_version: str, *, timeout: float = 5.0, session: An
 
     ``session`` is an injectable HTTP transport for isolated tests. Redirects are
     disabled, response size is bounded, and only the fixed releases page is
-    returned as a navigation target. Metadata cannot verify Authenticode.
+    returned as a navigation target. Metadata cannot verify platform signatures.
     """
     result: dict[str, Any] = {
         "status": "error", "state": "invalid_version", "update_available": False,
@@ -177,12 +193,14 @@ def check_for_updates(current_version: str, *, timeout: float = 5.0, session: An
         if not isinstance(releases, list) or len(releases) > 100:
             raise ValueError("Invalid release list")
         candidates = []
+        system, architecture = _update_target()
         for raw in releases:
-            candidate = _release_candidate(raw, bool(current.prerelease))
+            candidate = _release_candidate(raw, bool(current.prerelease), system=system, architecture=architecture)
             if candidate is not None:
                 candidates.append(candidate)
         if not candidates:
-            result.update(status="success", state="no_release", message="No eligible Windows installer and checksum are published yet.")
+            target = f"macOS {architecture}" if system == "Darwin" else system
+            result.update(status="success", state="no_release", message=f"No eligible {target} installer and checksum are published yet.")
             return result
         latest, information = max(candidates, key=lambda item: item[0])
         available = current < latest

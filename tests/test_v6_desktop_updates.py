@@ -10,6 +10,11 @@ import requests
 from electrochem_v6.desktop import updates
 
 
+@pytest.fixture(autouse=True)
+def windows_update_contract(monkeypatch):
+    monkeypatch.setattr(updates, "_update_target", lambda: ("Windows", "x64"))
+
+
 def release(tag="v6.0.21", *, prerelease=False, draft=False, legacy=False):
     prefix = "ElectroChemV6" if legacy else "ElectroChem"
     installer = f"{prefix}-Setup-{tag.lstrip('vV')}.exe"

@@ -8,7 +8,10 @@ import secrets
 import sys
 import tempfile
 from pathlib import Path
+from platform import system as _platform_system
 from typing import Any
+
+from .data import macos_app_bundle
 
 SERVICE_FILE = "desktop-service.json"
 
@@ -57,9 +60,13 @@ def client_configuration(runtime_root: Path, data_dir: Path, *, allow_write: boo
     data_dir = Path(data_dir).resolve()
     frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
     if frozen:
-        command = runtime_root / "ElectroChem-MCP.exe"
+        if _platform_system() == "Darwin":
+            bundle = macos_app_bundle(runtime_root)
+            command = (bundle / "Contents" / "MacOS" if bundle else runtime_root) / "ElectroChem-MCP"
+        else:
+            command = runtime_root / "ElectroChem-MCP.exe"
         args: list[str] = []
-        available = command.is_file()
+        available = command.is_file() and (_platform_system() != "Darwin" or os.access(command, os.X_OK))
     else:
         command = Path(executable or sys.executable).resolve()
         if command.name.lower() == "pythonw.exe":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict
 
@@ -40,6 +41,8 @@ def user_config_dir() -> Path:
     shared = _shared_data_dir()
     if shared is not None:
         return shared
+    if sys.platform == "darwin" and getattr(sys, "frozen", False):
+        return Path.home() / "Library" / "Application Support" / "ElectroChem"
     return Path.home() / ".electrochem" / "v6"
 
 
@@ -49,8 +52,9 @@ def project_default_dir() -> Path:
         return shared
     # In frozen (packaged) mode, use the exe's directory instead of cwd
     # so that data paths remain stable regardless of launch location.
-    if getattr(__import__('sys'), 'frozen', False):
-        import sys
+    if getattr(sys, 'frozen', False):
+        if sys.platform == "darwin":
+            return user_config_dir()
         return Path(sys.executable).resolve().parent
     return Path.cwd()
 
@@ -59,6 +63,8 @@ def _llm_user_dir() -> Path:
     shared = _shared_data_dir()
     if shared is not None:
         return shared
+    if sys.platform == "darwin" and getattr(sys, "frozen", False):
+        return user_config_dir()
     return Path.home() / ".electrochem"
 
 
@@ -98,10 +104,15 @@ def resolve_data_path(kind: str, *, for_write: bool = False) -> Path:
     """
     env_path = _env_path(kind)
     if env_path is not None:
+        if for_write:
+            _check_macos_write_path(env_path)
         return env_path
 
     user_path = _user_path(kind)
     project_path = _project_path(kind)
+    if for_write:
+        _check_macos_write_path(user_path)
+        _check_macos_write_path(project_path)
 
     if _shared_data_dir() is not None:
         return user_path
@@ -130,7 +141,15 @@ def resolve_data_path(kind: str, *, for_write: bool = False) -> Path:
     return user_path
 
 
+def _check_macos_write_path(path: Path) -> None:
+    if sys.platform == "darwin":
+        resolved = path.expanduser().resolve()
+        if any(parent.suffix.lower() == ".app" for parent in (resolved, *resolved.parents)):
+            raise ValueError("Application data and configuration must be stored outside the .app bundle")
+
+
 def ensure_parent_dir(path: Path) -> Path:
+    _check_macos_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

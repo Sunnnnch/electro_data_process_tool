@@ -16,6 +16,11 @@ import pytest
 from electrochem_v6.desktop import data
 
 
+@pytest.fixture(autouse=True)
+def legacy_windows_storage_contract(monkeypatch):
+    monkeypatch.setattr(data, "_platform_system", lambda: "Windows")
+
+
 def _write(path: Path, value: str = "original") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding="utf-8")

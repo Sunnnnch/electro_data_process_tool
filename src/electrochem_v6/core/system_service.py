@@ -35,6 +35,8 @@ def register_allowed_dir(directory: str) -> None:
 
 
 def select_folder_dialog(initial_dir: Optional[str] = None) -> Dict[str, Any]:
+    if sys.platform == "darwin" and threading.current_thread() is not threading.main_thread():
+        return _mac_browser_picker_unavailable()
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -67,6 +69,8 @@ def select_file_dialog(
     initial_path: Optional[str] = None,
     extensions: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
+    if sys.platform == "darwin" and threading.current_thread() is not threading.main_thread():
+        return _mac_browser_picker_unavailable()
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -120,6 +124,9 @@ def select_files_dialog(
     extensions: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     """Open the native picker for one or more primary data files."""
+
+    if sys.platform == "darwin" and threading.current_thread() is not threading.main_thread():
+        return _mac_browser_picker_unavailable()
 
     try:
         import tkinter as tk
@@ -184,6 +191,12 @@ def select_files_dialog(
                 root.destroy()
         except Exception:
             pass
+
+
+def _mac_browser_picker_unavailable() -> Dict[str, Any]:
+    # Creating Tk's Cocoa application from an HTTP worker aborts the process;
+    # the desktop routes these controls through its existing WKWebView instead.
+    return {"status": "error", "message": "macOS 浏览器模式请使用上传文件或 ZIP；原生文件与目录选择请使用桌面客户端。 / In macOS browser mode, upload files or a ZIP; use the desktop app for native file and folder selection."}
 
 
 def _is_within_allowed_roots(path: str) -> bool:

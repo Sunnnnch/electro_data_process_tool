@@ -62,7 +62,7 @@ def test_unsupported_os_has_actionable_failure(supported, tmp_path, system, majo
     report = diagnostics.collect_environment_report(tmp_path, location)
     assert not report["can_start"] and not report["can_use_embedded_window"]
     assert _checks(report)["os"]["status"] == "fail"
-    assert "19045" in _checks(report)["os"]["remedy"]
+    assert ("13" if system == "Darwin" else "19045") in _checks(report)["os"]["remedy"]
 
 
 @pytest.mark.parametrize(("process", "native", "expected"), [

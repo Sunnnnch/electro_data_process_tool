@@ -97,6 +97,62 @@ class DesktopBridge:
         paths = self._app.window.create_file_dialog(10, allow_multiple=True, file_types=("Data (*.txt;*.csv)",))
         return {"status": "success", "file_paths": self._app.validate_input_files(paths or [])}
 
+    def _select_paths(self, kind: str, initial: str = "", extensions: Any = None) -> dict[str, Any]:
+        """Use the active webview's main-thread native dialog on every desktop OS."""
+        self._check_origin()
+        if self._app.closing_mode:
+            return {"status": "error", "message": "客户端正在等待任务结束，暂不接收新数据。"}
+        from electrochem_v6.core.system_service import register_allowed_dir
+
+        initial_path = Path(str(initial or self._app.data_dir)).expanduser()
+        directory = initial_path if initial_path.is_dir() else initial_path.parent
+        if not directory.is_dir():
+            directory = Path(self._app.data_dir)
+        options: dict[str, Any] = {"directory": str(directory.resolve()), "allow_multiple": kind == "files"}
+        suffixes: set[str] = set()
+        if kind != "folder":
+            supplied = extensions if isinstance(extensions, list) and extensions else [".txt", ".csv"]
+            if len(supplied) > 32:
+                raise ValueError("Too many file extensions")
+            for value in supplied:
+                suffix = "." + str(value or "").strip().lstrip(".").lower()
+                if not re.fullmatch(r"\.[a-z0-9]{1,12}", suffix):
+                    raise ValueError("Unsupported file extension")
+                suffixes.add(suffix)
+            options["file_types"] = ("Data (" + ";".join("*" + value for value in sorted(suffixes)) + ")",)
+        paths = self._app.window.create_file_dialog(20 if kind == "folder" else 10, **options)
+        if not paths:
+            return {"status": "error", "message": "未选择文件夹" if kind == "folder" else "未选择文件"}
+        if isinstance(paths, str):
+            paths = [paths]
+        if not isinstance(paths, (tuple, list)) or len(paths) > 1000 or (kind != "files" and len(paths) != 1):
+            raise ValueError("Unexpected native selection")
+        selected = []
+        for value in paths:
+            path = Path(str(value)).resolve()
+            valid = path.is_dir() if kind == "folder" else path.is_file() and path.suffix.lower() in suffixes
+            if not valid:
+                raise ValueError("The selected path is unavailable or its file type is unsupported")
+            selected.append(str(path))
+        selected = list(dict.fromkeys(selected))
+        for path_value in selected:
+            path = Path(path_value)
+            register_allowed_dir(str(path if kind == "folder" else path.parent))
+        if kind == "folder":
+            return {"status": "success", "folder_path": selected[0]}
+        if kind == "file":
+            return {"status": "success", "file_path": selected[0]}
+        return {"status": "success", "file_paths": selected, "count": len(selected)}
+
+    def select_folder(self, initial_dir: str = "") -> dict[str, Any]:
+        return self._select_paths("folder", initial_dir)
+
+    def select_file(self, initial_path: str = "", extensions: Any = None) -> dict[str, Any]:
+        return self._select_paths("file", initial_path, extensions)
+
+    def select_files(self, initial_path: str = "", extensions: Any = None) -> dict[str, Any]:
+        return self._select_paths("files", initial_path, extensions)
+
     def _save(self, contents: bytes, filename: str) -> dict[str, Any]:
         name = export_filename(filename)
         if len(contents) > MAX_EXPORT_BYTES:
@@ -151,8 +207,10 @@ class DesktopBridge:
 
     def open_data_dir(self) -> dict[str, Any]:
         self._check_origin()
-        os.startfile(str(self._app.data_dir))  # type: ignore[attr-defined]
-        return {"status": "success"}
+        from electrochem_v6.core.system_service import open_path_target, register_allowed_dir
+
+        register_allowed_dir(str(self._app.data_dir))
+        return open_path_target(str(self._app.data_dir))
 
     def hide_to_tray(self) -> dict[str, Any]:
         self._check_origin()

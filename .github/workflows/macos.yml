@@ -1,0 +1,95 @@
+name: macOS Client
+
+# Build reviewable native candidates only. No tag, release, credential or notarization mutation.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-client-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            python-arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+            python-arch: x64
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+      PYTHONUTF8: "1"
+      MPLBACKEND: Agg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup native Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python-arch }}
+
+      - name: Create isolated build environment
+        shell: bash
+        run: |
+          python -m venv .venv-macos
+          .venv-macos/bin/python -m pip install pip==25.3 wheel
+          .venv-macos/bin/python packaging/install_macos_dependencies.py
+          .venv-macos/bin/python -m pip install pytest
+          .venv-macos/bin/python -c "import platform; assert platform.machine() == '${{ matrix.arch }}'; import objc, AppKit, Foundation, WebKit, Quartz, webview; assert WebKit.WKWebView"
+
+      - name: Packaging contracts and real source MCP processing
+        run: .venv-macos/bin/python -m pytest tests/test_v6_macos_packaging.py tests/test_v6_mcp_stdio.py -q
+
+      - name: Build native app and distributions
+        run: .venv-macos/bin/python packaging/build_macos.py --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}'
+
+      - name: Verify frozen app, private data directory, MCP and synthetic CV
+        run: .venv-macos/bin/python packaging/verify_macos.py --app 'dist_macos/${{ matrix.arch }}/ElectroChem.app' --arch '${{ matrix.arch }}' --output 'dist_macos/${{ matrix.arch }}/verification.json'
+
+      - name: Upload successful candidate distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElectroChem-macos-${{ matrix.arch }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            dist_macos/${{ matrix.arch }}/*.zip
+            dist_macos/${{ matrix.arch }}/*.dmg
+            dist_macos/${{ matrix.arch }}/*.sha256
+            dist_macos/${{ matrix.arch }}/*.build.json
+            dist_macos/${{ matrix.arch }}/verification.json
+
+      - name: Preserve verification reports and isolated runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElectroChem-macos-${{ matrix.arch }}-diagnostics-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            dist_macos/${{ matrix.arch }}/*.build.json
+            dist_macos/${{ matrix.arch }}/verification.json
+            dist_macos/${{ matrix.arch }}/verification.evidence/environment.json
+            dist_macos/${{ matrix.arch }}/verification.evidence/desktop-stdout.log
+            dist_macos/${{ matrix.arch }}/verification.evidence/desktop-stderr.log
+            dist_macos/${{ matrix.arch }}/verification.evidence/mcp-read-stderr.log
+            dist_macos/${{ matrix.arch }}/verification.evidence/mcp-write-stderr.log

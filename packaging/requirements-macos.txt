@@ -1,0 +1,7 @@
+# Separate native macOS build; keep the published Windows pins unchanged.
+-r requirements-pack.txt
+pyobjc-core==10.3.2; sys_platform == "darwin"
+pyobjc-framework-Cocoa==10.3.2; sys_platform == "darwin"
+pyobjc-framework-WebKit==10.3.2; sys_platform == "darwin"
+pyobjc-framework-Security==10.3.2; sys_platform == "darwin"
+pyobjc-framework-Quartz==10.3.2; sys_platform == "darwin"

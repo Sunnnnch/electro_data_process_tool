@@ -34,7 +34,8 @@ def test_discovery_atomic_replacement_does_not_remove_new_owner(tmp_path):
     assert _ignored(Path(".desktop-service-crashed.tmp"))
 
 
-def test_client_config_uses_console_companion_and_explicit_data_dir(tmp_path):
+def test_client_config_uses_console_companion_and_explicit_data_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("electrochem_v6.desktop.mcp_integration._platform_system", lambda: "Windows")
     root, data = tmp_path / "程序 with spaces", tmp_path / "数据"
     root.mkdir()
     companion = root / "ElectroChem-MCP.exe"

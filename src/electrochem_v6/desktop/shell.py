@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import threading
 import time
 import webbrowser
@@ -83,6 +84,7 @@ class DesktopShellApp:
         self._normal_window = fit_window(self.state.get("window"), monitor_work_areas())
         self._maximized = bool(self._normal_window["maximized"])
         self._native_ready = False
+        self._mac_controller: Any = None
         self._fallback_root: Any = None
         default_appearance = {"dark": False, "caption_color": "#EDF2F7", "text_color": "#102C3C", "high_contrast": False}
         try:
@@ -105,6 +107,11 @@ class DesktopShellApp:
             return 0
         finally:
             self._closed.set()
+            if self._mac_controller:
+                try:
+                    self._mac_controller.close()
+                except Exception:
+                    _logger.warning("Could not release native macOS hooks", exc_info=True)
             if self._tray:
                 self._tray.stop()
             try:
@@ -149,6 +156,20 @@ class DesktopShellApp:
         return False, last_error
 
     def _start_with_splash(self) -> bool:
+        if platform.system() == "Darwin":
+            # Tk and Cocoa cannot both own the macOS application event loop.
+            # Bind the short-lived local service before the first Cocoa window.
+            try:
+                ok, _message = self._start_server()
+            except Exception as exc:
+                _logger.exception("Desktop startup failed")
+                report = self.environment_report or collect_environment_report(self.runtime_root, self.location)
+                show_environment_report(with_startup_failure(report, "service", exc))
+                return False
+            if not ok:
+                report = self.environment_report or collect_environment_report(self.runtime_root, self.location)
+                show_environment_report(with_startup_failure(report, "service", RuntimeError()))
+            return ok
         import tkinter as tk
         from tkinter import ttk
         splash = tk.Tk()
@@ -186,11 +207,16 @@ class DesktopShellApp:
         return ok
 
     def _run_webview(self) -> bool:
+        mac = platform.system() == "Darwin"
         if self.environment_report and not self.environment_report["can_use_embedded_window"]:
-            self.webview_error = "WebView2 或 .NET Framework 未满足桌面窗口要求。 / WebView2 or .NET Framework does not meet desktop window requirements."
+            self.webview_error = ("macOS WKWebView 组件未满足桌面窗口要求。 / macOS WKWebView requirements are not met." if mac else
+                "WebView2 或 .NET Framework 未满足桌面窗口要求。 / WebView2 or .NET Framework does not meet desktop window requirements.")
             return False
         try:
             import webview  # type: ignore[import-not-found]
+            if mac:
+                from .mac_native import prepare_cocoa
+                self._mac_controller = prepare_cocoa(self.ui_url, self.request_exit, self._activate)
             rectangle = self._normal_window
             self.window = webview.create_window(
                 APP_TITLE, self.ui_url, js_api=DesktopBridge(self),
@@ -209,8 +235,19 @@ class DesktopShellApp:
             self.window.events.shown += self._on_shown
             storage = self.data_dir / "webview"
             storage.mkdir(parents=True, exist_ok=True)
-            webview.start(self._on_started, gui="edgechromium", debug=False,
-                          private_mode=False, storage_path=str(storage))
+            if mac:
+                # 4.4.1 selects Cocoa on Darwin by default. An unrelated Qt/KDE
+                # preference must not switch out the prepared Cocoa delegates.
+                previous = {key: os.environ.pop(key, None) for key in ("PYWEBVIEW_GUI", "KDE_FULL_SESSION")}
+                try:
+                    webview.start(self._on_started, debug=False, private_mode=False, storage_path=str(storage))
+                finally:
+                    for key, value in previous.items():
+                        if value is not None:
+                            os.environ[key] = value
+            else:
+                webview.start(self._on_started, gui="edgechromium", debug=False,
+                              private_mode=False, storage_path=str(storage))
             return True
         except Exception as exc:
             self.webview_error = str(exc)
@@ -222,8 +259,13 @@ class DesktopShellApp:
         if not self.window.events.loaded.wait(30):
             return
         try:
-            install_windows_hooks(self.window, self.ui_url, self._receive_files, self.open_link)
-            self._native_ready = True
+            if platform.system() == "Darwin":
+                # Navigation is guarded before window creation. Cocoa file
+                # selection uses the existing bridge and native dialogs.
+                self._native_ready = False
+            else:
+                hooks = install_windows_hooks(self.window, self.ui_url, self._receive_files, self.open_link)
+                self._native_ready = bool(hooks.get("file_drop"))
         except Exception:
             _logger.exception("Native window integration could not initialize")
         self._on_shown()
@@ -258,6 +300,12 @@ class DesktopShellApp:
             self._emit("electrochem:desktop-state", self.get_state())
 
     def _start_tray(self) -> None:
+        if platform.system() == "Darwin":
+            # Dock activation and its Open/Quit menu share Cocoa's main loop.
+            # Never start pystray's second NSApplication loop on a worker.
+            if self._mac_controller is not None:
+                self._tray_ready.set()
+            return
         try:
             import pystray  # type: ignore[import-not-found]
             from PIL import Image
@@ -298,6 +346,8 @@ class DesktopShellApp:
                 self._want_focus = False
             except Exception:
                 _logger.debug("Window activation deferred until ready", exc_info=True)
+        elif platform.system() == "Darwin" and self._fallback_root:
+            self._fallback_root.activate()
 
     def hide_to_tray(self) -> dict[str, Any]:
         if not self._tray_ready.is_set():
@@ -327,20 +377,23 @@ class DesktopShellApp:
     def get_state(self) -> dict[str, Any]:
         return {"status": "success", "version": APP_VERSION, "data_dir": str(self.data_dir),
                 "data_mode": self.location["mode"], "preferences": self.state.preferences(),
+                "background_target": "dock" if platform.system() == "Darwin" else "tray",
                 "tray_available": self._tray_ready.is_set(), "native_file_drop": self._native_ready,
                 "migration_notice": self.migration_notice, "closing": self._closing_state()}
 
     def _on_closing(self) -> bool:
         if self._allow_close:
             return True
-        # WinForms waits for this callback; JavaScript must run after it returns.
+        # Native delegates wait for this callback; JavaScript runs afterwards.
         threading.Thread(target=self.request_exit, daemon=True).start()
         return False
 
     def request_exit(self) -> None:
         with self._close_lock:
             # Capture the last UI edit even if its normal debounce has not fired.
-            if self.window:
+            loaded = getattr(getattr(self.window, "events", None), "loaded", None)
+            page_ready = loaded is None or loaded.is_set()
+            if self.window and page_ready:
                 try:
                     snapshot = self.window.evaluate_js("window.ElectrochemDesktop && ElectrochemDesktop.isReady() ? JSON.stringify(ElectrochemDesktop.getPreferencesSnapshot()) : null")
                     if isinstance(snapshot, str):
@@ -352,6 +405,9 @@ class DesktopShellApp:
                 self._emit("electrochem:desktop-state", self.get_state())
             elif not state["active_count"]:
                 self.resolve_close("wait")
+            elif platform.system() == "Darwin" and (not self.window or not page_ready):
+                from .mac_native import close_choice
+                self.resolve_close(close_choice(APP_TITLE))
             else:
                 self._emit("electrochem:desktop-close", state)
 
@@ -464,6 +520,10 @@ class DesktopShellApp:
         return {"status": "success", "message": "已记录，退出并重新打开客户端后会展示迁移确认。"}
 
     def _run_browser_fallback(self) -> None:
+        if platform.system() == "Darwin":
+            from .mac_native import run_browser_fallback
+            run_browser_fallback(self)
+            return
         import tkinter as tk
         from tkinter import messagebox, ttk
         root = tk.Tk()
@@ -498,6 +558,10 @@ class DesktopShellApp:
 
     @staticmethod
     def _show_error(message: str) -> None:
+        if platform.system() == "Darwin":
+            from .mac_native import show_message
+            show_message(APP_TITLE, message, warning=True)
+            return
         import tkinter as tk
         from tkinter import messagebox
         root = tk.Tk()
@@ -515,29 +579,49 @@ def _review_first_start_migration(runtime_root: Path, location: dict[str, str]) 
     candidates = legacy_data_candidates(runtime_root, target_dir=location["path"])
     if not candidates:
         return ""
-    import tkinter as tk
-    from tkinter import messagebox
-    root = tk.Tk()
-    root.withdraw()
-    _set_tk_icon(root)
+    if platform.system() == "Darwin":
+        from .mac_native import show_message
+
+        def ask(message: str) -> bool:
+            return show_message(APP_TITLE, message, ("取消 / Cancel", "继续 / Continue"), warning=True) == 1
+
+        def warn(message: str) -> None:
+            show_message(APP_TITLE, message, warning=True)
+
+        def cleanup() -> None:
+            pass
+    else:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        _set_tk_icon(root)
+
+        def ask(message: str) -> bool:
+            return messagebox.askyesno(APP_TITLE, message, parent=root)
+
+        def warn(message: str) -> None:
+            messagebox.showwarning(APP_TITLE, message, parent=root)
+
+        cleanup = root.destroy
     try:
         candidate = candidates[0]
         plan = inspect_data_migration(candidate["path"], location["path"])
         text = f"发现旧版客户端数据：\n{candidate['path']}\n\n目标：\n{location['path']}\n\n共 {plan['file_count']} 个文件。复制后历史文件仍可能引用旧目录，请保留原目录。\n\nFound previous desktop data. Keep the old folder after copying."
         if plan["requires_source_confirmation"]:
-            if not messagebox.askyesno(APP_TITLE, text + "\n\n请确认旧程序已完全关闭。 / Is the previous application fully closed?", parent=root):
+            if not ask(text + "\n\n请确认旧程序已完全关闭。 / Is the previous application fully closed?"):
                 return "未迁移旧数据；原目录保持不变。"
             plan = inspect_data_migration(candidate["path"], location["path"], confirm_source_stopped=True)
         if not plan["can_migrate"]:
-            messagebox.showwarning(APP_TITLE, text + "\n\n" + "；".join(plan["issues"]), parent=root)
+            warn(text + "\n\n" + "；".join(plan["issues"]))
             return "旧数据未复制；请检查原目录及进程状态。"
-        if not messagebox.askyesno(APP_TITLE, text + "\n\n现在复制到新工作区？ / Copy now?", parent=root):
+        if not ask(text + "\n\n现在复制到新工作区？ / Copy now?"):
             return "未迁移旧数据；原目录保持不变。"
         result = migrate_desktop_data(candidate["path"], location["path"], expected_plan_id=plan["plan_id"], confirm_source_stopped=True)
         configure_desktop_environment(location)
         return f"已复制 {result['file_count']} 个旧版数据文件。历史仍可能引用旧目录，请保留。"
     finally:
-        root.destroy()
+        cleanup()
 
 
 def run_desktop(runtime_root: Path) -> int:

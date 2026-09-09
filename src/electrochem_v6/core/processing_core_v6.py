@@ -180,13 +180,19 @@ def get_logger() -> logging.Logger:
 def setup_chinese_font():
     """设置matplotlib的中文字体支持"""
     try:
-        # Windows系统常见中文字体
+        # Prefer installed CJK fonts before falling back to a Latin-only font.
         chinese_fonts = [
             'Microsoft YaHei',  # 微软雅黑
             'SimHei',  # 黑体
             'SimSun',  # 宋体
             'KaiTi',  # 楷体
             'FangSong',  # 仿宋
+            'PingFang SC',
+            'Heiti SC',
+            'Songti SC',
+            'Arial Unicode MS',
+            'Noto Sans CJK SC',
+            'Noto Sans SC',
             'DejaVu Sans',  # 备选字体
         ]
 
@@ -261,6 +267,9 @@ def _resolve_plot_font(preferred_font: Any, fallback: str = CHINESE_FONT, text: 
             fallback_name,
             "Microsoft YaHei",
             "SimHei",
+            "PingFang SC",
+            "Heiti SC",
+            "Songti SC",
             "Noto Sans SC",
             "Noto Sans CJK SC",
             "WenQuanYi Zen Hei",
